@@ -133,7 +133,7 @@ def git_commit_all(message: str) -> dict:
     d = ensure_repo()
     _git(["add", "-A"], d)
     rc, out = _git(["commit", "-qm", message], d, timeout=40)
-    hub.emit("git", f"commit: {message}", rc=rc, out=out[:500])
+    hub.emit("git", f"Commit: {message}", rc=rc, out=out[:500])
     return {"rc": rc, "out": out}
 
 
@@ -181,7 +181,7 @@ def run_tests(command: str | None = None, task_id: str = "", timeout: int = 600)
     cmd = command or detect_test_command()
     d = project_dir()
     if not cmd:
-        hub.emit("test", "no test command detected, skipped", task=task_id)
+        hub.emit("test", "Perintah tes tidak terdeteksi, tes dilewati", task=task_id)
         return {"ok": None, "skipped": True, "command": ""}
     # A planner (or the user) can hand us a bare `python -m pytest`, which hits
     # the PEP-668 system interpreter and fails before the tests ever run.
@@ -191,7 +191,7 @@ def run_tests(command: str | None = None, task_id: str = "", timeout: int = 600)
             if cmd.startswith(bare):
                 cmd = venv_py + " " + cmd[len(bare):]
                 break
-    hub.emit("test", f"running: {cmd}", task=task_id, command=cmd, phase="start")
+    hub.emit("test", f"Menjalankan: {cmd}", task=task_id, command=cmd, phase="start")
     t0 = time.time()
     try:
         p = subprocess.run(
@@ -208,7 +208,7 @@ def run_tests(command: str | None = None, task_id: str = "", timeout: int = 600)
         dur = round(time.time() - t0, 2)
         hub.emit(
             "test",
-            f"{'PASS' if ok else 'FAIL'} ({dur}s): {cmd}",
+            f"{'LULUS' if ok else 'TIDAK LULUS'} ({dur}s): {cmd}",
             task=task_id,
             command=cmd,
             rc=p.returncode,
@@ -219,5 +219,5 @@ def run_tests(command: str | None = None, task_id: str = "", timeout: int = 600)
         )
         return {"ok": ok, "command": cmd, "rc": p.returncode, "output": out, "duration": dur}
     except subprocess.TimeoutExpired:
-        hub.emit("test", f"timeout after {timeout}s: {cmd}", task=task_id, ok=False)
+        hub.emit("test", f"Melebihi batas waktu {timeout}s: {cmd}", task=task_id, ok=False)
         return {"ok": False, "command": cmd, "output": "timeout", "rc": 124}

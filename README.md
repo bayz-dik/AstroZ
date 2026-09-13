@@ -1,29 +1,27 @@
+<img src="assets/astroz-banner.svg" alt="AstroZ: satu chat di depan, tim pekerja di belakang" width="100%">
+
 # AstroZ
 
-Satu Web UI (mobile-first) yang mengendalikan Hermes sebagai orchestrator plus
-worker pool ([CC], Codex, OpenCode, OMP) lewat 9Router sebagai gateway LLM
-tunggal. Dijalankan dari HP: Android, Termux, Ubuntu (proot), lalu buka UI-nya.
+Satu chat untuk mengerjakan tugas koding, dengan tim pekerja di belakangnya.
 
-```
-Android -> Termux -> Ubuntu -> Web UI (FastAPI) -> Hermes orchestrator
-                                      |- ClaudeAdapter  -+
-                                      |- CodexAdapter    |  worker pool
-                                      |- OpenCodeAdapter |
-                                      +- OMPAdapter     -+
-                                      -> SSE sanitiser (:20129) -> 9Router (:20128) -> model LLM
-```
+Kamu menulis seperti mengobrol biasa. AstroZ meneruskan pesan itu ke sebuah tim:
+satu perencana menyusun langkah, empat CLI pekerja (Claude Code, Codex, OpenCode,
+OMP) mengerjakannya lewat 9Router sebagai gerbang model tunggal, lalu satu
+penilai memeriksa hasilnya sebelum jawaban dikirim balik ke chat.
 
-Repo: https://github.com/bayz-dik/AstroZ
+Jawabanmu muncul sebagai balasan chat. Proses kerjanya tidak dicampur ke dalam
+percakapan: rencana, keluaran tiap pekerja, hasil tes, dan penilaian duduk di
+panel terpisah di sebelahnya.
 
 ## Jalankan
 
 ```bash
-/root/AstroZ/run.sh            # 9Router + SSE sanitiser + UI :8799, buka browser
+/root/AstroZ/run.sh            # 9Router + penyaring SSE + UI di :8799
 /root/AstroZ/run.sh 8799 --foreground
 ```
 
-Buka dari HP: `http://<ip-lan>:8799/` (run.sh mencetak URL-nya, dan
-`termux-open-url` dipakai otomatis kalau tersedia).
+`run.sh` mencetak dua alamat: satu untuk dibuka dari HP (`http://<ip-lan>:8799/`),
+satu untuk dari mesin sendiri.
 
 Supaya tidak mati sendiri:
 
@@ -31,183 +29,186 @@ Supaya tidak mati sendiri:
 cd /root/AstroZ && /usr/local/lib/hermes-agent/venv/bin/python watchdog.py --loop --interval 30
 ```
 
-Watchdog memeriksa port dengan TCP connect sungguhan, bukan `ss` (di proot
-container ini `ss` tidak melaporkan socket yang listening, jadi pengecekan
-berbasis `ss` akan menganggap semua layanan mati).
+Watchdog memeriksa port dengan koneksi TCP sungguhan, bukan `ss` (di container
+proot ini `ss` tidak melaporkan socket yang listening, jadi pemeriksaan berbasis
+`ss` akan menganggap semua layanan mati).
 
-## Yang bisa dilakukan dari UI
+## Tiga bagian layar
 
-Lima tab, diurutkan sesuai pemakaian harian:
-
-| Tab | Isi |
+| Bagian | Isi |
 |---|---|
-| Beranda | sisa setup (3 langkah), kirim tugas (workflow otomatis/kecil/sedang/besar), tugas terakhir, aktivitas langsung |
-| Tugas | daftar tugas + detail: rencana, catatan penilaian, jejak langkah per worker |
-| Model | keadaan gateway, pilih satu model untuk semua, daftar model (cari + filter yang sudah teruji hidup), API key, perkakas worker |
-| Perkakas | tiga segmen: Berkas (tree + isi file), Perubahan (status git, diff, simpan commit), Tes (jalankan test) |
-| Log | catatan kejadian, disaring per jenis, riwayat dimuat ulang setiap saringan berubah |
+| Chat | pesanmu dan jawaban AstroZ, satu balon per pesan. Selalu menempel ke pesan terbaru, jadi jawaban tidak pernah perlu dicari dengan menggulir |
+| Proses | satu baris per pekerjaan; ketuk untuk melihat rencana, keluaran tiap pekerja, hasil tes, dan penilaian. Di layar lebar panel ini jadi kolom tetap di kanan, di HP jadi panel geser |
+| Alat | model dan pekerja, berkas proyek, git, tes, dan catatan kejadian |
 
-Alur model: **tambah model di 9Router -> Muat daftar model -> pilih -> Terapkan
-ke semua**. Satu klik menulis model yang sama ke Hermes dan keempat worker.
+Di layar lebar ketiganya tampil bersamaan: daftar percakapan di kiri, chat di
+tengah, alat di kanan. Di HP chat memakai seluruh layar dan dua panel lain
+terbuka sebagai geseran, supaya percakapan tidak pernah terpotong.
 
-## API (dipakai UI dan plugin Hermes)
+## Satu model untuk lima tempat
 
-```
-GET  /api/state                     ringkasan gateway/worker/task/project
-GET  /api/events?replay=N           SSE feed (realtime)
-GET  /api/events/recent?limit=&kind=
-POST /api/gateway/sync?apply=0|1    baca model dari 9Router (+ apply)
-POST /api/gateway/probe             tes model mana yang benar-benar menjawab
-GET  /api/gateway/models?q=&limit=
-POST /api/gateway/model             {model, apply_workers}
-POST /api/gateway/key               {api_key}
-POST /api/apply                     tulis model sekarang ke semua worker + Hermes
-GET  /api/workers | POST /api/workers/{key} | POST /api/workers/{key}/probe
-POST /api/tasks {prompt,workflow,workers,model} | GET /api/tasks | GET /api/tasks/{id}
-GET  /api/project/tree | GET /api/project/file?path=
-GET  /api/git | GET /api/git/diff | POST /api/git/commit {message}
-POST /api/test
-POST /api/config {project_dir|workflow}
-```
+Tab Alat, bagian Model: pilih satu baris, tekan Terapkan. Sekali tekan, model
+yang sama ditulis ke Hermes dan keempat pekerja.
 
-## Arah desain UI
-
-Dibuat dengan aturan antislop (filter, bukan penentu gaya). Arah yang dipakai:
-
-- **Sasaran**: alat kerja pribadi untuk mengoperasikan tim koding dari HP, sering
-  dipakai satu tangan sambil jalan. Bukan landing page, bukan produk yang dijual.
-- **Bahasa visual**: tenang dan jelas. Latar navy gelap (bukan hitam murni),
-  dua warna inti plus satu aksen hijau untuk aksi utama dan status hidup.
-- **Tipografi**: IBM Plex Sans untuk teks (bentuknya netral dan enak dibaca di
-  layar kecil), JetBrains Mono hanya untuk keluaran teknis (log, diff, JSON),
-  bukan untuk judul.
-- **Dial**: ENERGY 1 / RHYTHM 1 / MOTION 1. Seragam dan tenang memang pilihan,
-  bukan kebetulan: yang dibutuhkan kecepatan baca dan target sentuh besar.
-- **Kontras**: setiap pasangan warna dihitung, bukan dikira-kira. Teks normal
-  minimal 4.5:1, tepi komponen interaktif minimal 3:1.
-- **Navigasi**: bottom nav 5 tujuan dengan target 56px, jadi semua yang sering
-  dipakai dalam jangkauan jempol.
-
-## Workflow adaptif
-
-- **kecil**: 1 worker langsung -> test.
-- **sedang**: rencana singkat (LLM) -> 1-2 worker -> test -> review Hermes.
-- **besar**: dekomposisi -> worker paralel (batch `max_parallel`) -> diskusi
-  antar worker -> test -> review Hermes -> ringkasan.
-
-Dua loop perbaikan (bukan status akhir):
-
-- test merah -> `_fix_failure` kirim output test ke worker lain -> test ulang
-  (`fix_rounds`).
-- review FAIL -> `_fix_review` kirim daftar issue dari reviewer ke worker lain ->
-  review ulang, tapi hanya kalau worker benar-benar mengubah file
-  (`fix_review_rounds`). Ini penting: test hijau tidak berarti tugas terpenuhi,
-  worker bisa lulus test buatannya sendiri sambil melanggar permintaan asli
-  (contoh nyata: diminta isi file persis tanpa newline, worker menambah newline
-  dan test-nya sendiri tetap hijau).
-
-Planner memakai model gateway; kalau gateway tidak bisa menjawab, rencana diisi
-heuristik supaya tugas tetap jalan (tidak pernah gagal karena planner).
-
-## Pemilihan worker (hemat dulu, mahal belakangan)
-
-`workflow.worker_order` + `workflow.worker_cost` di team.yaml menentukan siapa
-yang mengerjakan apa:
-
-```yaml
-worker_order: [omp, opencode, codex, claude]
-worker_cost:  {omp: 0.01, opencode: 0.02, codex: 0.05, claude: 0.45}
-```
-
-- **Subtask** mengikuti `worker_order` (termurah lebih dulu).
-- **Repair round** (test merah / review FAIL) memakai worker termurah yang belum
-  menyentuh tugas itu. Perbaikan kecil tidak perlu request Claude $0.45.
-- **Tugas `besar`**: kalau planner menaruh semua subtask di worker yang sama,
-  mereka disebar round-robin. Diskusi antar-agent hanya berguna kalau CLI-nya
-  memang berbeda.
-- Tab Model menampilkan `Pilihan ke-N · ~$X per tugas` per worker supaya
-  urutannya kelihatan dari UI.
-
-Worker mahal tetap terpakai: kalau semua worker murah gagal, `_pick_workers`
-tetap mengembalikan seluruh pool terpasang dan eskalasi tetap bisa sampai claude.
-
-## Konfigurasi worker (format beda-beda, sudah diinspeksi)
-
-| Worker | File konfigurasi | Cara jalan |
+| Sasaran | Berkas | Alamat yang ditulis |
 |---|---|---|
-| claude | `~/.claude/settings.json` (`env.ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_DEFAULT_*_MODEL`) | `claude -p <task> --model <m> --output-format json --dangerously-skip-permissions` |
-| codex | `~/.codex/config.toml` (`[model_providers.9router]`, `wire_api = "responses"`) | `codex exec -m <m> -c model_provider="9router" -c approval_policy="never" <task>` |
-| opencode | `~/.config/opencode/opencode.json` (`provider.9router` + `model`) | `opencode run --auto --model 9router/<m> <task>` |
-| omp | `~/.omp/agent/models.yml` (`providers.9router` -> baseUrl/apiKey/models[]) | `omp -p <task> --model 9router/<m> --auto-approve --no-session` |
+| claude | `~/.claude/settings.json` | :20128 langsung |
+| codex | `~/.codex/config.toml` | :20129 |
+| opencode | `~/.config/opencode/opencode.json` | :20129 |
+| omp | `~/.omp/agent/models.yml` | :20129 |
+| hermes | `$HERMES_HOME/config.yaml` | :20128 langsung |
 
-Catatan penting yang sudah dipelajari dari lingkungan ini:
+Port dan model itu dua hal terpisah: port adalah pintu yang diketuk, model adalah
+siapa yang diminta di dalam pintu itu.
 
-- [CC] menolak `--dangerously-skip-permissions` sebagai root kecuali
-  `IS_SANDBOX=1` diset (ini container).
-- Codex CLI 0.154 ke atas tidak lagi menerima `wire_api = "chat"`, pakai
-  `"responses"`.
-- `claude` menambahkan suffix `[1m]` ke model dari settings.json, jadi selalu
-  kirim `--model` eksplisit.
-- OMP tidak punya `config.json`; provider [OI]-compatible harus didaftarkan di
-  `~/.omp/agent/models.yml` (skema: `providers.<name>.{baseUrl,apiKey,api,models[]}`).
-  Tanpa itu `omp --model <gateway-model>` menjawab `Model "..." not found`, dan
-  `OPENAI_BASE_URL` saja tidak cukup (hanya memengaruhi provider bawaan `openai`).
-  Model harus ditulis `9router/<id>` supaya cocok dengan provider itu.
-- OMP dijalankan unattended, jadi `--auto-approve` wajib. Kalau tidak, dia
-  berhenti di prompt approval pertama dan tugas menggantung sampai timeout.
-- 9Router menutup stream SSE dengan `data: [DONE]` **dua kali**; parser ketat
-  (opencode) mati dengan `JSON parsing failed: Text: [DONE] [DONE]`. Karena itu
-  ada `proxy.py` di :20129 yang meneruskan semuanya ke :20128 tapi membuang
-  terminator kedua. Semua worker diarahkan ke :20129.
-- 9Router butuh header `x-9r-cli-token` (sha256(machine-id + "9r-cli-auth" +
-  auth/cli-secret)[:16]) untuk `/api/*`; `/v1/*` pakai `Authorization: Bearer <api key>`.
-- Model gateway tidak semuanya hidup: pakai **Tes model yang hidup** untuk
-  memfilter.
-- Hermes menyimpan custom provider sebagai **list** (`custom_providers: [{name: ...}]`),
-  jadi `hermes config set custom_providers.9router.base_url` tidak mengena.
-  `apply_hermes()` menulis ulang entri itu langsung di config.yaml (dan mengisi
-  `api_key` inline, karena `key_env` harus ada di environment).
-- Port dan model itu dua hal terpisah: port pintu mana yang diketuk, model siapa
-  yang diminta di dalam pintu itu. Satu model yang sama dipakai di semua pintu.
+Daftar model dibaca dari dua sumber sekaligus, karena masing-masing tidak lengkap
+sendiri:
+
+- `/api/models` pada 9Router: katalog lengkap dengan nama, batas konteks, dan harga.
+  Isinya hanya provider yang kredensialnya dikenal dashboard.
+- `/v1/models`: daftar id yang benar-benar bisa dipanggil. Di sinilah provider
+  seperti `kenari-id`, `dvvai`, `cavoti-ai`, dan `kr` muncul.
+
+Id provider yang berupa uuid (`openai-compatible-chat-...`) diganti dengan prefix
+yang dikenali (`kenari-id`, `oc-prod`, dan seterusnya), diambil dari daftar
+koneksi 9Router. Tombol Tes mana yang hidup memeriksa model sungguhan dan
+menandai mana yang menjawab.
+
+## Alur kerja
+
+- **Cepat**: satu pekerja langsung, lalu tes.
+- **Sedang**: rencana singkat, satu sampai dua pekerja, tes, penilaian.
+- **Besar**: tugas dipecah, dikerjakan paralel, pekerja saling menilai, tes,
+  lalu penilaian akhir.
+
+Dua putaran perbaikan, keduanya bukan status akhir:
+
+- tes merah, keluaran tes dikirim ke pekerja lain untuk diperbaiki (`fix_rounds`);
+- penilaian menemukan masalah, daftar masalahnya dikirim balik ke pekerja lain
+  (`fix_review_rounds`). Ini perlu karena tes hijau tidak berarti permintaan
+  terpenuhi: pernah terjadi pekerja menambah newline padahal diminta tidak, dan
+  tes buatannya sendiri tetap hijau.
+
+Kalau model gateway tidak bisa dihubungi, rencana diisi versi sederhana supaya
+tugas tetap jalan.
+
+Pemilihan pekerja hemat dulu: `worker_order` dan `worker_cost` di `team.yaml`
+menentukan urutannya, dan putaran perbaikan memakai pekerja termurah yang belum
+menyentuh tugas itu.
 
 ## Berkas
 
 ```
-config.py         team.yaml loader + token 9Router + key dari sqlite
-hub.py            event hub (JSONL + SSE fanout + tail file plugin)
-gateway.py        klien 9Router: sync, apply, chat, probe, hermes config
-adapters.py       4 adapter worker + apply_all
-orchestrator.py   rencana -> worker (paralel) -> diskusi -> test -> review
-project.py        tree, baca file, git, deteksi+jalan test
-proxy.py          SSE sanitiser :20129 -> 9Router :20128 (buang [DONE] ganda)
-server.py         FastAPI: UI + API + SSE
-watchdog.py       jaga 9Router + sanitiser + UI tetap hidup
-web/index.html    UI mobile-first (single file, no build)
-team.yaml.example contoh konfigurasi (team.yaml asli berisi API key, tidak ikut repo)
-tests/worker_smoke.py  tes langsung tiap worker CLI (pakai adapters.py)
-tests/smoke.sh    smoke test end-to-end
-runtime/          events.jsonl, tasks.json, model_meta.json (tidak ikut repo)
-logs/             ui.log, 9router.log, proxy.log, smoke.log (tidak ikut repo)
-workspace/        folder kerja proyek (repo git sendiri, tidak ikut repo ini)
+config.py         pembaca team.yaml, token 9Router, kunci dari sqlite
+hub.py            pusat kejadian (JSONL + SSE + pembaca berkas plugin)
+gateway.py        klien 9Router: sinkron model, terapkan, chat, uji, setelan Hermes
+adapters.py       empat adapter pekerja + apply_all
+orchestrator.py   rencana, pekerja, diskusi, tes, penilaian, jawaban akhir
+sessions.py       percakapan: satu utas berisi daftar tugas
+project.py        daftar berkas, baca berkas, git, deteksi dan jalan tes
+proxy.py          penyaring SSE :20129 ke 9Router :20128 (buang [DONE] ganda)
+server.py         FastAPI: UI, API, SSE
+watchdog.py       menjaga 9Router, penyaring, dan UI tetap hidup
+web/index.html    kerangka UI
+web/app.css       tampilan
+web/app.js        perilaku: chat, panel proses, alat
+assets/           banner README
+tests/smoke.sh    uji end to end
 ```
+
+`team.yaml` berisi kunci API dan tidak ikut ke repo; contohnya ada di
+`team.yaml.example`.
+
+## API
+
+```
+GET    /api/state                    ringkasan gateway, pekerja, tugas, proyek
+GET    /api/sessions                 daftar percakapan
+POST   /api/sessions                 percakapan baru
+GET    /api/sessions/{id}            isi percakapan + kejadian tiap tugas
+POST   /api/sessions/{id}            ganti judul
+DELETE /api/sessions/{id}            hapus percakapan
+POST   /api/chat                     kirim pesan: {text, session, workflow}
+GET    /api/events?replay=N          aliran kejadian (SSE)
+GET    /api/events/recent?limit=&kind=
+POST   /api/gateway/sync?apply=0|1   baca model dari 9Router
+GET    /api/gateway/models?q=&provider=&only_healthy=1
+POST   /api/gateway/model            {model, apply_workers}
+POST   /api/gateway/probe            uji model mana yang menjawab
+POST   /api/gateway/key              {api_key}
+POST   /api/apply                    tulis model sekarang ke semua pekerja
+GET    /api/workers                  status pekerja
+POST   /api/workers/{key}            aktifkan atau setel model pekerja
+POST   /api/workers/{key}/probe      periksa satu pekerja
+POST   /api/tasks                    kirim tugas langsung tanpa chat
+GET    /api/tasks, /api/tasks/{id}   daftar dan rincian tugas
+GET    /api/project/tree, /api/project/file?path=
+GET    /api/git, /api/git/diff       POST /api/git/commit
+POST   /api/test                     jalankan tes
+POST   /api/config                   ubah folder kerja atau setelan alur
+```
+
+## Catatan teknis
+
+Beberapa hal yang perlu diketahui sebelum mengubah isi repo ini:
+
+- 9Router menutup stream SSE dengan `data: [DONE]` dua kali. Parser ketat
+  (opencode) mati karenanya, jadi ada `proxy.py` di :20129 yang membuang
+  terminator kedua. Semua pekerja menembak :20129; Hermes tetap ke :20128
+  langsung karena Hermes tahan terhadap `[DONE]` ganda dan Hermes adalah alat
+  untuk memperbaiki susunan ini.
+- opencode menentukan folder kerjanya dari `process.env.PWD`, bukan `cwd` proses.
+  Karena itu `env["PWD"]` diset sama dengan folder kerja; tanpa itu berkas
+  mendarat satu tingkat di atas proyek dan tugas tetap melaporkan sukses.
+- OMP perlu `--auto-approve` (kalau tidak, tugas menggantung di prompt pertama)
+  dan provider [OI]-compatible harus didaftarkan di `~/.omp/agent/models.yml`.
+- Codex CLI 0.154 ke atas memakai `wire_api = "responses"`, bukan `"chat"`.
+- Claude menambahkan suffix `[1m]` pada model dari settings.json, jadi model
+  selalu dikirim lewat `--model` eksplisit.
+- Penilaian otomatis dari 9Router tidak semua hidup. Pakai Tes mana yang hidup.
+- Jawaban yang kamu baca di chat bukan keluaran mentah pekerja. Keluarannya berisi
+  baris progres, jejak berkas, dan kode warna terminal; semuanya dibersihkan dulu,
+  lalu model gateway merangkumnya jadi beberapa kalimat yang bisa dibaca. Kalau
+  gateway tidak bisa dihubungi, dipakai baris paling informatif dari pekerja.
+- Setiap tugas yang selesai disimpan sebagai commit di folder kerja hanya kalau
+  tes dan penilaiannya lulus (`workflow.auto_commit`).
 
 ## Plugin Hermes
 
-`~/.hermes/plugins/astroz` menambahkan:
-
-- tool `coding_team` (submit/status/tasks/models/model/sync/test),
-- mirror aktivitas agent-loop ke feed UI,
-- slash command `/team`, `/team-model`, `/team-tasks`, `/team-sync`, `/team-apply`.
-
-Aktifkan setelah clone:
+`~/.hermes/plugins/astroz` menambahkan tool `coding_team` (submit, status, tasks,
+models, model, sync, test), mencerminkan aktivitas agent loop ke aliran kejadian
+UI, dan menyediakan perintah `/team`, `/team-model`, `/team-tasks`, `/team-sync`,
+`/team-apply`.
 
 ```bash
 hermes plugins enable astroz
 ```
 
-## Smoke test
+## Uji
 
 ```bash
-/root/AstroZ/tests/smoke.sh          # 9Router -> worker langsung -> tugas end-to-end -> git -> SSE
+/root/AstroZ/tests/smoke.sh
 MODEL=oc-prod/gemini-3.7-flash /root/AstroZ/tests/smoke.sh
 ```
+
+## Catatan tampilan
+
+Tema gelap dipilih karena ini alat kerja yang dipakai malam hari dari HP, sering
+dengan satu tangan. Paletnya dua warna inti ditambah satu aksen hijau untuk aksi
+utama dan status hidup.
+
+Angka kontras dihitung, bukan dikira-kira, dan diuji dengan rumus WCAG:
+
+| Pasangan | Rasio |
+|---|---|
+| teks utama `#F8FAFC` pada permukaan `#1B2336` | 14.98:1 |
+| teks sekunder `#A6B4C8` pada `#1B2336` | 7.45:1 |
+| aksen `#22C55E` pada `#1B2336` | 6.88:1 |
+| teks di atas aksen `#0F172A` pada `#22C55E` | 7.83:1 |
+| tepi komponen `#6B7C99` pada permukaan `#232D42` | 3.26:1 (ambang elemen non-teks) |
+
+Ikon diambil dari teks, bukan dari pustaka ikon. Animasi hanya dipakai untuk
+menandai hal yang sedang berjalan (penanda kerja dan titik yang berjalan di
+banner), dan semuanya berhenti saat pekerjaan selesai. Ukuran target sentuh
+minimal 44px, navigasi utama 56px. Tampilan diuji pada lebar 375px, 768px, dan
+1280px, termasuk pemeriksaan fokus keyboard dan tidak adanya geseran mendatar.

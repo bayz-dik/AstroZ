@@ -15,6 +15,7 @@ import config
 import hub
 import orchestrator
 import project
+import sessions
 from gateway import Gateway
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -29,7 +30,8 @@ async def _startup() -> None:
     hub.bind_loop(asyncio.get_running_loop())
     n = hub.load_from_disk(1500)
     nt = orchestrator.load_tasks()
-    hub.emit("system", f"AstroZ UI up ({n} events, {nt} tasks replayed)", phase="boot")
+    ns = sessions.load()
+    hub.emit("system", f"UI AstroZ siap ({n} kejadian, {nt} tugas, {ns} percakapan tersimpan)", phase="boot")
     asyncio.create_task(_bg_health())
     # mirror Hermes activity feeds into the hub: the astroz plugin feed and the
     # live-activity plugin feed (both are written by separate processes).
@@ -42,9 +44,9 @@ async def _startup() -> None:
 def _refresh_workers() -> None:
     try:
         adapters.status_all(refresh=True)
-        hub.emit("system", "Worker probe: " + ", ".join(f"{w['key']}{'✓' if w['installed'] else '✗'}" for w in adapters.status_all()))
+        hub.emit("system", "Pemeriksaan pekerja: " + ", ".join(f"{w['key']}{' siap' if w['installed'] else ' tidak ada'}" for w in adapters.status_all()))
     except Exception as e:
-        hub.emit("system", f"worker probe failed: {e}", ok=False)
+        hub.emit("system", f"Pemeriksaan pekerja gagal: {e}", ok=False)
 
 
 async def _bg_health() -> None:
@@ -54,7 +56,7 @@ async def _bg_health() -> None:
             h = await asyncio.to_thread(gw.health)
             cfg = config.load()
             if cfg["gateway"].get("online") != h["online"]:
-                hub.emit("gateway", f"9Router {'online' if h['online'] else 'offline'}", online=h["online"])
+                hub.emit("gateway", f"Gateway {'hidup' if h['online'] else 'mati'}", online=h["online"])
             cfg["gateway"]["online"] = h["online"]
             config.save(cfg)
         except Exception:
@@ -142,7 +144,7 @@ async def gateway_sync(apply: int = 0):
 
 
 @app.get("/api/gateway/models")
-async def gateway_models(q: str = "", limit: int = 300, only_healthy: int = 0):
+async def gateway_models(q: str = "", limit: int = 300, only_healthy: int = 0, provider: str = "", callable_only: int = 0):
     cfg = config.load()
     gw = cfg["gateway"]
     meta = gw.get("model_meta", {})
@@ -156,19 +158,38 @@ async def gateway_models(q: str = "", limit: int = 300, only_healthy: int = 0):
             seen.add(mid)
             ids.append(mid)
     if not ids:
-        ids = await asyncio.to_thread(lambda: [m.get("fullModel") for m in Gateway().models()])
+        ids = await asyncio.to_thread(lambda: [m.get("id") for m in Gateway().models()])
     items = []
+    pmap = gw.get("provider_names") or {}
     for mid in ids:
         if q and q.lower() not in mid.lower():
             continue
-        items.append({"id": mid, **{k: v for k, v in (meta.get(mid) or {}).items()}})
-    items.sort(key=lambda m: (not (m.get("health") or {}).get("ok"), m["id"]))
-    healthy = gw.get("healthy", [])
+        m = {"id": mid, **{k: v for k, v in (meta.get(mid) or {}).items()}}
+        m.setdefault("provider", mid.split("/", 1)[0] if "/" in mid else "")
+        if m.get("provider") in pmap:
+            m["provider_id"] = m["provider"]
+            m["provider"] = pmap[m["provider"]]
+        if provider and m.get("provider") != provider:
+            continue
+        if callable_only and not m.get("callable"):
+            continue
+        items.append(m)
+    items.sort(key=lambda m: (not (m.get("health") or {}).get("ok"), m.get("provider") or "", m["id"]))
     if only_healthy:
         # disaring di server, bukan di UI: hasil probe tidak selalu ikut terkirim
         # kalau UI hanya memotong 300 baris pertama.
         items = [m for m in items if (m.get("health") or {}).get("ok")]
-    return {"models": items[:limit], "total": len(items), "current": gw.get("model"), "healthy": healthy}
+    providers: dict[str, int] = {}
+    for m in items:
+        p = m.get("provider") or "(lain)"
+        providers[p] = providers.get(p, 0) + 1
+    return {
+        "models": items[:limit],
+        "total": len(items),
+        "current": gw.get("model"),
+        "healthy": gw.get("healthy", []),
+        "providers": sorted(({"id": k, "count": v} for k, v in providers.items()), key=lambda x: -x["count"]),
+    }
 
 
 @app.post("/api/gateway/model")
@@ -188,7 +209,7 @@ async def gateway_set_key(payload: dict):
     cfg = config.load()
     cfg["gateway"]["api_key"] = key
     config.save(cfg)
-    hub.emit("gateway", f"Gateway API key {'set' if key else 'cleared'}", has_key=bool(key))
+    hub.emit("gateway", f"Kunci API gateway {'disimpan' if key else 'dikosongkan'}", has_key=bool(key))
     return {"ok": True, "has_key": bool(key)}
 
 
@@ -219,7 +240,7 @@ async def gateway_probe(payload: dict | None = None):
     cfg["gateway"]["healthy"] = [r["model"] for r in res if r["ok"]]
     config.save(cfg)
     ok = [r["model"] for r in res if r["ok"]]
-    hub.emit("gateway", f"Model probe: {len(ok)}/{len(res)} answering, {', '.join(ok[:8])}", healthy=ok)
+    hub.emit("gateway", f"Tes model: {len(ok)} dari {len(res)} menjawab, {', '.join(ok[:8])}", healthy=ok)
     return {"ok": True, "results": res, "healthy": ok}
 
 
@@ -252,7 +273,7 @@ async def worker_update(key: str, payload: dict):
     if "model" in (payload or {}):
         w["model"] = payload["model"] or ""
     config.save(cfg)
-    hub.emit("system", f"worker {key}: enabled={w['enabled']} model={w['model'] or '(gateway default)'}")
+    hub.emit("system", f"Pekerja {key}: dipakai={w['enabled']} model={w['model'] or '(bawaan gateway)'}")
     return {"ok": True, "cfg": cfg["workers"]}
 
 
@@ -262,7 +283,7 @@ async def worker_probe(key: str):
         return JSONResponse({"ok": False, "error": "unknown worker"}, status_code=404)
     w = adapters.ADAPTERS[key]
     st = await asyncio.to_thread(w.probe)
-    hub.emit("system", f"probe {key}: {st.get('version') or st.get('error')}")
+    hub.emit("system", f"Periksa {key}: {st.get('version') or st.get('error')}")
     return {"ok": True, **st}
 
 
@@ -345,5 +366,122 @@ async def set_config(payload: dict):
     cfg = config.update(patch)
     if "project_dir" in patch:
         project.ensure_repo()
-    hub.emit("system", f"config updated: {json.dumps(patch)[:300]}")
+    hub.emit("system", f"Setelan diperbarui: {json.dumps(patch)[:300]}")
     return {"ok": True, "config": {"project_dir": cfg["project_dir"], "workflow": cfg["workflow"]}}
+
+
+# -------------------------------------------------------------------- chat
+def _task_messages(tid: str) -> list[dict]:
+    """One task as the two turns a chat shows: the ask, then the answer."""
+    t = orchestrator.get_task(tid)
+    if not t:
+        return []
+    out = [{
+        "role": "user",
+        "text": t.get("prompt") or "",
+        "ts": t.get("created"),
+        "task": tid,
+    }]
+    status = t.get("status") or "running"
+    out.append({
+        "role": "astroz",
+        "text": t.get("answer") or "",
+        "ts": t.get("finished") or t.get("created"),
+        "task": tid,
+        "status": status,
+        "size": t.get("size"),
+        "workers": t.get("workers") or [],
+        "model": t.get("model"),
+        "summary": t.get("summary") or "",
+        "review": (t.get("review") or {}).get("verdict") or "",
+        "tests": (t.get("test") or {}).get("ok"),
+        "tests_skipped": bool((t.get("test") or {}).get("skipped")),
+    })
+    return out
+
+
+@app.get("/api/sessions")
+async def sessions_list():
+    items = sessions.list_sessions()
+    tasks = {t["id"]: t for t in orchestrator.list_tasks(200)}
+    for s in items:
+        ids = s.get("tasks") or []
+        s["last"] = (tasks.get(ids[-1], {}).get("answer") or tasks.get(ids[-1], {}).get("prompt") or "")[:140]
+        running = [i for i in ids if (tasks.get(i) or {}).get("status") == "running"]
+        s["running"] = len(running)
+        s["status"] = "running" if running else "idle"
+    return {"sessions": items}
+
+
+@app.post("/api/sessions")
+async def sessions_create(payload: dict | None = None):
+    s = sessions.create(((payload or {}).get("title") or "").strip())
+    return {"ok": True, "session": s}
+
+
+@app.get("/api/sessions/{sid}")
+async def sessions_get(sid: str, events: int = 120):
+    s = sessions.get(sid)
+    if not s:
+        return JSONResponse({"ok": False, "error": "percakapan tidak ditemukan"}, status_code=404)
+    ids = list(s.get("tasks") or [])
+    messages: list[dict] = []
+    for tid in ids:
+        messages.extend(_task_messages(tid))
+    activity: dict[str, list[dict]] = {}
+    if events:
+        recent = hub.recent(4000)
+        for tid in ids:
+            evs = [e for e in recent if e.get("task") == tid]
+            if evs:
+                activity[tid] = evs[-events:]
+    return {"ok": True, "session": {**s, "tasks": ids}, "messages": messages, "activity": activity}
+
+
+@app.post("/api/sessions/{sid}")
+async def sessions_update(sid: str, payload: dict):
+    s = sessions.rename(sid, (payload or {}).get("title") or "")
+    if not s:
+        return JSONResponse({"ok": False, "error": "percakapan tidak ditemukan"}, status_code=404)
+    return {"ok": True, "session": s}
+
+
+@app.delete("/api/sessions/{sid}")
+async def sessions_delete(sid: str):
+    ok = sessions.delete(sid)
+    return {"ok": ok}
+
+
+@app.post("/api/chat")
+async def chat_send(payload: dict):
+    """One user message: it becomes a task, and its answer lands in this thread."""
+    text = ((payload or {}).get("text") or "").strip()
+    if not text:
+        return JSONResponse({"ok": False, "error": "tulis dulu pesannya"}, status_code=400)
+    s = sessions.ensure((payload or {}).get("session"), text)
+    orch = orchestrator.Orchestrator()
+    tid = orch.submit(
+        text,
+        workflow=(payload or {}).get("workflow") or "auto",
+        workers=(payload or {}).get("workers") or None,
+        model=(payload or {}).get("model") or None,
+        session_id=s["id"],
+    )
+    sessions.attach(s["id"], tid, text)
+    hub.emit("task", f"Percakapan {s['id']}: pesan baru", task=tid, session=s["id"], phase="created")
+    return {"ok": True, "session": s["id"], "task_id": tid, "title": s["title"]}
+
+
+# ------------------------------------------------------------------ static
+@app.get("/{path:path}")
+async def static_files(path: str):
+    """Serve the UI's own assets (one HTML file, one stylesheet, one script)."""
+    if path.startswith("api/"):
+        return JSONResponse({"ok": False, "error": "unknown endpoint"}, status_code=404)
+    if not path or path == "/":
+        return FileResponse(WEB / "index.html")
+    target = (WEB / path).resolve()
+    if WEB.resolve() in target.parents and target.is_file():
+        return FileResponse(target)
+    return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
+

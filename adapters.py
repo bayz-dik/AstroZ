@@ -438,7 +438,7 @@ def apply_all(gateway: dict, only: list[str] | None = None) -> dict:
             results[key] = {"ok": False, "error": str(e)}
     hub.emit(
         "gateway",
-        "Applied model to workers: "
+        "Model diterapkan ke pekerja: "
         + ", ".join(f"{k}{'✓' if v.get('ok') else '✗'}" for k, v in results.items()),
         model=gateway.get("model"),
         results=results,

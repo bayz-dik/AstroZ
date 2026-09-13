@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import subprocess
 import threading
 import time
@@ -24,8 +25,61 @@ TASKS: dict[str, dict] = {}
 TASKS_FILE = config.RUNTIME / "tasks.json"
 _TASK_FIELDS = (
     "id", "prompt", "status", "size", "workers", "model", "plan", "results",
-    "test", "review", "summary", "commit", "created", "finished",
+    "test", "review", "summary", "commit", "created", "finished", "answer",
+    "session", "kind",
 )
+
+# Terminal control sequences and progress noise that worker CLIs emit around
+# their real output. Stripped before anything reaches a human.
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07")
+_NOISE = (
+    re.compile(r"^\s*[>»]\s*(build|plan|edit|run|review|write|think)\b", re.I),
+    re.compile(r"^\s*still starting after", re.I),
+    re.compile(r"^\s*logs:\s*/root/", re.I),
+    re.compile(r"^\s*re-run with pi_debug_startup", re.I),
+    re.compile(r"^\s*wrote file successfully", re.I),
+    re.compile(r"^\s*working\.{0,3}\s*$", re.I),
+    re.compile(r"^\s*(thinking|processing|starting)\.{0,3}\s*$", re.I),
+    re.compile(r"^\s*(files?|tokens?|cost|duration|model)\s*[:=]\s*[\d.$]+", re.I),
+    re.compile(r"^[\s│┃|┌┐└┘├┤─━=_*·•·]+$"),
+    re.compile(r"^\s*(done|ok|success)\.?\s*$", re.I),
+)
+
+
+def clean_output(text: str) -> str:
+    """Worker stdout turned into prose: ANSI off, progress noise out."""
+    if not text:
+        return ""
+    plain = _ANSI.sub("", text).replace("\r", "\n")
+    lines: list[str] = []
+    for raw in plain.splitlines():
+        line = raw.rstrip()
+        if not line.strip():
+            lines.append("")
+            continue
+        if any(rx.search(line) for rx in _NOISE):
+            continue
+        # a bare filesystem path is a tool echo, not an answer
+        if line.strip().startswith(("/root/", "/tmp/", "/home/")) and " " not in line.strip():
+            continue
+        lines.append(line.strip())
+    out = "\n".join(lines)
+    return re.sub(r"\n{3,}", "\n\n", out).strip()
+
+
+def best_answer_text(results: list[dict]) -> str:
+    """The most human line a worker produced, used when no LLM is available."""
+    for r in reversed(results or []):
+        if not r.get("ok"):
+            continue
+        clean = clean_output(r.get("text") or "")
+        if not clean:
+            continue
+        lines = [ln for ln in clean.splitlines() if len(ln) >= 12 and any(c.isalpha() for c in ln)]
+        if lines:
+            return " ".join(lines[-3:])[:600]
+        return clean[-600:]
+    return ""
 
 
 def _persist_tasks() -> None:
@@ -74,6 +128,8 @@ def list_tasks(limit: int = 50) -> list[dict]:
             "model": t.get("model"),
             "workers": t.get("workers", []),
             "summary": (t.get("summary") or "")[:2000],
+            "answer": (t.get("answer") or "")[:4000],
+            "session": t.get("session") or "",
         }
         for t in items[:limit]
     ]
@@ -153,7 +209,7 @@ def run_worker(worker: str, prompt: str, task_id: str, cwd: str, model: str, tim
     if not a.path:
         a.probe()
     if not a.path:
-        hub.emit("worker", f"[{worker}] not installed", task=task_id, worker=worker, ok=False)
+        hub.emit("worker", f"[{worker}] tidak terpasang", task=task_id, worker=worker, ok=False)
         return {"worker": worker, "ok": False, "error": "not installed", "text": ""}
     env = {**os.environ, **_worker_env(worker, model)}
     # PWD must follow cwd. opencode resolves its working directory as
@@ -168,7 +224,7 @@ def run_worker(worker: str, prompt: str, task_id: str, cwd: str, model: str, tim
         cmd = a.command(prompt, model, cwd)
         hub.emit(
             "worker",
-            f"[{worker}] start: {prompt[:160]}" + (f" (attempt {attempt}/{retries})" if attempt > 1 else ""),
+            f"[{worker}] mulai: {prompt[:160]}" + (f" (percobaan {attempt}/{retries})" if attempt > 1 else ""),
             task=task_id,
             worker=worker,
             phase="start",
@@ -190,7 +246,7 @@ def run_worker(worker: str, prompt: str, task_id: str, cwd: str, model: str, tim
                 stdin=subprocess.DEVNULL,
             )
         except Exception as e:
-            hub.emit("worker", f"[{worker}] spawn failed: {e}", task=task_id, worker=worker, ok=False)
+            hub.emit("worker", f"[{worker}] gagal dijalankan: {e}", task=task_id, worker=worker, ok=False)
             return {"worker": worker, "ok": False, "error": str(e), "text": ""}
 
         q: queue.Queue = queue.Queue()
@@ -214,15 +270,16 @@ def run_worker(worker: str, prompt: str, task_id: str, cwd: str, model: str, tim
                 if time.time() > deadline:
                     p.kill()
                     timed_out = True
-                    hub.emit("worker", f"[{worker}] timeout after {timeout}s", task=task_id, worker=worker, ok=False)
+                    hub.emit("worker", f"[{worker}] melebihi batas waktu {timeout}s", task=task_id, worker=worker, ok=False)
                     break
                 continue
             if item is None:
                 break
             line = item.rstrip("\n")
             buf.append(line)
-            if len(line.strip()) > 0:
-                hub.emit("worker", f"[{worker}] {line[:500]}", task=task_id, worker=worker, phase="out")
+            clean_line = clean_output(line)
+            if clean_line:
+                hub.emit("worker", f"[{worker}] {clean_line[:500]}", task=task_id, worker=worker, phase="out")
             if time.time() > deadline:
                 p.kill()
                 timed_out = True
@@ -240,7 +297,7 @@ def run_worker(worker: str, prompt: str, task_id: str, cwd: str, model: str, tim
                 **{k: v for k, v in parsed.items() if k not in ("text",)}}
         hub.emit(
             "worker",
-            f"[{worker}] {'done' if ok else 'failed'} in {dur}s",
+            f"[{worker}] {'selesai' if ok else 'gagal'} dalam {dur}s",
             task=task_id,
             worker=worker,
             phase="end",
@@ -255,7 +312,7 @@ def run_worker(worker: str, prompt: str, task_id: str, cwd: str, model: str, tim
         if attempt >= retries or not _is_retryable(f"{parsed.get('text','')}\n{raw[-3000:]}"):
             break
         wait = 5 * attempt
-        hub.emit("worker", f"[{worker}] transient failure, retry in {wait}s", task=task_id, worker=worker, phase="retry")
+        hub.emit("worker", f"[{worker}] gagal sementara, dicoba lagi dalam {wait}s", task=task_id, worker=worker, phase="retry")
         time.sleep(wait)
     return last
 
@@ -289,7 +346,7 @@ class Orchestrator:
         )
         r = self.gw.chat(model, [{"role": "system", "content": sys}, {"role": "user", "content": prompt}], timeout=180, max_tokens=1500)
         if not r.get("ok"):
-            hub.emit("plan", f"planner LLM unavailable ({r.get('error','')[:200]}), heuristic plan", ok=False)
+            hub.emit("plan", f"Perencana tidak bisa dihubungi, dipakai rencana sederhana ({r.get('error','')[:120]})", ok=False)
             return fallback
         text = r["text"].strip()
         if text.startswith("```"):
@@ -299,7 +356,7 @@ class Orchestrator:
             start, end = text.find("{"), text.rfind("}")
             plan = json.loads(text[start : end + 1])
         except Exception:
-            hub.emit("plan", "planner returned non-JSON, heuristic plan", ok=False, raw=text[:500])
+            hub.emit("plan", "Perencana tidak menjawab dalam bentuk yang benar, dipakai rencana sederhana", ok=False, raw=text[:500])
             return fallback
         plan.setdefault("size", "medium")
         plan.setdefault("goal", prompt)
@@ -315,7 +372,8 @@ class Orchestrator:
         return plan
 
     # -------------------------------------------------------------- workflow
-    def submit(self, prompt: str, workflow: str = "auto", workers: list[str] | None = None, model: str | None = None) -> str:
+    def submit(self, prompt: str, workflow: str = "auto", workers: list[str] | None = None,
+               model: str | None = None, session_id: str | None = None) -> str:
         cfg = config.load()
         tid = uuid.uuid4().hex[:12]
         t = {
@@ -327,11 +385,13 @@ class Orchestrator:
             "model": model or cfg["gateway"].get("model"),
             "workers": [],
             "results": [],
+            "session": session_id or "",
         }
         with _TASK_LOCK:
             TASKS[tid] = t
         _persist_tasks()
-        hub.emit("task", f"Task submitted: {prompt[:200]}", task=tid, workflow=workflow, model=t["model"], phase="created")
+        hub.emit("task", f"Pesan diterima: {prompt[:120]}", task=tid, workflow=workflow,
+                 model=t["model"], phase="created", session=session_id or "")
         threading.Thread(target=self._run, args=(tid, prompt, workflow, workers), daemon=True).start()
         return tid
 
@@ -348,7 +408,7 @@ class Orchestrator:
 
             # --- plan -----------------------------------------------------
             if workflow in ("auto", "medium", "large"):
-                hub.emit("plan", "Hermes is decomposing the task…", task=tid, phase="start")
+                hub.emit("plan", "Menyusun rencana kerja", task=tid, phase="start")
                 plan = self.plan(prompt, "auto" if workflow == "auto" else workflow)
             else:
                 plan = {"size": "small", "goal": prompt, "subtasks": [{"title": prompt[:80], "detail": prompt, "worker": (workers or _pick_workers(cfg, 1))[0]}], "test_command": project.detect_test_command()}
@@ -356,7 +416,7 @@ class Orchestrator:
             t["plan"] = plan
             hub.emit(
                 "plan",
-                f"size={plan['size']} · {len(plan.get('subtasks', []))} subtask(s)",
+                f"ukuran={plan['size']} · {len(plan.get('subtasks', []))} langkah",
                 task=tid,
                 plan=plan,
                 phase="end",
@@ -375,7 +435,7 @@ class Orchestrator:
                 st = subtasks[0] if subtasks else {"title": prompt[:80], "detail": prompt, "worker": chosen[0]}
                 w = st.get("worker") if st.get("worker") in adapters.ADAPTERS else chosen[0]
                 t["workers"] = [w]
-                hub.emit("worker", f"Hermes -> {w}", task=tid, worker=w, phase="assign")
+                hub.emit("worker", f"Diberikan ke {w}", task=tid, worker=w, phase="assign")
                 results.append(self._worker_prompt(w, st.get("detail") or st.get("title") or prompt, tid, str(d), model))
             else:
                 # Large tasks run subtasks in parallel and then discuss them.
@@ -389,7 +449,7 @@ class Orchestrator:
                 for gi, group in enumerate(groups):
                     threads = []
                     box: list[dict] = []
-                    hub.emit("worker", f"Hermes -> parallel batch {gi+1}: " + ", ".join(s.get("worker", "?") for s in group), task=tid, phase="assign")
+                    hub.emit("worker", f"Dikerjakan paralel: " + ", ".join(s.get("worker", "?") for s in group), task=tid, phase="assign")
                     for st in group:
                         w = st.get("worker") if st.get("worker") in adapters.ADAPTERS else chosen[0]
                         if w not in t["workers"]:
@@ -411,7 +471,7 @@ class Orchestrator:
             if results and not any(r.get("ok") for r in results):
                 alt = [w for w in chosen if w not in {r["worker"] for r in results}]
                 if alt:
-                    hub.emit("worker", f"all workers failed, escalating to {alt[0]}", task=tid, phase="escalate")
+                    hub.emit("worker", f"Semua pekerja gagal, dicoba ke {alt[0]}", task=tid, phase="escalate")
                     st = subtasks[0] if subtasks else {"detail": prompt}
                     if alt[0] not in t["workers"]:
                         t["workers"].append(alt[0])
@@ -450,18 +510,21 @@ class Orchestrator:
 
             after = project.git_status()
             changed = project.change_summary(2000)
-            hub.emit("git", "changes after task:\n" + (changed[:2000] or "(none)"), task=tid, diffstat=after.get("diffstat"))
+            hub.emit("git", "Perubahan berkas setelah tugas:\n" + (changed[:2000] or "tidak ada perubahan"), task=tid, diffstat=after.get("diffstat"))
             t["summary"] = self._summarize(prompt, results, test_res, review, changed)
+            t["answer"] = self._answer(prompt, results, review, model)
+            hub.emit("task", "Jawaban siap", task=tid, phase="answer", answer=t["answer"][:4000])
             # Commit only work the task's own verification passed, see
             # _task_is_green. Default off; enable with workflow.auto_commit.
             if cfg["workflow"].get("auto_commit", False) and self._task_is_green(test_res, review):
                 t["commit"] = self._auto_commit(tid, prompt, after.get("status") or "")
             t["status"] = "done"
-            hub.emit("task", f"Task complete: {t['summary'][:200]}", task=tid, phase="done", summary=t["summary"], test_ok=(test_res or {}).get("ok"))
+            hub.emit("task", f"Selesai: {t['summary'][:200]}", task=tid, phase="done", summary=t["summary"], test_ok=(test_res or {}).get("ok"))
         except Exception as e:
             t["status"] = "error"
             t["summary"] = f"error: {e}"
-            hub.emit("task", f"Task failed: {e}", task=tid, phase="error", ok=False)
+            t["answer"] = f"Gagal menyelesaikan tugas: {e}"
+            hub.emit("task", f"Gagal: {e}", task=tid, phase="error", ok=False, answer=t["answer"])
         finally:
             t["finished"] = time.time()
             _persist_tasks()
@@ -492,7 +555,7 @@ class Orchestrator:
         res = project.git_commit_all(message)
         out = res.get("out") or ""
         ok = res.get("rc") == 0 or "nothing to commit" in out
-        hub.emit("git", f"auto-commit {'ok' if ok else 'FAILED'}: {subject[:80]}",
+        hub.emit("git", f"Commit otomatis {'tersimpan' if ok else 'GAGAL'}: {subject[:80]}",
                  task=tid, ok=ok, out=out[:300])
         return {"ok": ok, "message": message, **res}
 
@@ -509,7 +572,7 @@ class Orchestrator:
         res: dict = {}
         for i, m in enumerate(chain):
             if i:
-                hub.emit("worker", f"[{worker}] retry on fallback model {m}", task=tid, worker=worker, phase="fallback", model=m)
+                hub.emit("worker", f"[{worker}] coba ulang dengan model cadangan {m}", task=tid, worker=worker, phase="fallback", model=m)
             res = run_worker(worker, prompt, tid, cwd, m)
             if res.get("ok"):
                 return res
@@ -523,7 +586,7 @@ class Orchestrator:
             return test_res
         rounds = int(cfg["workflow"].get("fix_rounds", 1))
         for rnd in range(1, rounds + 1):
-            hub.emit("test", f"tests failed, repair round {rnd}/{rounds}", task=tid, phase="fix")
+            hub.emit("test", f"Tes belum lulus, perbaikan ronde {rnd}/{rounds}", task=tid, phase="fix")
             detail = (
                 f"The test suite for this task is failing.\n\nTask: {prompt}\n\n"
                 f"Command: {test_res.get('command')}\nrc={test_res.get('rc')}\n"
@@ -539,7 +602,7 @@ class Orchestrator:
             results.append(res)
             test_res = project.run_tests(test_res.get("command") or None, task_id=tid)
             if test_res.get("ok"):
-                hub.emit("test", f"tests PASS after repair round {rnd}", task=tid, ok=True)
+                hub.emit("test", f"Tes lulus setelah perbaikan ronde {rnd}", task=tid, ok=True)
                 return test_res
         return test_res
 
@@ -560,7 +623,7 @@ class Orchestrator:
         order = _pick_cheapest(cfg, 1, exclude=used) or _pick_workers(cfg, 1)
         if not order:
             return False
-        hub.emit("review", "review FAIL, sending issues back to a worker", task=tid, phase="fix")
+        hub.emit("review", "Penilaian menemukan masalah, catatan dikirim ke pekerja lain", task=tid, phase="fix")
         detail = (
             f"Task: {prompt}\n\nAn independent review of the work found these issues:\n"
             f"{review.get('text', '')[:2500]}\n\n"
@@ -574,7 +637,7 @@ class Orchestrator:
 
     # ------------------------------------------------------------ discussion
     def _discuss(self, tid: str, prompt: str, results: list[dict], model: str) -> None:
-        hub.emit("discuss", "Agents are reviewing each other's work…", task=tid, phase="start")
+        hub.emit("discuss", "Pekerja saling menilai hasil", task=tid, phase="start")
         digest = "\n\n".join(f"### {r['worker']} ({'ok' if r.get('ok') else 'failed'})\n{(r.get('text') or '')[-1500:]}" for r in results)
         for r in results:
             w = r["worker"]
@@ -589,11 +652,11 @@ class Orchestrator:
             out = self.gw.chat(wmodel, [{"role": "user", "content": msg}], timeout=150, max_tokens=600)
             text = out.get("text") if out.get("ok") else f"(no comment: {out.get('error','')[:120]})"
             hub.emit("discuss", f"[{w}] {text[:1200]}", task=tid, worker=w, phase="msg", text=text)
-        hub.emit("discuss", "Discussion round finished", task=tid, phase="end")
+        hub.emit("discuss", "Saling menilai selesai", task=tid, phase="end")
 
     # ---------------------------------------------------------------- review
     def _review(self, tid: str, prompt: str, results: list[dict], test_res: dict | None, model: str) -> dict:
-        hub.emit("review", "Hermes review in progress…", task=tid, phase="start")
+        hub.emit("review", "Penilaian akhir berjalan", task=tid, phase="start")
         diff = project.change_summary(12000)
         digest = "\n\n".join(f"### {r['worker']}\n{(r.get('text') or '')[-1200:]}" for r in results)
         tinfo = "not run"
@@ -612,10 +675,42 @@ class Orchestrator:
             if line.strip().upper().startswith("VERDICT"):
                 verdict = line.split(":", 1)[-1].strip().upper()[:20]
                 break
-        hub.emit("review", f"verdict={verdict}", task=tid, phase="end", verdict=verdict, text=text[:4000])
+        hub.emit("review", f"penilaian: {verdict}", task=tid, phase="end", verdict=verdict, text=text[:4000])
         return {"verdict": verdict, "text": text}
 
     # --------------------------------------------------------------- summary
+    def _answer(self, prompt: str, results: list[dict], review: dict | None, model: str) -> str:
+        """The one paragraph a person actually reads.
+
+        Worker output is a work log, not an answer: it carries progress lines,
+        file echoes and tool chatter. This asks the gateway model to read that
+        log and answer the user in plain language, and falls back to the most
+        human line the workers produced when the gateway cannot answer.
+        """
+        digest = "\n\n".join(
+            f"### {r.get('worker')} ({'ok' if r.get('ok') else 'gagal'})\n{clean_output(r.get('text') or '')[-4000:]}"
+            for r in (results or [])
+        )
+        if not digest.strip():
+            return "Tidak ada keluaran dari worker untuk tugas ini."
+        msg = (
+            f"Permintaan pengguna: {prompt}\n\n"
+            f"Catatan kerja tim (mentah):\n{digest}\n\n"
+            + (f"Hasil penilaian: {review.get('verdict')}\n" if review else "")
+            + "Jawab pengguna langsung, dalam bahasa Indonesia, 1 sampai 4 kalimat pendek. "
+            "Kalau pengguna bertanya, jawab pertanyaannya. Kalau pengguna meminta pekerjaan, "
+            "sebutkan apa yang sudah dikerjakan dan di file mana. "
+            "Jangan menyebut nama tool, nama worker, path panjang, atau langkah internal. "
+            "Jangan pakai tanda pisah panjang. Jangan mengarang."
+        )
+        out = self.gw.chat(model, [{"role": "user", "content": msg}], timeout=180, max_tokens=700)
+        text = clean_output(out.get("text") or "") if out.get("ok") else ""
+        if not text:
+            text = best_answer_text(results)
+        if not text:
+            text = "Tugas selesai, tetapi tidak ada ringkasan yang bisa dibaca."
+        return text[:4000]
+
     def _summarize(self, prompt: str, results: list[dict], test_res: dict | None, review: dict | None, changed: str) -> str:
         parts = [f"task: {prompt[:160]}"]
         parts.append("workers: " + ", ".join(f"{r['worker']}({'ok' if r.get('ok') else 'fail'})" for r in results))

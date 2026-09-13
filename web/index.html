@@ -4,995 +4,180 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0F172A">
-<meta name="description" content="AstroZ: kirim tugas ke tim koding AI, pilih satu model, lihat hasilnya.">
+<meta name="description" content="AstroZ: satu chat untuk mengerjakan tugas koding, dengan panel proses kerja terpisah.">
 <title>AstroZ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
-<style>
-:root{
-  /* Palette: 2 core + 1 accent (R-29). Satu keluarga abu-biru, tidak campur warm/cool (R-29). */
-  --bg:#0F172A;        /* latar: navy gelap, bukan #000 (hindari hitam murni) */
-  --card:#1B2336;      /* permukaan kartu */
-  --raise:#232D42;     /* permukaan naik: input, baris terpilih */
-  --line:#2E3A52;      /* garis dekoratif (pembatas, tepi kartu) */
-  --line-strong:#6B7C99;/* tepi komponen interaktif, terverifikasi 3.26-4.22:1 */
-  --fg:#F8FAFC;        /* teks utama, 14.98:1 di kartu */
-  --muted:#A6B4C8;     /* teks sekunder, 7.45:1 di kartu */
-  --accent:#22C55E;    /* aksen tunggal: aksi utama + status hidup, 6.88:1 */
-  --accent-ink:#0F172A;/* teks di atas aksen, 7.83:1 */
-  --warn:#FBBF24;      /* 9.39:1 */
-  --err:#F87171;       /* 5.66:1 */
-  --sans:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  --r-card:14px; --r-ctl:10px;
-}
-*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html{-webkit-text-size-adjust:100%}
-body{
-  margin:0;background:var(--bg);color:var(--fg);
-  font:16px/1.55 var(--sans);
-  padding:0 0 calc(88px + env(safe-area-inset-bottom)) 0;
-  overflow-x:hidden;
-}
-h1,h2,h3{margin:0;font-weight:600;line-height:1.25}
-.wrap{max-width:760px;margin:0 auto;padding:0 14px}
-
-/* ---------- header ---------- */
-header{
-  position:sticky;top:0;z-index:30;background:var(--bg);
-  border-bottom:1px solid var(--line);
-  padding:calc(10px + env(safe-area-inset-top)) 0 10px;
-}
-.brandrow{display:flex;align-items:baseline;gap:10px}
-.brand{font-size:19px;font-weight:700;letter-spacing:-.01em}
-.tagline{color:var(--muted);font-size:13px}
-.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-
-/* chips: status bertekstur label, bukan warna saja (R-25 / C-4) */
-.chip{
-  display:inline-flex;align-items:center;gap:6px;
-  font:500 12.5px/1 var(--sans);
-  padding:7px 10px;border-radius:var(--r-ctl);
-  background:var(--raise);border:1px solid var(--line-strong);color:var(--fg);
-}
-.chip .dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:none}
-.chip.ok{border-color:var(--accent)}
-.chip.ok .dot{background:var(--accent)}
-.chip.bad{border-color:var(--err)}
-.chip.bad .dot{background:var(--err)}
-.chip .lbl{color:var(--muted);font-weight:400}
-.chip .val{font-weight:600}
-
-/* ---------- cards ---------- */
-.card{
-  background:var(--card);border:1px solid var(--line);
-  border-radius:var(--r-card);padding:16px;margin:14px 0;
-}
-.card>h2{font-size:15.5px;margin-bottom:4px}
-.card .sub{color:var(--muted);font-size:13.5px;margin:0 0 14px}
-section[hidden]{display:none}
-
-/* ---------- forms ---------- */
-label.f{display:block;font-size:13.5px;font-weight:500;color:var(--muted);margin:0 0 6px}
-textarea,input[type=text],input[type=search],input:not([type]),select{
-  width:100%;background:var(--raise);color:var(--fg);
-  border:1px solid var(--line-strong);border-radius:var(--r-ctl);
-  padding:12px;font:16px/1.4 var(--sans);
-}
-textarea{min-height:104px;resize:vertical}
-input::placeholder,textarea::placeholder{color:var(--muted)}
-select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 18px) 50%,calc(100% - 13px) 50%;background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:36px}
-
-/* ---------- buttons: min 44px tap target (R-03) ---------- */
-button{font-family:inherit;font-size:15px;cursor:pointer;border-radius:var(--r-ctl)}
-button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,
-a:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.btn{
-  display:inline-flex;align-items:center;justify-content:center;gap:8px;
-  min-height:46px;padding:0 18px;font-weight:600;
-  background:var(--raise);color:var(--fg);border:1px solid var(--line-strong);
-  transition:background .18s ease,border-color .18s ease,transform .12s ease;
-}
-.btn:hover{background:#2B3752}
-.btn:active{transform:translateY(1px)}
-.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
-.btn.primary:hover{background:#2ee06a}
-.btn.ghost{background:transparent}
-.btn.wide{width:100%}
-.btn.sm{min-height:40px;padding:0 13px;font-size:14px;font-weight:500}
-.btn[disabled]{opacity:.45;cursor:not-allowed}
-.btnrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
-.btnrow .grow{flex:1 1 auto}
-
-/* ---------- status text ---------- */
-.msg{font-size:13.5px;color:var(--muted);margin-top:10px;min-height:1.4em}
-.msg.ok{color:var(--accent)}
-.msg.bad{color:var(--err)}
-
-/* ---------- big answer block (beranda) ---------- */
-.answer{
-  background:var(--raise);border:1px dashed var(--line-strong);
-  border-radius:var(--r-card);padding:16px;margin-top:14px;
-}
-.answer .k{font-size:13px;color:var(--muted);margin-bottom:4px}
-.answer .v{font-size:17px;font-weight:600;word-break:break-word}
-.answer .v.small{font-size:15px;font-weight:400;color:var(--muted)}
-
-/* ---------- setup checklist ---------- */
-.steps{list-style:none;margin:0;padding:0;counter-reset:s}
-.steps li{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
-.steps li:last-child{border-bottom:0}
-.steps .n{
-  flex:none;width:26px;height:26px;border-radius:50%;
-  background:var(--raise);border:1px solid var(--line-strong);
-  display:flex;align-items:center;justify-content:center;
-  font:600 13px/1 var(--mono);color:var(--muted);
-}
-.steps li.done .n{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
-.steps .t{font-weight:500}
-.steps .d{color:var(--muted);font-size:13.5px}
-.steps li.done .t{color:var(--muted)}
-.steps li.todo .t{color:var(--fg)}
-.steps li.todo{border-left:2px solid var(--accent);padding-left:12px;margin-left:-14px}
-
-/* ---------- segmented sub-tabs ---------- */
-.seg{display:flex;gap:6px;background:var(--raise);border:1px solid var(--line-strong);border-radius:var(--r-ctl);padding:4px;margin-bottom:14px}
-.seg button{
-  flex:1;min-height:40px;background:transparent;border:1px solid transparent;
-  color:var(--muted);font-size:14px;font-weight:500;border-radius:8px;
-}
-.seg button[aria-selected=true]{background:var(--card);color:var(--fg);border-color:var(--line-strong)}
-
-/* ---------- lists ---------- */
-.item{
-  background:var(--card);border:1px solid var(--line);border-radius:var(--r-ctl);
-  padding:13px;margin-bottom:10px;
-}
-.item.pick{border-color:var(--accent)}
-.item .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.item .ttl{font-weight:600;font-size:15px;flex:1;min-width:0;overflow-wrap:anywhere}
-.item .meta{color:var(--muted);font-size:13px;margin-top:6px;overflow-wrap:anywhere}
-.item button.linkish{
-  background:none;border:0;color:var(--accent);font-size:13.5px;font-weight:600;
-  padding:6px 0;min-height:36px;
-}
-.badge{
-  display:inline-block;font:500 12px/1 var(--sans);
-  padding:5px 8px;border-radius:6px;background:var(--raise);
-  border:1px solid var(--line-strong);color:var(--muted);
-}
-.badge.ok{color:var(--accent);border-color:var(--accent)}
-.badge.bad{color:var(--err);border-color:var(--err)}
-.badge.warn{color:var(--warn);border-color:var(--warn)}
-.mono{font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums}
-
-/* ---------- feed ---------- */
-.feed{
-  max-height:56vh;overflow-y:auto;background:var(--raise);
-  border:1px solid var(--line-strong);border-radius:var(--r-ctl);padding:10px;
-  font-family:var(--mono);font-size:12.5px;line-height:1.6;
-}
-.ev{padding:5px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
-.ev:last-child{border-bottom:0}
-.ev .t{color:var(--muted);margin-right:7px}
-.ev .k{font-weight:700;margin-right:7px}
-.ev .more{background:none;border:0;color:var(--accent);font:inherit;padding:2px 0;text-decoration:underline}
-.k-task{color:var(--warn)}.k-plan{color:#C4A5F5}.k-worker{color:#7FB2FF}.k-review{color:var(--warn)}
-.k-test{color:#4DD4C4}.k-git{color:#F0A3C0}.k-gateway{color:#A5B4FF}.k-hermes{color:var(--accent)}
-.k-system,.k-log,.k-discuss{color:var(--muted)}
-
-.tree{font-family:var(--mono);font-size:12.5px;max-height:44vh;overflow-y:auto;margin-top:12px}
-.tree div{padding:8px 4px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
-.tree .f{cursor:pointer}
-.tree .f:hover{background:var(--raise)}
-.tree .d{color:var(--accent)}
-pre{
-  background:var(--raise);border:1px solid var(--line-strong);border-radius:var(--r-ctl);
-  padding:12px;overflow:auto;font-family:var(--mono);font-size:12px;line-height:1.5;
-  max-height:56vh;white-space:pre-wrap;word-break:break-word;margin:12px 0 0;
-}
-.empty{color:var(--muted);font-size:14px;padding:16px 0;text-align:center}
-
-/* ---------- bottom nav: 5 tujuan utama, target 56px ---------- */
-nav{
-  position:fixed;left:0;right:0;bottom:0;z-index:40;
-  background:var(--bg);border-top:1px solid var(--line);
-  padding:6px 4px calc(6px + env(safe-area-inset-bottom));
-  display:flex;gap:6px;
-}
-nav button{
-  flex:1;min-height:56px;background:transparent;border:1px solid transparent;
-  color:var(--muted);font-size:11.5px;font-weight:500;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
-  border-radius:10px;transition:background .18s ease,color .18s ease;
-}
-nav button .ic{font-size:18px;line-height:1}
-nav button[aria-current=page]{color:var(--fg);background:var(--raise);border-color:var(--line-strong)}
-nav button[aria-current=page] .ic{color:var(--accent)}
-
-/* focus & motion */
-@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
-@media (min-width:600px){
-  .brand{font-size:21px}
-  .card{padding:20px;margin:16px 0}
-  nav{position:sticky;bottom:auto;top:0;justify-content:center;gap:8px}
-  body{padding-bottom:24px}
-  nav button{flex:0 1 132px}
-}
-.skip{position:absolute;left:-9999px}
-.skip:focus{left:14px;top:14px;z-index:99;background:var(--accent);color:var(--accent-ink);padding:10px;border-radius:8px;outline:2px solid var(--fg);outline-offset:2px}
-
-/* pesan mengambang: pengganti alert(), tetap terbaca dan bisa ditutup (R-26, R-27) */
-.toasts{
-  position:fixed;left:50%;transform:translateX(-50%);
-  bottom:calc(96px + env(safe-area-inset-bottom));z-index:60;
-  width:min(520px,calc(100vw - 28px));display:flex;flex-direction:column;gap:8px;
-  pointer-events:none;
-}
-.toast{
-  pointer-events:auto;display:flex;gap:10px;align-items:flex-start;
-  background:var(--card);border:1px solid var(--line-strong);
-  border-left:3px solid var(--muted);
-  border-radius:var(--r-ctl);padding:12px 14px;
-  font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.45);
-}
-.toast.ok{border-left-color:var(--accent)}
-.toast.bad{border-left-color:var(--err)}
-.toast .x{
-  margin-left:auto;background:none;border:0;color:var(--muted);
-  font-size:20px;line-height:1;padding:0 2px;min-height:0;
-}
-.toast .x:hover{color:var(--fg)}
-</style>
+<link rel="stylesheet" href="/app.css">
 </head>
 <body>
-<a class="skip" href="#main">Lewati ke isi</a>
-<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+<a class="skip" href="#input">Lewati ke kotak pesan</a>
 
-<header>
-  <div class="wrap">
-    <div class="brandrow">
-      <span class="brand">AstroZ</span>
-      <span class="tagline">Kirim tugas, pilih model, lihat hasilnya</span>
+<div class="app">
+
+  <!-- percakapan: satu kolom di HP, kolom tetap di layar lebar -->
+  <aside class="rail" id="threads" aria-label="Daftar percakapan">
+    <div class="rail-head">
+      <div class="brand">Astro<span class="z">Z</span></div>
+      <div class="sub">Satu chat di depan, tim pekerja di belakang</div>
     </div>
-    <div class="chips">
-      <span id="chip-gw" class="chip"><span class="dot"></span><span class="lbl">Gateway</span><span class="val">memeriksa…</span></span>
-      <span id="chip-model" class="chip"><span class="lbl">Model</span><span class="val">belum dipilih</span></span>
-      <span id="chip-task" class="chip"><span class="lbl">Tugas</span><span class="val">0</span></span>
+    <div class="rail-list" id="thread-list"></div>
+    <div class="rail-foot">
+      <button class="btn primary wide" id="new-thread">Percakapan baru</button>
+      <div class="who" id="foot-info">memuat keadaan gateway</div>
     </div>
-  </div>
-</header>
+  </aside>
 
-<nav id="nav" aria-label="Navigasi utama"></nav>
+  <!-- chat -->
+  <main class="col">
+    <header class="chat-head">
+      <button class="icon-btn only-mobile" id="open-threads" aria-label="Buka daftar percakapan">Percakapan</button>
+      <h1 id="chat-title">Percakapan</h1>
+      <span class="tag" id="chip-model">memuat model</span>
+      <span class="tag" id="chip-gw">memeriksa</span>
+      <button class="icon-btn only-mobile" id="open-tools" aria-label="Buka panel alat">Alat</button>
+    </header>
 
-<main id="main" class="wrap">
+    <ol class="messages" id="messages" aria-live="polite"></ol>
 
-  <!-- ============ BERANDA ============ -->
-  <section id="tab-beranda">
-    <div class="card">
-      <h2>Sisa setup</h2>
-      <p class="sub">Tiga langkah sampai siap dipakai. Yang sudah beres ditandai warna.</p>
-      <ol class="steps" id="setup-steps"></ol>
-    </div>
-
-    <div class="card">
-      <h2>Kirim tugas</h2>
-      <p class="sub">Tulis tugasnya pakai bahasa biasa. Contoh: "buat file kalkulator.py plus tesnya".</p>
-      <label class="f" for="dash-prompt">Tugas untuk para worker</label>
-      <textarea id="dash-prompt" placeholder="Tulis tugasnya di sini…"></textarea>
-      <label class="f" for="dash-workflow" style="margin-top:12px">Seberapa besar tugas ini</label>
-      <select id="dash-workflow">
-        <option value="auto">Deteksi otomatis (disarankan)</option>
-        <option value="small">Kecil: satu worker, cepat</option>
-        <option value="medium">Sedang: direncanakan lalu dikerjakan</option>
-        <option value="large">Besar: dipecah, dikerjakan paralel, lalu direview</option>
-      </select>
-      <div class="btnrow">
-        <button class="btn primary grow" id="dash-send">Kerjakan tugas</button>
+    <form class="composer" id="composer">
+      <div class="box">
+        <label class="sr" for="input">Pesan untuk tim</label>
+        <textarea id="input" placeholder="Tulis tugas atau pertanyaan. Enter mengirim, Shift dan Enter membuat baris baru."></textarea>
+        <div class="row">
+          <label class="sr" for="size">Ukuran tugas</label>
+          <select id="size" style="max-width:200px">
+            <option value="auto">Otomatis</option>
+            <option value="small">Cepat: satu pekerja</option>
+            <option value="medium">Sedang: direncanakan</option>
+            <option value="large">Besar: dipecah dan dinilai</option>
+          </select>
+          <span style="flex:1"></span>
+          <button class="btn primary" id="send" type="submit">Kirim</button>
+        </div>
       </div>
-      <div class="msg" id="dash-msg"></div>
-    </div>
+    </form>
+  </main>
 
-    <div class="card">
-      <h2>Tugas terakhir</h2>
-      <p class="sub">Hasil paling baru dari tim.</p>
-      <div id="dash-active"></div>
-    </div>
-
-    <div class="card">
-      <h2>Aktivitas langsung</h2>
-      <p class="sub">Apa yang sedang dikerjakan, detik demi detik.</p>
-      <div class="feed" id="dash-feed"></div>
-    </div>
-  </section>
-
-  <!-- ============ TUGAS ============ -->
-  <section id="tab-tugas" hidden>
-    <div class="card">
-      <h2>Daftar tugas</h2>
-      <p class="sub">Ketuk satu tugas untuk melihat rencana, hasil, dan catatannya.</p>
-      <div id="task-list"></div>
-    </div>
-    <div class="card">
-      <h2>Detail tugas</h2>
-      <p class="sub" id="task-detail-sub">Belum ada yang dipilih.</p>
-      <div id="task-detail"></div>
-    </div>
-  </section>
-
-  <!-- ============ MODEL ============ -->
-  <section id="tab-model" hidden>
-    <div class="card">
-      <h2>Keadaan gateway</h2>
-      <p class="sub">9Router adalah pintu ke semua model. Kalau dia mati, tidak ada yang bisa menjawab.</p>
-      <div id="gw-info"></div>
-    </div>
-
-    <div class="card">
-      <h2>Pilih satu model untuk semua</h2>
-      <p class="sub">Sekali pilih di sini, lalu tekan tombol terapkan. Model yang sama dipakai Hermes dan keempat worker, jadi tidak perlu seting satu-satu.</p>
-      <div id="active-model" class="answer"></div>
-      <div class="btnrow">
-        <button class="btn ghost" id="gw-sync">Muat daftar model</button>
-        <button class="btn ghost" id="gw-probe">Tes model yang hidup</button>
-      </div>
-      <div class="msg" id="gw-msg"></div>
-    </div>
-
-    <div class="card">
-      <h2>Daftar model <span class="badge" id="gw-count">0</span></h2>
-      <p class="sub">Ketuk baris untuk memilih. Baris yang ditandai hijau adalah model yang sedang dipakai.</p>
-      <label class="f" for="gw-search">Cari model</label>
-      <input id="gw-search" type="search" placeholder="misalnya qwen, gemini, claude…">
-      <label class="f" for="gw-onlyok" style="margin-top:12px;display:flex;gap:8px;align-items:center">
-        <input type="checkbox" id="gw-onlyok" style="width:auto"> Hanya tampilkan model yang sudah teruji hidup
-      </label>
-      <div id="gw-models" style="margin-top:12px"></div>
-      <div class="btnrow">
-        <button class="btn primary grow" id="gw-apply">Terapkan ke semua</button>
-      </div>
-      <label class="f" for="gw-applyworkers" style="margin-top:12px;display:flex;gap:8px;align-items:center">
-        <input type="checkbox" id="gw-applyworkers" checked style="width:auto"> Sekalian perbarui keempat worker
-      </label>
-    </div>
-
-    <div class="card">
-      <h2>API key gateway</h2>
-      <p class="sub">Hanya perlu diisi kalau gateway minta kunci. Ambil dari dashboard 9Router.</p>
-      <label class="f" for="gw-key">Kunci API</label>
-      <input id="gw-key" placeholder="sk-…" autocomplete="off">
-      <div class="btnrow"><button class="btn" id="gw-keysave">Simpan kunci</button></div>
-    </div>
-
-    <div class="card">
-      <h2>Perkakas worker</h2>
-      <p class="sub">Empat CLI yang mengerjakan tugas. Empat-empatnya memakai model dan gateway yang sama.</p>
-      <div id="workers"></div>
-      <div class="btnrow">
-        <button class="btn ghost" id="workers-probe">Periksa ulang semua</button>
-        <button class="btn ghost" id="workers-apply">Terapkan model ke semua</button>
-      </div>
-    </div>
-  </section>
-
-  <!-- ============ PERKAKAS ============ -->
-  <section id="tab-perkakas" hidden>
-    <div class="card">
-      <h2>Perkakas proyek</h2>
-      <p class="sub">Isi folder kerja, riwayat perubahan, dan hasil tes.</p>
+  <!-- alat: kolom di layar lebar, panel geser di HP -->
+  <aside class="tools" id="tools" aria-label="Panel alat">
+    <div class="tools-head">
       <div class="seg" role="tablist" id="tool-seg">
-        <button role="tab" aria-selected="true" data-tool="berkas">Berkas</button>
-        <button role="tab" aria-selected="false" data-tool="git">Perubahan</button>
-        <button role="tab" aria-selected="false" data-tool="tes">Tes</button>
+        <button role="tab" data-pane="jalankan" aria-selected="true">Proses</button>
+        <button role="tab" data-pane="model" aria-selected="false">Model</button>
+        <button role="tab" data-pane="berkas" aria-selected="false">Berkas</button>
+        <button role="tab" data-pane="log" aria-selected="false">Log</button>
       </div>
-
-      <div id="tool-berkas">
-        <div id="proj-info" class="meta" style="color:var(--muted);font-size:13.5px"></div>
-        <div class="btnrow"><button class="btn ghost sm" id="proj-refresh">Muat ulang daftar</button></div>
-        <div class="tree" id="proj-tree"></div>
-        <h2 style="margin-top:18px;font-size:15px">Isi berkas</h2>
-        <pre id="proj-file">Pilih satu berkas di atas untuk membacanya.</pre>
-      </div>
-
-      <div id="tool-git" hidden>
-        <p class="sub" style="margin-top:4px">Apa yang berubah di folder kerja, dan riwayat commit-nya.</p>
-        <div class="btnrow">
-          <button class="btn ghost sm" id="git-refresh">Muat ulang</button>
-          <button class="btn ghost sm" id="git-commit" aria-expanded="false" aria-controls="git-commit-form">Simpan sebagai commit</button>
-        </div>
-        <div id="git-commit-form" hidden style="margin-top:12px">
-          <label class="f" for="git-commit-msg">Pesan commit</label>
-          <input id="git-commit-msg" placeholder="misalnya: tambah fungsi hitung pajak">
-          <div class="btnrow">
-            <button class="btn primary" id="git-commit-save">Simpan commit</button>
-            <button class="btn ghost" id="git-commit-cancel">Batal</button>
-          </div>
-        </div>
-        <pre id="git-status">memuat…</pre>
-        <h2 style="margin-top:18px;font-size:15px">Perbedaan (diff)</h2>
-        <pre id="git-diff">memuat…</pre>
-      </div>
-
-      <div id="tool-tes" hidden>
-        <p class="sub" style="margin-top:4px">Tes yang dipakai tim untuk menilai hasil kerja.</p>
-        <div id="test-cmd" class="meta" style="color:var(--muted);font-size:13.5px"></div>
-        <label class="f" for="test-input" style="margin-top:12px">Perintah tes (kosongkan untuk pakai deteksi otomatis)</label>
-        <input id="test-input" placeholder="misalnya: python -m pytest -q">
-        <div class="btnrow"><button class="btn primary" id="test-run">Jalankan tes</button></div>
-        <pre id="test-out">Belum dijalankan.</pre>
-      </div>
+      <button class="btn sm ghost only-mobile" data-close style="margin-top:8px">Tutup panel</button>
     </div>
-  </section>
 
-  <!-- ============ LOG ============ -->
-  <section id="tab-log" hidden>
-    <div class="card">
-      <h2>Catatan kejadian</h2>
-      <p class="sub">Semua yang terjadi di sistem, termasuk hal teknis. Berguna kalau ada yang gagal.</p>
-      <label class="f" for="log-filter">Saring jenis kejadian</label>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-        <select id="log-filter" style="flex:1 1 200px">
-          <option value="">Semua</option>
-          <option value="worker">Worker</option>
-          <option value="hermes">Hermes (perencana &amp; penilai)</option>
+    <div class="panes">
+      <section class="pane on" id="pane-jalankan">
+        <h2>Pekerjaan di percakapan ini</h2>
+        <p class="note">Ketuk satu baris untuk melihat prosesnya: rencana, tiap pekerja, tes, dan penilaian. Panel ini terpisah dari chat supaya percakapan tetap bersih.</p>
+        <div id="runs"></div>
+      </section>
+
+      <section class="pane" id="pane-model">
+        <h2>Model yang dipakai</h2>
+        <p class="note" id="model-now">memuat</p>
+        <div class="btnrow">
+          <button class="btn sm" id="model-sync">Muat dari gateway</button>
+          <button class="btn sm ghost" id="model-probe">Tes mana yang hidup</button>
+        </div>
+        <label class="sr" for="model-search">Cari model</label>
+        <input id="model-search" type="search" placeholder="cari model: kenari, qwen, claude, dvvai" style="margin-top:10px">
+        <div class="btnrow" id="providers" style="margin-top:8px"></div>
+        <label class="sw"><input type="checkbox" id="model-ok"> hanya yang sudah teruji hidup</label>
+        <div id="model-list"></div>
+        <button class="btn primary wide" id="apply-model" style="margin-top:10px">Terapkan ke semua</button>
+        <p class="note" id="pick-note" style="margin-top:6px">Belum ada model yang dipilih. Satu pilihan di sini dipakai Hermes dan keempat pekerja.</p>
+
+        <h2>Pekerja</h2>
+        <p class="note">Empat CLI yang mengerjakan tugas.</p>
+        <div id="workers"></div>
+        <div class="btnrow">
+          <button class="btn sm ghost" id="workers-probe">Periksa semua</button>
+          <button class="btn sm ghost" id="workers-apply">Terapkan model ke pekerja</button>
+        </div>
+      </section>
+
+      <section class="pane" id="pane-berkas">
+        <div class="seg" role="tablist" id="file-seg">
+          <button role="tab" data-f="berkas" aria-selected="true">Berkas</button>
+          <button role="tab" data-f="git" aria-selected="false">Perubahan</button>
+          <button role="tab" data-f="tes" aria-selected="false">Tes</button>
+        </div>
+
+        <div class="fpane on" id="f-berkas">
+          <p class="note" id="proj-dir"></p>
+          <div class="btnrow"><button class="btn sm ghost" id="proj-refresh">Muat ulang</button></div>
+          <div class="tree" id="tree"></div>
+          <h2 id="file-name">Isi berkas</h2>
+          <pre class="out" id="file-out">Pilih satu berkas untuk membacanya.</pre>
+        </div>
+
+        <div class="fpane" id="f-git">
+          <p class="note">Apa yang berubah di folder kerja, dan riwayat commit-nya.</p>
+          <div class="btnrow"><button class="btn sm ghost" id="git-refresh">Muat ulang</button></div>
+          <pre class="out" id="git-out">memuat</pre>
+          <h2>Simpan sebagai commit</h2>
+          <label class="sr" for="git-msg">Pesan commit</label>
+          <input id="git-msg" placeholder="misalnya: tambah fungsi hitung pajak">
+          <button class="btn sm" id="git-commit-save" style="margin-top:8px">Simpan commit</button>
+          <h2>Perbedaan</h2>
+          <pre class="out" id="diff-out">memuat</pre>
+        </div>
+
+        <div class="fpane" id="f-tes">
+          <p class="note">Tes yang dipakai tim untuk menilai hasil kerja.</p>
+          <label class="sr" for="test-cmd">Perintah tes</label>
+          <input id="test-cmd" placeholder="kosongkan untuk pakai deteksi otomatis">
+          <button class="btn sm" id="test-run" style="margin-top:8px">Jalankan tes</button>
+          <pre class="out" id="test-out">Belum dijalankan.</pre>
+        </div>
+      </section>
+
+      <section class="pane" id="pane-log">
+        <h2>Catatan kejadian</h2>
+        <p class="note">Semua yang terjadi di sistem, termasuk hal teknis. Berguna kalau ada yang gagal.</p>
+        <label class="sr" for="log-filter">Saring jenis kejadian</label>
+        <select id="log-filter">
+          <option value="">Semua jenis</option>
+          <option value="worker">Pekerja</option>
+          <option value="plan">Rencana</option>
           <option value="test">Tes</option>
+          <option value="review">Penilaian</option>
+          <option value="git">Git</option>
           <option value="gateway">Gateway</option>
+          <option value="hermes">Hermes</option>
           <option value="system">Sistem</option>
         </select>
-        <button class="btn ghost sm" id="log-clear">Kosongkan tampilan</button>
-      </div>
-      <div class="feed" id="logs" style="max-height:64vh;margin-top:12px"></div>
+        <div class="btnrow" style="margin-top:8px">
+          <button class="btn sm ghost" id="log-clear">Kosongkan tampilan</button>
+        </div>
+        <div class="feed" id="log-feed" style="max-height:60vh;margin-top:10px"></div>
+      </section>
     </div>
-  </section>
-</main>
+  </aside>
+</div>
 
-<script>
-/* ------------------------------------------------------------------ state */
-const TABS=[
-  ["beranda","Beranda","◆"],
-  ["tugas","Tugas","▤"],
-  ["model","Model","◈"],
-  ["perkakas","Perkakas","⚒"],
-  ["log","Log","≡"],
-];
-const $=s=>document.querySelector(s);
-const $$=s=>Array.from(document.querySelectorAll(s));
-const el=(t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!==undefined)e.innerHTML=h;return e;};
-let STATE={},CUR_TASK=null,LOG_MAX_ID=0,LOG_FILLED=null;
+<div class="scrim" id="scrim"></div>
 
-/* ------------------------------------------------- plain-language helpers */
-const stripProvider=m=>(m||"").includes("/")?m.split("/").slice(1).join("/"):(m||"");
-const STATUS_WORDS={
-  done:["Selesai","ok"], running:["Sedang dikerjakan","warn"], queued:["Menunggu giliran",""],
-  pending:["Menunggu giliran",""], error:["Gagal","bad"], failed:["Gagal","bad"],
-  ok:["Berhasil","ok"], pass:["Lulus","ok"], fail:["Tidak lulus","bad"], skipped:["Dilewati",""],
-};
-function statusText(s){const w=STATUS_WORDS[s];return w?w[0]:(s||"tidak diketahui");}
-function statusCls(s){const w=STATUS_WORDS[s];return w?w[1]:"";}
-const fmtTime=ts=>new Date(ts*1000).toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
-const fmtWhen=ts=>ts?new Date(ts*1000).toLocaleString("id-ID",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"belum pernah";
-
-/* ------------------------------------------------------------------ nav */
-const nav=$("#nav");
-TABS.forEach(([k,label,icon],i)=>{
-  const b=el("button",null,`<span class="ic" aria-hidden="true">${icon}</span><span>${label}</span>`);
-  b.dataset.tab=k;
-  b.onclick=()=>show(k);
-  if(i===0)b.setAttribute("aria-current","page");
-  nav.appendChild(b);
-});
-function show(k){
-  TABS.forEach(([t])=>{$("#tab-"+t).hidden=(t!==k);});
-  $$("#nav button").forEach(b=>{
-    if(b.dataset.tab===k)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");
-  });
-  if(k==="perkakas"){loadTree();loadGit();}
-  if(k==="model")loadModels();
-  if(k==="log")fillLog();
-  if(k==="tugas"&&CUR_TASK)loadTask(CUR_TASK);
-  window.scrollTo({top:0,behavior:"instant"in window?"instant":"auto"});
-}
-
-/* ------------------------------------------------------------------ feed */
-function escapeHtml(s){return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
-function evLine(raw){
-  const d=el("div","ev");
-  const text=raw.text||"";
-  const long=text.length>220;
-  d.innerHTML=`<span class="t">${fmtTime(raw.ts)}</span><span class="k k-${escapeHtml(raw.kind)}">${escapeHtml(raw.kind)}</span>`
-    + `<span class="body">${escapeHtml(long?text.slice(0,220)+"…":text)}</span>`;
-  if(long){
-    const b=el("button","more","lihat semua");
-    b.setAttribute("aria-expanded","false");
-    b.onclick=e=>{
-      e.stopPropagation();
-      const on=b.getAttribute("aria-expanded")==="true";
-      b.setAttribute("aria-expanded",String(!on));
-      d.querySelector(".body").textContent=on?(text.slice(0,220)+"…"):text;
-      b.textContent=on?"lihat semua":"tutup";
-    };
-    d.appendChild(b);
-  }
-  return d;
-}
-function push(sel,raw,max){
-  const c=$(sel); if(!c)return;
-  const stick=c.scrollTop+c.clientHeight>=c.scrollHeight-40;
-  c.appendChild(evLine(raw));
-  while(c.children.length>(max||300))c.removeChild(c.firstChild);
-  if(stick)c.scrollTop=c.scrollHeight;
-}
-function pushLog(e){
-  if(!["worker","hermes","test","system","gateway","log"].includes(e.kind))return;
-  if((e.id||0)<=LOG_MAX_ID)return;                 /* sudah dimuat dari riwayat */
-  const f=$("#log-filter").value;
-  if(f&&e.kind!==f)return;
-  const box=$("#logs");
-  if(box.querySelector(".empty"))box.innerHTML=""; /* buang pesan kosong/memuat */
-  push("#logs",e,600);
-  LOG_MAX_ID=Math.max(LOG_MAX_ID,e.id||0);
-}
-const es=new EventSource("/api/events?replay=120");
-es.onmessage=m=>{
-  let e; try{e=JSON.parse(m.data);}catch{return;}
-  push("#dash-feed",e,300); pushLog(e);
-  if(e.kind==="task"){refreshState();if(CUR_TASK&&e.task===CUR_TASK)loadTask(CUR_TASK);}
-  if(e.kind==="gateway")refreshState();
-  if(e.kind==="test"&&e.phase==="end"&&e.output!==undefined){
-    $("#test-out").textContent=e.output||"(tidak ada keluaran)";
-  }
-};
-es.onerror=()=>{setGwChip(false,"terputus");};
-
-/* ------------------------------------------------------------------ api */
-async function api(path,opt){
-  try{
-    const r=await fetch(path,opt||{});
-    try{return await r.json();}catch{return {ok:false,error:"balasan bukan JSON"};}
-  }catch(err){return {ok:false,error:String(err&&err.message||err)};}
-}
-const post=(p,body)=>api(p,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})});
-
-/* Pesan mengambang. Menggantikan alert(): tidak memblokir, bisa ditutup,
-   dan diumumkan ke pembaca layar lewat aria-live di wadahnya. */
-function toast(text,kind){
-  const box=$("#toasts");
-  const t=el("div","toast "+(kind||""));
-  t.innerHTML=`<span>${escapeHtml(text)}</span>`;
-  const x=el("button","x","×");
-  x.setAttribute("aria-label","Tutup pesan");
-  x.onclick=()=>t.remove();
-  t.appendChild(x);
-  box.appendChild(t);
-  setTimeout(()=>{if(t.isConnected)t.remove();},kind==="bad"?9000:5000);
-  return t;
-}
-
-/* ------------------------------------------------------- chips & setup */
-function setGwChip(online,label){
-  const c=$("#chip-gw");
-  c.className="chip "+(online?"ok":"bad");
-  c.querySelector(".dot").style.background=online?"var(--accent)":"var(--err)";
-  c.querySelector(".val").textContent=label||(online?"hidup":"mati");
-}
-function setupIssues(){
-  const g=STATE.gateway||{}, ws=STATE.workers||[];
-  const installed=ws.filter(w=>w.installed);
-  const enabled=ws.filter(w=>(STATE.worker_cfg||{})[w.key]?.enabled!==false);
-  return [
-    {ok:!!g.online,t:"Gateway 9Router hidup",
-     d:g.online?`Terhubung di ${g.base_url||"-"}`:"Belum menyala. Jalankan ./run.sh di folder AstroZ."},
-    {ok:!!g.model,t:"Model sudah dipilih",
-     d:g.model?`Semua worker memakai ${stripProvider(g.model)}`:"Buka tab Model, pilih satu, lalu tekan Terapkan ke semua."},
-    {ok:installed.length>0&&enabled.length>0,t:"Perkakas worker siap",
-     d:installed.length?`${enabled.length} dari ${ws.length} worker aktif: ${enabled.map(w=>w.key).join(", ")}`:"Tidak ada CLI worker yang terpasang."},
-  ];
-}
-function renderSetup(){
-  const box=$("#setup-steps"); box.innerHTML="";
-  setupIssues().forEach((s,i)=>{
-    const li=el("li",s.ok?"done":"todo");
-    li.innerHTML=`<span class="n">${s.ok?"✓":i+1}</span><span><span class="t">${escapeHtml(s.t)}</span><br><span class="d">${escapeHtml(s.d)}</span></span>`;
-    box.appendChild(li);
-  });
-}
-
-/* ------------------------------------------------------- periodic state */
-async function refreshState(){
-  const s=await api("/api/state");
-  if(s&&!s.error||s&&s.gateway)STATE=s;
-  const g=STATE.gateway||{};
-  setGwChip(!!g.online,g.online?"hidup":"mati");
-  $("#chip-model").querySelector(".val").textContent=stripProvider(g.model)||"belum dipilih";
-  $("#chip-model").title=g.model||"";
-  const n=(STATE.tasks||[]).length;
-  $("#chip-task").querySelector(".val").textContent=n+" tercatat";
-
-  renderSetup(); renderActiveTask(); renderTasks(); renderWorkers();
-  $("#gw-info").innerHTML=`<div class="meta" style="color:var(--muted);font-size:13.5px;line-height:1.8">
-    <div><b>Alamat gateway</b> <span class="mono">${escapeHtml(g.base_url||"-")}</span></div>
-    <div><b>Alamat untuk worker</b> <span class="mono">${escapeHtml(g.api_base||"-")}</span></div>
-    <div><b>Jumlah model</b> ${g.model_count||0}</div>
-    <div><b>Kunci API</b> ${g.has_key?"sudah diisi":"belum diisi"}</div>
-    <div><b>Sinkron terakhir</b> ${fmtWhen(g.last_sync)}</div>
-  </div>`;
-  $("#test-cmd").textContent="Yang terdeteksi sekarang: "+(STATE.project?.test_command||"belum ada. Tulis manual di bawah.");
-  $("#proj-info").textContent="Folder kerja: "+(STATE.project?.dir||"-");
-  if(!CUR_TASK)renderModelAnswer();
-}
-
-function sortedTasks(){
-  return (STATE.tasks||[]).slice().sort((a,b)=>(b.ts||0)-(a.ts||0));
-}
-function renderActiveTask(){
-  const box=$("#dash-active"); if(!box)return;
-  const t=sortedTasks()[0];
-  if(!t){box.innerHTML='<div class="empty">Belum ada tugas. Tulis satu di kotak di atas.</div>';return;}
-  const cls=statusCls(t.status);
-  const detail=(t.summary||t.prompt||"").slice(0,400);
-  box.innerHTML=`
-    <div class="item ${cls==="ok"?"pick":""}">
-      <div class="top"><span class="ttl">${escapeHtml((t.prompt||"(tanpa judul)").slice(0,90))}</span>
-        <span class="badge ${cls}">${escapeHtml(statusText(t.status))}</span></div>
-      <div class="meta">Dikerjakan oleh ${escapeHtml((t.workers||[]).join(", ")||"-")} · model ${escapeHtml(stripProvider(t.model)||"-")}</div>
-      ${detail?`<div class="meta">${escapeHtml(detail)}</div>`:""}
-      <button class="linkish" data-open="${escapeHtml(t.id)}">Lihat detail lengkap</button>
-    </div>`;
-  const b=box.querySelector("[data-open]");
-  if(b)b.onclick=()=>{CUR_TASK=b.dataset.open;show("tugas");loadTask(CUR_TASK);};
-}
-
-function renderTasks(){
-  const box=$("#task-list"); if(!box)return;
-  const list=sortedTasks();
-  if(!list.length){box.innerHTML='<div class="empty">Belum ada tugas.</div>';return;}
-  box.innerHTML="";
-  list.forEach(t=>{
-    const cls=statusCls(t.status);
-    const d=el("div","item"+(t.id===CUR_TASK?" pick":""));
-    d.innerHTML=`<div class="top"><span class="ttl">${escapeHtml((t.prompt||"(tanpa judul)").slice(0,80))}</span>
-      <span class="badge ${cls}">${escapeHtml(statusText(t.status))}</span></div>
-      <div class="meta">${escapeHtml(t.size||"otomatis")} · ${escapeHtml((t.workers||[]).join(", ")||"-")} · ${escapeHtml(stripProvider(t.model)||"-")}</div>
-      ${t.summary?`<div class="meta">${escapeHtml(String(t.summary).slice(0,160))}</div>`:""}`;
-    const b=el("button","linkish","Buka");
-    b.onclick=e=>{e.stopPropagation();CUR_TASK=t.id;loadTask(t.id);};
-    d.appendChild(b);
-    d.onclick=()=>{CUR_TASK=t.id;loadTask(t.id);};
-    box.appendChild(d);
-  });
-}
-async function loadTask(id){
-  const r=await api("/api/tasks/"+id);
-  if(!r||!r.ok){
-    $("#task-detail-sub").textContent="Tidak bisa memuat tugas ini.";
-    $("#task-detail").innerHTML=`<div class="empty">${escapeHtml((r&&r.error)||"tidak diketahui")}</div>`;
-    return;
-  }
-  const t=r.task, ev=r.events||[];
-  $("#task-detail-sub").textContent=(t.prompt||"").slice(0,140);
-  const review=t.review&&t.review.text?t.review.text:"";
-  const plan=t.plan?JSON.stringify(t.plan,null,1):"";
-  $("#task-detail").innerHTML=`
-    <div class="meta" style="font-size:13.5px;line-height:1.9">
-      <div><b>Status</b> ${escapeHtml(statusText(t.status))}</div>
-      <div><b>Ukuran</b> ${escapeHtml(t.size||"otomatis")}</div>
-      <div><b>Model</b> ${escapeHtml(stripProvider(t.model)||"-")}</div>
-      <div><b>Worker</b> ${escapeHtml((t.workers||[]).join(", ")||"-")}</div>
-      <div><b>Ditulis</b> ${fmtWhen(t.ts)}</div>
+<div class="drawer" id="activity-drawer" aria-hidden="true" role="dialog" aria-label="Aktivitas pekerjaan">
+  <div class="scrim"></div>
+  <div class="panel">
+    <div class="drawer-head">
+      <h2 id="detail-title">Aktivitas</h2>
+      <button class="icon-btn" id="close-activity">Tutup</button>
     </div>
-    ${review?`<h2 style="margin-top:16px;font-size:15px">Catatan penilaian</h2><pre>${escapeHtml(review)}</pre>`:""}
-    ${plan?`<h2 style="margin-top:16px;font-size:15px">Rencana kerja</h2><pre>${escapeHtml(plan)}</pre>`:""}
-    <h2 style="margin-top:16px;font-size:15px">Jejak langkah</h2>
-    <div class="feed" id="task-feed" style="margin-top:10px"></div>`;
-  const f=$("#task-feed");
-  if(ev.length)ev.forEach(e=>f.appendChild(evLine(e)));
-  else f.innerHTML='<div class="empty">Belum ada kejadian tercatat.</div>';
-  f.scrollTop=f.scrollHeight;
-}
-function renderWorkers(){
-  const box=$("#workers"); if(!box)return;
-  const ws=STATE.workers||[];
-  if(!ws.length){box.innerHTML='<div class="empty">Tidak ada informasi worker.</div>';return;}
-  const order=(STATE.workflow&&STATE.workflow.worker_order)||[];
-  const cost=(STATE.workflow&&STATE.workflow.worker_cost)||{};
-  const rank=Object.fromEntries(order.slice().sort((a,b)=>((cost[a]??9e9)-(cost[b]??9e9))).map((k,i)=>[k,i+1]));
-  box.innerHTML="";
-  ws.forEach(w=>{
-    const cfg=(STATE.worker_cfg||{})[w.key]||{};
-    const on=cfg.enabled!==false;
-    const pick=rank[w.key]?`Pilihan ke-${rank[w.key]} · ~$${(cost[w.key]??0).toFixed(2)} per tugas`:"Tidak ikut daftar prioritas";
-    const d=el("div","item");
-    d.innerHTML=`
-      <div class="top"><span class="ttl">${escapeHtml(w.label||w.key)}</span>
-        <span class="badge ${w.installed?"ok":"bad"}">${w.installed?"terpasang":"tidak ada"}</span>
-        <span class="badge">${escapeHtml(w.version||w.error||"versi tidak diketahui")}</span></div>
-      <div class="meta">${escapeHtml(pick)}</div>
-      <div class="meta mono">${escapeHtml(w.path||"-")}</div>
-      <div class="meta mono">${escapeHtml(w.config_path||"-")}</div>`;
-    const row=el("div","btnrow");
-    const lab=el("label","f");
-    lab.style.cssText="display:flex;gap:8px;align-items:center;margin:0";
-    lab.innerHTML=`<input type="checkbox" style="width:auto" ${on?"checked":""}> dipakai`;
-    const inc=lab.querySelector("input");
-    inc.onchange=()=>saveWorker(w.key,{enabled:inc.checked});
-    const mi=el("input");
-    mi.placeholder="paksa model lain (opsional)";
-    mi.value=cfg.model||"";
-    mi.setAttribute("aria-label","Model khusus untuk "+(w.label||w.key));
-    mi.onchange=()=>saveWorker(w.key,{model:mi.value});
-    const pb=el("button","btn ghost sm","Periksa");
-    pb.onclick=async()=>{
-      pb.disabled=true;pb.textContent="Memeriksa…";
-      const r=await post(`/api/workers/${w.key}/probe`);
-      pb.disabled=false;pb.textContent="Periksa";
-      if(!r||r.ok===false)toast("Gagal memeriksa "+(w.label||w.key)+": "+((r&&r.error)||"tidak diketahui"),"bad");
-      refreshState();
-    };
-    row.appendChild(lab);row.appendChild(mi);row.appendChild(pb);
-    d.appendChild(row);
-    box.appendChild(d);
-  });
-}
-async function saveWorker(k,patch){
-  const r=await post("/api/workers/"+k,patch);
-  if(!r||r.ok===false)toast("Gagal menyimpan setelan worker: "+((r&&r.error)||"tidak diketahui"),"bad");
-  refreshState();
-}
-$("#workers-probe").onclick=async()=>{
-  const b=$("#workers-probe");b.disabled=true;b.textContent="Memeriksa semua…";
-  for(const w of (STATE.workers||[]))await post(`/api/workers/${w.key}/probe`);
-  b.disabled=false;b.textContent="Periksa ulang semua";refreshState();
-};
-$("#workers-apply").onclick=async()=>{
-  const b=$("#workers-apply");b.disabled=true;b.textContent="Menerapkan…";
-  const r=await post("/api/apply");
-  b.disabled=false;b.textContent="Terapkan model ke semua";
-  if(!r||r.ok===false){toast("Gagal menerapkan: "+((r&&r.error)||"tidak diketahui"),"bad");return;}
-  const w=r.workers||{};
-  const bad=Object.entries(w).filter(([,v])=>!v.ok).map(([k])=>k);
-  toast(bad.length?`Diterapkan, tapi gagal di: ${bad.join(", ")}`:"Model sudah diterapkan ke semua worker.",bad.length?"bad":"ok");
-  refreshState();
-};
+    <div class="drawer-body" id="detail-body"></div>
+  </div>
+</div>
 
-/* --------------------------------------------------------------- submit */
-$("#dash-send").onclick=async()=>{
-  const p=$("#dash-prompt").value.trim();
-  if(!p){$("#dash-msg").className="msg bad";$("#dash-msg").textContent="Tulis dulu tugasnya.";return;}
-  const b=$("#dash-send");b.disabled=true;b.textContent="Mengirim…";
-  const r=await post("/api/tasks",{prompt:p,workflow:$("#dash-workflow").value});
-  b.disabled=false;b.textContent="Kerjakan tugas";
-  if(r&&r.ok){
-    $("#dash-msg").className="msg ok";
-    $("#dash-msg").textContent="Tugas sudah masuk. Lihat kemajuannya di bawah.";
-    $("#dash-prompt").value="";CUR_TASK=r.id;refreshState();
-  }else{
-    $("#dash-msg").className="msg bad";
-    $("#dash-msg").textContent="Gagal mengirim: "+((r&&r.error)||"tidak diketahui");
-  }
-};
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 
-/* ---------------------------------------------------------------- model */
-function renderModelAnswer(){
-  const g=STATE.gateway||{};
-  $("#active-model").innerHTML=`
-    <div class="k">Model yang dipakai sekarang</div>
-    <div class="v">${escapeHtml(stripProvider(g.model)||"belum ada yang dipilih")}</div>
-    <div class="v small">${g.model?escapeHtml(g.model):"Pilih satu model di daftar bawah, lalu tekan Terapkan ke semua."}</div>`;
-}
-async function loadModels(){
-  const q=$("#gw-search").value.trim();
-  const onlyOk=$("#gw-onlyok")&&$("#gw-onlyok").checked;
-  const r=await api("/api/gateway/models?limit=500"+(onlyOk?"&only_healthy=1":"")+"&q="+encodeURIComponent(q));
-  const box=$("#gw-models"); if(!box)return;
-  box.innerHTML="";
-  if(!r||r.error){box.innerHTML='<div class="empty">Gagal memuat daftar model.</div>';return;}
-  const list=r.models||[];
-  $("#gw-count").textContent=list.length;
-  renderModelAnswer();
-  if(!list.length){
-    box.innerHTML=onlyOk
-      ? '<div class="empty">Belum ada model yang teruji hidup. Tekan "Tes model yang hidup" di atas untuk memeriksanya.</div>'
-      : '<div class="empty">Belum ada model. Tekan "Muat daftar model" di atas.</div>';
-    return;
-  }
-  list.slice(0,300).forEach(m=>{
-    const cur=m.id===r.current;
-    const d=el("div","item"+(cur?" pick":""));
-    const h=m.health;
-    const caps=m.caps||{};
-    const hb=h?`<span class="badge ${h.ok?"ok":"bad"}">${h.ok?"hidup "+h.duration+"s":"tidak menjawab"}</span>`:"";
-    d.innerHTML=`
-      <div class="top">
-        <span class="ttl">${escapeHtml(stripProvider(m.id))}</span>
-        ${cur?'<span class="badge ok">sedang dipakai</span>':""}
-        ${hb}
-      </div>
-      <div class="meta mono">${escapeHtml(m.id)}${m.provider?" · "+escapeHtml(m.provider):""}${caps.contextWindow?" · "+Math.round(caps.contextWindow/1000)+"k konteks":""}</div>`;
-    const pick=el("button","linkish",cur?"Sudah dipilih":"Pilih model ini");
-    pick.onclick=()=>{
-      $$("#gw-models .item").forEach(x=>x.classList.remove("pick"));
-      d.classList.add("pick");
-      d.dataset.chosen="1";
-      pick.textContent="Sudah dipilih";
-      $("#active-model").innerHTML=`
-        <div class="k">Akan diterapkan</div>
-        <div class="v">${escapeHtml(stripProvider(m.id))}</div>
-        <div class="v small">${escapeHtml(m.id)}</div>`;
-    };
-    d.appendChild(pick);
-    d.dataset.model=m.id;
-    box.appendChild(d);
-  });
-  if(list.length>300){
-    box.appendChild(el("div","empty",`Menampilkan 300 dari ${list.length} model. Persempit dengan kotak pencarian.`));
-  }
-}
-$("#gw-onlyok").onchange=loadModels;
-let searchTimer=null;
-$("#gw-search").oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(loadModels,250);};
-$("#gw-sync").onclick=async()=>{
-  const b=$("#gw-sync");b.disabled=true;b.textContent="Memuat…";
-  const r=await api("/api/gateway/sync?apply=0",{method:"POST"});
-  b.disabled=false;b.textContent="Muat daftar model";
-  $("#gw-msg").className="msg "+(r&&!r.error?"ok":"bad");
-  $("#gw-msg").textContent=r&&!r.error
-    ? `${r.models||0} model ditemukan. Gateway ${r.online?"hidup":"mati"}.`
-    : "Gagal memuat daftar model.";
-  refreshState();loadModels();
-};
-$("#gw-probe").onclick=async()=>{
-  const b=$("#gw-probe");b.disabled=true;b.textContent="Menguji…";
-  const r=await api("/api/gateway/probe",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
-  b.disabled=false;b.textContent="Tes model yang hidup";
-  const ok=(r&&r.healthy)||[];const all=(r&&r.results)||[];
-  $("#gw-msg").className="msg "+(ok.length?"ok":"bad");
-  $("#gw-msg").textContent=`${ok.length} dari ${all.length} model menjawab.`;
-  loadModels();
-};
-$("#gw-apply").onclick=async()=>{
-  const d=$("#gw-models .item[data-chosen='1']")||$("#gw-models .item.pick");
-  const model=d?d.dataset.model:null;
-  if(!model){$("#gw-msg").className="msg bad";$("#gw-msg").textContent="Pilih dulu satu model di daftar.";return;}
-  const b=$("#gw-apply");b.disabled=true;b.textContent="Menerapkan…";
-  const r=await post("/api/gateway/model",{model:model,apply_workers:$("#gw-applyworkers").checked});
-  b.disabled=false;b.textContent="Terapkan ke semua";
-  if(r&&!r.error){
-    const w=r.workers||{};const bad=Object.entries(w).filter(([,v])=>!v.ok).map(([k])=>k);
-    $("#gw-msg").className="msg "+(bad.length?"bad":"ok");
-    $("#gw-msg").textContent=bad.length
-      ? `Diterapkan, tapi gagal di: ${bad.join(", ")}`
-      : `Selesai. Semua worker dan Hermes sekarang memakai ${stripProvider(r.model||model)}.`;
-  }else{
-    $("#gw-msg").className="msg bad";$("#gw-msg").textContent="Gagal menerapkan model.";
-  }
-  refreshState();loadModels();
-};
-$("#gw-keysave").onclick=async()=>{
-  const k=$("#gw-key").value.trim();
-  if(!k){$("#gw-msg").className="msg bad";$("#gw-msg").textContent="Kuncinya masih kosong.";return;}
-  const r=await post("/api/gateway/key",{api_key:k});
-  $("#gw-msg").className="msg "+(r&&!r.error?"ok":"bad");
-  $("#gw-msg").textContent=r&&!r.error?"Kunci disimpan.":"Gagal menyimpan kunci.";
-  $("#gw-key").value="";refreshState();
-};
-
-/* -------------------------------------------------------------- perkakas */
-$$("#tool-seg button").forEach(b=>{
-  b.onclick=()=>{
-    $$("#tool-seg button").forEach(x=>x.setAttribute("aria-selected",String(x===b)));
-    ["berkas","git","tes"].forEach(t=>{$("#tool-"+t).hidden=(t!==b.dataset.tool);});
-  };
-});
-async function loadTree(){
-  const r=await api("/api/project/tree");
-  const box=$("#proj-tree"); if(!box)return;
-  box.innerHTML="";
-  if(!r||r.error){box.innerHTML='<div class="empty">Gagal memuat daftar berkas.</div>';return;}
-  $("#proj-info").textContent="Folder kerja: "+(r.dir||"-");
-  const entries=r.entries||[];
-  if(!entries.length){box.innerHTML='<div class="empty">Folder ini masih kosong.</div>';return;}
-  entries.forEach(e=>{
-    const d=el("div");
-    if(e.type==="dir"){d.className="d";d.textContent="▸ "+e.path;}
-    else{
-      d.className="f";
-      d.textContent=e.path+"  ("+e.size+"b)";
-      d.tabIndex=0;d.setAttribute("role","button");
-      const open=async()=>{
-        const f=await api("/api/project/file?path="+encodeURIComponent(e.path));
-        $("#proj-file").textContent=f&&f.ok?f.content:("Gagal membuka berkas: "+((f&&f.error)||"tidak diketahui"));
-        $("#proj-file").scrollIntoView({block:"nearest"});
-      };
-      d.onclick=open;
-      d.onkeydown=ev=>{if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();open();}};
-    }
-    box.appendChild(d);
-  });
-}
-$("#proj-refresh").onclick=loadTree;
-async function loadGit(){
-  const g=await api("/api/git");
-  if(!g||g.error){$("#git-status").textContent="Gagal memuat status git.";$("#git-diff").textContent="";return;}
-  $("#git-status").textContent=
-    (g.branch?("Cabang: "+g.branch+"\n"):"")
-    +(g.status?("Perubahan yang belum disimpan:\n"+g.status+"\n"):"Tidak ada perubahan yang menunggu.\n")
-    +((g.diffstat||"")?("\nRingkasan: \n"+g.diffstat+"\n"):"")
-    +"\nRiwayat commit terakhir:\n"+(g.log||"(belum ada)");
-  const d=await api("/api/git/diff");
-  $("#git-diff").textContent=(d&&d.diff)||"Tidak ada perbedaan.";
-}
-$("#git-refresh").onclick=loadGit;
-function toggleCommitForm(open){
-  const f=$("#git-commit-form"),b=$("#git-commit");
-  f.hidden=!open;
-  b.setAttribute("aria-expanded",String(open));
-  if(open)$("#git-commit-msg").focus();
-}
-$("#git-commit").onclick=()=>toggleCommitForm($("#git-commit-form").hidden);
-$("#git-commit-cancel").onclick=()=>toggleCommitForm(false);
-$("#git-commit-save").onclick=async()=>{
-  const msg=$("#git-commit-msg").value.trim();
-  if(!msg){toast("Tulis dulu pesan commit-nya.","bad");$("#git-commit-msg").focus();return;}
-  const b=$("#git-commit-save");b.disabled=true;b.textContent="Menyimpan…";
-  const r=await post("/api/git/commit",{message:msg});
-  b.disabled=false;b.textContent="Simpan commit";
-  if(!r||!r.ok){
-    toast("Commit gagal: "+((r&&(r.error||r.out))||"tidak diketahui"),"bad");
-  }else{
-    toast("Perubahan sudah disimpan sebagai commit.","ok");
-    $("#git-commit-msg").value="";toggleCommitForm(false);
-  }
-  loadGit();
-};
-$("#test-run").onclick=async()=>{
-  const out=$("#test-out");out.textContent="Menjalankan tes…";
-  const r=await post("/api/test",{command:$("#test-input").value||null});
-  const res=(r&&r.result)||{};
-  if(!r||r.error){out.textContent="Gagal menjalankan tes: "+((r&&r.error)||"tidak diketahui");return;}
-  out.textContent=(res.skipped?"Tidak ada perintah tes yang bisa dijalankan.":
-    `${res.ok?"LULUS":"TIDAK LULUS"} · kode keluar ${res.rc} · ${res.duration||0} detik\n\n`)+(res.output||"");
-};
-
-/* ------------------------------------------------------------------- log */
-const LOG_KINDS=["worker","hermes","test","system","gateway","log"];
-const NOTES_LIMIT=300;
-/* Isi panel catatan dari peristiwa yang sudah tersimpan, bukan cuma yang baru
-   datang. Sebelum ini, mengganti saringan menghasilkan panel kosong sampai
-   kejadian berikutnya tiba, dan riwayat lama tidak pernah tampil. */
-async function fillLog(){
-  const box=$("#logs"),sel=$("#log-filter");
-  if(!box||!sel)return;
-  const kind=sel.value;
-  if(kind===LOG_FILLED)return;
-  box.innerHTML='<div class="empty">Memuat catatan…</div>';
-  let r=await api("/api/events/recent?limit="+NOTES_LIMIT+(kind?"&kind="+encodeURIComponent(kind):""));
-  let events=(r&&r.events)||[];
-  if(r&&r.error){
-    /* cadangan: kalau endpoint riwayat tidak menjawab, tampilkan yang tersimpan di layar */
-    events=$$("#dash-feed .ev").map(n=>({id:0,ts:0,kind:"",text:n.textContent})).slice(0,NOTES_LIMIT);
-  }
-  box.innerHTML="";
-  if(!events.length){
-    box.innerHTML='<div class="empty">Belum ada catatan untuk saringan ini.</div>';
-    LOG_FILLED=kind;
-    return;
-  }
-  events.forEach(e=>{if(LOG_KINDS.includes(e.kind))box.appendChild(evLine(e));});
-  if(!box.children.length)box.innerHTML='<div class="empty">Belum ada catatan untuk saringan ini.</div>';
-  else box.scrollTop=box.scrollHeight;
-  LOG_MAX_ID=Math.max(LOG_MAX_ID,...events.map(e=>e.id||0));
-  LOG_FILLED=kind;
-}
-$("#log-filter").onchange=()=>{LOG_FILLED=null;fillLog();};
-$("#log-clear").onclick=()=>{
-  $("#logs").innerHTML='<div class="empty">Tampilan dikosongkan. Catatan baru akan muncul di sini.</div>';
-  LOG_FILLED=$("#log-filter").value;
-};
-
-/* ------------------------------------------------------------------ boot */
-refreshState(); loadModels(); loadGit(); loadTree(); fillLog();
-setInterval(refreshState,15000);
-</script>
+<script src="/app.js"></script>
 </body>
 </html>

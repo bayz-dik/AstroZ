@@ -30,6 +30,21 @@ def _req(url: str, token: str = "", key: str = "", method: str = "GET", body: di
         return 0, str(e)
 
 
+def _usable_id(mid: str | None) -> bool:
+    """A model id a client can actually ask for: provider and model both named.
+
+    The dashboard catalog also carries half-built entries whose id ends in "/"
+    (no model name). They are not callable and only add noise to the picker.
+    """
+    if not mid or not isinstance(mid, str):
+        return False
+    mid = mid.strip()
+    if mid.endswith("/") or mid.startswith("/"):
+        return False
+    tail = mid.split("/")[-1] if "/" in mid else mid
+    return bool(tail) and tail not in ("*",)
+
+
 def _first_json(raw: str):
     """First JSON value in a body that may contain several concatenated objects."""
     if not raw:
@@ -79,30 +94,128 @@ class Gateway:
 
     # ---------------------------------------------------------------- models
     def models(self) -> list[dict]:
-        """Full model list with caps + pricing from 9Router's own API."""
-        out: list[dict] = []
+        """Every model the gateway will actually accept, with metadata merged.
+
+        Two sources, and both are needed:
+
+        * ``/api/models`` (dashboard API, needs the CLI token) is the rich
+          catalog: provider, alias, caps, pricing. It only lists models from
+          providers whose credentials the dashboard knows about.
+        * ``/v1/models`` (the OpenAI-compatible surface) is what a client can
+          actually call. It is the authoritative id list, and it includes
+          providers missing from the dashboard catalog.
+
+        Reading only the first source is why a working provider (kenari-id and
+        friends) never showed up in the UI: it was not in the dashboard catalog.
+        Reading only the second loses caps and pricing. So: take the union,
+        keyed by id, and backfill metadata by matching the model suffix.
+        """
+        rich: list[dict] = []
         st, raw = _req(f"{self.base_url}/api/models", token=self.token, timeout=30)
         if st == 200:
             try:
-                out = json.loads(raw).get("models", [])
+                rich = json.loads(raw).get("models", [])
             except Exception:
-                out = []
-        if not out:  # fall back to the OpenAI-compatible surface
-            st, raw = _req(f"{self.api_base}/models", key=self.api_key, timeout=30)
-            if st == 200:
-                try:
-                    out = [
-                        {"provider": m.get("owned_by", "?"), "model": m["id"], "fullModel": m["id"], "name": m["id"]}
-                        for m in json.loads(raw).get("data", [])
-                    ]
-                except Exception:
-                    out = []
+                rich = []
+
+        live: list[str] = []
+        st, raw = _req(f"{self.api_base}/models", key=self.api_key, timeout=30)
+        if st == 200:
+            try:
+                live = [m["id"] for m in json.loads(raw).get("data", []) if m.get("id")]
+            except Exception:
+                live = []
+
+        by_id: dict[str, dict] = {}
+        for m in rich:
+            mid = m.get("fullModel") or m.get("model")
+            if not _usable_id(mid):
+                continue
+            by_id[mid] = {**m, "origin": "catalog"}
+        if not by_id and not live:
+            return []
+
+        # suffix index: model name (and alias) -> the catalog entry describing it
+        index: dict[str, dict] = {}
+        for m in rich:
+            for key in (m.get("model"), m.get("alias")):
+                if key:
+                    index.setdefault(key, m)
+
+        for mid in live:
+            if not _usable_id(mid):
+                continue
+            if mid in by_id:
+                by_id[mid]["callable"] = True
+                continue
+            tail = mid.split("/", 1)[1] if "/" in mid else mid
+            base = tail.split(":", 1)[0]
+            meta = index.get(tail) or index.get(base) or {}
+            by_id[mid] = {
+                # The id already names its provider; the catalog is consulted for
+                # caps and display name only. Taking the catalog's provider here
+                # mislabels ids whose model name exists under another provider.
+                "provider": mid.split("/", 1)[0] if "/" in mid else (meta.get("provider") or ""),
+                "model": base,
+                "name": meta.get("name") or base,
+                "fullModel": mid,
+                "caps": meta.get("caps", {}),
+                "alias": meta.get("alias") or base,
+                "origin": "gateway",
+                "callable": True,
+            }
+        for mid, m in by_id.items():
+            m.setdefault("callable", False)
+            pid = m.get("fullModel") or m.get("model") or mid
+            m["pricing"] = m.get("pricing") or None
+            m["id"] = pid
+        # Provider ids that are endpoint uuids are useless in a picker: show the
+        # prefix the connection was configured with instead.
+        pmap = self.provider_map()
+        for m in by_id.values():
+            raw_provider = m.get("provider") or ""
+            if raw_provider in pmap:
+                m["provider_id"] = raw_provider
+                m["provider"] = pmap[raw_provider]
         # merge pricing from the provider price list (real prices, when published)
         pricing = self.pricing()
-        for m in out:
-            pid = m.get("fullModel") or m.get("model")
-            if pid in pricing:
-                m["pricing"] = pricing[pid]
+        for mid, m in by_id.items():
+            if mid in pricing:
+                m["pricing"] = pricing[mid]
+            elif m.get("model") in pricing:
+                m["pricing"] = pricing[m["model"]]
+        return list(by_id.values())
+
+    def combos(self) -> list[dict]:
+        st, raw = _req(f"{self.base_url}/api/combos", token=self.token, timeout=15)
+        if st != 200:
+            return []
+        try:
+            return json.loads(raw).get("combos", [])
+        except Exception:
+            return []
+
+    def provider_map(self) -> dict[str, str]:
+        """Endpoint id to the prefix people recognise.
+
+        Custom [OI]-compatible connections are listed under a synthetic id
+        (``openai-compatible-chat-<uuid>``) while the model ids use the short
+        prefix the connection was configured with (``kenari-id``, ``oc-prod``).
+        The connections endpoint is the only place that pairs the two.
+        """
+        st, raw = _req(f"{self.base_url}/api/providers", token=self.token, timeout=20)
+        if st != 200:
+            return {}
+        try:
+            cons = json.loads(raw).get("connections", [])
+        except Exception:
+            return {}
+        out: dict[str, str] = {}
+        for c in cons:
+            prefix = (c.get("providerSpecificData") or {}).get("prefix")
+            pid = c.get("provider")
+            if prefix and pid:
+                out.setdefault(pid, prefix)
         return out
 
     def pricing(self) -> dict:
@@ -173,13 +286,17 @@ class Gateway:
         gw["model_meta"] = {
             (m.get("fullModel") or m.get("model")): {
                 "provider": m.get("provider"),
+                "provider_id": m.get("provider_id"),
                 "name": m.get("name"),
                 "caps": m.get("caps", {}),
                 "pricing": m.get("pricing"),
+                "origin": m.get("origin"),
+                "callable": bool(m.get("callable")),
             }
             for m in models
             if (m.get("fullModel") or m.get("model"))
         }
+        gw["provider_names"] = self.provider_map()
         if not gw.get("model") and ids:
             # prefer a concrete provider/model id over a bare combo alias
             concrete = [m for m in ids if "/" in m]
@@ -187,7 +304,7 @@ class Gateway:
         config.update(cfg)
         hub.emit(
             "gateway",
-            f"9Router sync: {len(ids)} models (online={h['online']})",
+            f"Sinkron 9Router: {len(ids)} model (gateway {'hidup' if h['online'] else 'mati'})",
             online=h["online"],
             model_count=len(ids),
             model=gw.get("model"),
@@ -206,7 +323,7 @@ class Gateway:
         gw["base_url"] = self.base_url
         gw["api_base"] = self.api_base
         config.update(cfg)
-        hub.emit("gateway", f"Model switched to {model}", model=model)
+        hub.emit("gateway", f"Model diganti ke {model}", model=model)
         out: dict[str, Any] = {"model": model}
         if apply_to_workers:
             out["workers"] = adapters.apply_all(gw)
@@ -307,7 +424,7 @@ class Gateway:
         except Exception as e:
             steps.append({"key": "custom_providers." + provider_name, "ok": False, "error": str(e)})
         ok = all(s["ok"] for s in steps)
-        hub.emit("gateway", f"Hermes config {'updated' if ok else 'partial'} -> {model}", ok=ok, steps=steps)
+        hub.emit("gateway", f"Setelan Hermes {'diperbarui' if ok else 'hanya sebagian'} -> {model}", ok=ok, steps=steps)
         return {"ok": ok, "steps": steps, "profile": profile, "provider": provider_name}
 
     # ------------------------------------------------------------ model health
