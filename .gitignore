@@ -1,0 +1,25 @@
+# Konfigurasi nyata: berisi API key 9Router. Contohnya ada di team.yaml.example.
+team.yaml
+
+# Token CLI 9Router (machine-specific).
+.9r_token
+
+# Keadaan runtime: feed event, daftar tugas, hasil probe, cache model.
+runtime/
+
+# Log proses.
+logs/
+*.log
+
+# Folder kerja proyek yang dikerjakan tim (repo git sendiri, isinya kerjaan user).
+workspace/
+
+# Python lokal.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Editor.
+.vscode/
+.idea/

@@ -1,0 +1,54 @@
+gateway:
+  base_url: http://127.0.0.1:20128
+  api_base: http://127.0.0.1:20129/v1
+  upstream_base_url: http://127.0.0.1:20128
+  hermes_api_base: ''
+  api_key: ''  # isi dari dashboard 9Router, atau lewat tab Model di UI
+  model: oc-prod/qwen3.8-flash
+  model_count: 1593
+  last_sync: 1789316330.5498664
+  online: true
+  fallback_models:
+  - oc-prod/gemini-3.7-flash
+  - oc-prod/step-3.7-flash
+  auto_fallback: true
+  healthy:
+  - oc-prod/qwen3.8-flash
+  provider_name: 9router
+project_dir: /root/AstroZ/workspace  # folder kerja proyek; boleh diubah dari UI
+workers:
+  claude:
+    enabled: true
+    model: ''
+  codex:
+    enabled: true
+    model: ''
+  opencode:
+    enabled: true
+    model: ''
+  omp:
+    enabled: true
+    model: ''
+workflow:
+  max_parallel: 3
+  auto_test: true
+  discussion: true
+  review: true
+  test_command: ''
+  fix_on_fail: true
+  fix_rounds: 1
+  fix_review_rounds: 1
+  worker_order:
+  - omp
+  - opencode
+  - codex
+  - claude
+  worker_cost:
+    omp: 0.01
+    opencode: 0.02
+    codex: 0.05
+    claude: 0.45
+  auto_commit: true
+hermes:
+  profile: default
+  enabled: true
