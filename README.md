@@ -1,4 +1,9 @@
-<img src="assets/astroz-banner.svg" alt="AstroZ: satu chat di depan, tim pekerja di belakang" width="100%">
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/astroz-logo-gelap.png">
+    <img src="assets/astroz-logo.png" alt="AstroZ" width="150">
+  </picture>
+</p>
 
 # AstroZ
 
