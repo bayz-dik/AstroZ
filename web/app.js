@@ -94,6 +94,23 @@ for (const b of document.querySelectorAll("[data-pilih-tema]")) {
 }
 el("sapaan").textContent = sapaanWaktu();
 
+/* Monogram AZ: bentuk geometris tebal seperti lambang xAI, tapi ini A dan Z.
+   Digambar sebagai SVG, bukan ikon dari pustaka, supaya bisa diwarnai token
+   aksen dan tetap tajam di ukuran apa pun. Sama dengan berkas /logo.svg yang
+   dipakai sebagai favicon. */
+function gambarLambang() {
+  const wadah = el("lambang");
+  if (!wadah) return;
+  wadah.innerHTML = `<svg viewBox="0 0 120 90" role="img" aria-label="AstroZ">
+    <g fill="none" stroke="currentColor" stroke-width="10" stroke-linecap="butt" stroke-linejoin="miter">
+      <path d="M10 78 L34 12 L58 78"/>
+      <path d="M21 54 L47 54"/>
+      <path d="M72 12 L112 12 L72 78 L112 78"/>
+    </g>
+  </svg>`;
+}
+gambarLambang();
+
 /* ------------------------------------------------------------------ lapisan */
 
 function bukaLembar(id) {
