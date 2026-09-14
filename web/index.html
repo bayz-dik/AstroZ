@@ -22,21 +22,19 @@
     </button>
     <span class="judul-bar" id="judul-bar">AstroZ</span>
     <span class="sisa"></span>
-    <button type="button" class="ikon" id="buka-sesi" aria-label="Percakapan">
+    <button type="button" class="ikon" id="buka-sesi" aria-label="Daftar percakapan" aria-haspopup="dialog">
       <span class="ikon-obrolan" aria-hidden="true"></span>
     </button>
     <button type="button" class="ikon" id="buka-titik" aria-label="Menu lain" aria-haspopup="menu" aria-expanded="false">
       <span class="ikon-titik" aria-hidden="true">⋮</span>
     </button>
     <div class="menu-turun" id="menu-titik" role="menu" hidden>
-      <button type="button" role="menuitem" data-buka="obrolan">Percakapan baru</button>
-      <button type="button" role="menuitem" data-buka="plugin">Plugin dan skill</button>
-      <button type="button" role="menuitem" data-buka="berkas">Berkas dan tes</button>
-      <button type="button" role="menuitem" data-buka="catatan">Catatan kejadian</button>
-      <button type="button" role="menuitem" data-buka="model">Model dan pekerja</button>
+      <button type="button" role="menuitem" data-aksi="kerja">Lihat proses kerja</button>
+      <button type="button" role="menuitem" data-aksi="ganti-nama">Ganti nama percakapan</button>
+      <button type="button" role="menuitem" data-aksi="bagikan">Salin percakapan ini</button>
       <hr>
-      <button type="button" role="menuitem" data-pilih-tema="terang">Tema terang</button>
-      <button type="button" role="menuitem" data-pilih-tema="gelap">Tema gelap</button>
+      <button type="button" role="menuitem" data-aksi="tema-gelap">Tema gelap</button>
+      <button type="button" role="menuitem" data-aksi="tema-terang">Tema terang</button>
     </div>
   </header>
   <div class="ticker" id="ticker" aria-hidden="true"></div>
@@ -79,9 +77,9 @@
       </form>
     </main>
 
-    <aside class="aktivitas" id="aktivitas" aria-label="Alat dan catatan kerja">
+    <aside class="aktivitas" id="aktivitas" aria-label="Pekerjaan yang sedang berjalan">
       <div class="segmen" role="tablist" id="tab-alat">
-        <button type="button" role="tab" data-panel="proses" aria-selected="true">Proses</button>
+        <button type="button" role="tab" data-panel="proses" aria-selected="true">Kerja</button>
         <button type="button" role="tab" data-panel="berkas" aria-selected="false">Berkas</button>
         <button type="button" role="tab" data-panel="catatan" aria-selected="false">Catatan</button>
         <button type="button" role="tab" data-panel="model" aria-selected="false">Model</button>
@@ -89,9 +87,10 @@
       <div class="badan">
 
         <section class="panel" id="panel-proses">
-          <h2>Pekerjaan di percakapan ini</h2>
-          <p class="catatan">Tiap baris satu tugas. Ketuk untuk melihat jalannya.</p>
+          <h2 id="judul-kerja">Pekerjaan</h2>
+          <p class="catatan" id="catatan-kerja">Belum ada pekerjaan di percakapan ini.</p>
           <div id="daftar-proses"></div>
+          <div id="isi-kerja"></div>
         </section>
 
         <section class="panel" id="panel-berkas" hidden>
@@ -178,16 +177,18 @@
   <div class="isi-lembar">
     <nav class="nav-alat" id="nav-alat">
       <button type="button" data-alat="obrolan" aria-current="true"><span class="ikon-nav">◌</span> Obrolan</button>
+      <button type="button" data-alat="kerja"><span class="ikon-nav">▤</span> Proses kerja</button>
       <button type="button" data-alat="plugin"><span class="ikon-nav">◈</span> Plugin MCP</button>
       <button type="button" data-alat="skill"><span class="ikon-nav">✳</span> Skill dari GitHub</button>
+      <button type="button" data-alat="pekerja"><span class="ikon-nav">⚙</span> Pekerja</button>
       <button type="button" data-alat="berkas"><span class="ikon-nav">▤</span> Berkas dan tes</button>
       <button type="button" data-alat="catatan"><span class="ikon-nav">≡</span> Catatan kejadian</button>
-      <button type="button" data-alat="model"><span class="ikon-nav">◆</span> Model dan pekerja</button>
+      <button type="button" data-alat="model"><span class="ikon-nav">◆</span> Model</button>
     </nav>
 
     <div class="badan-alat" id="badan-alat">
       <section class="panel" id="alat-obrolan">
-        <h2>Terbaru</h2>
+        <h2>Riwayat</h2>
         <div class="daftar" id="daftar-sesi"></div>
       </section>
 
@@ -214,6 +215,12 @@
         <div id="daftar-marketplace"></div>
       </section>
 
+      <section class="panel" id="alat-pekerja" hidden>
+        <h2>Pekerja</h2>
+        <p class="catatan">Empat CLI koding yang mengerjakan tugas. Yang belum terpasang bisa dipasang dari sini, tanpa terminal.</p>
+        <div id="daftar-pasang"></div>
+      </section>
+
       <section class="panel" id="alat-aktivitas" hidden>
         <div id="wadah-aktivitas"></div>
       </section>
@@ -237,6 +244,7 @@
     <button type="button" class="baris-aksi" id="aksi-berkas"><span class="ikon-nav">▤</span> Lampirkan berkas<span class="petunjuk">teks, kode, PDF</span></button>
     <button type="button" class="baris-aksi" id="aksi-plugin"><span class="ikon-nav">◈</span> Pasang plugin MCP<span class="petunjuk">sama seperti plugin di Claude</span></button>
     <button type="button" class="baris-aksi" id="aksi-skill"><span class="ikon-nav">✳</span> Pasang skill dari GitHub<span class="petunjuk">langsung dipakai pekerja</span></button>
+    <button type="button" class="baris-aksi" id="aksi-pekerja"><span class="ikon-nav">⚙</span> Pasang pekerja<span class="petunjuk">CLI koding yang belum ada</span></button>
     <input type="file" id="berkas-gambar" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
     <input type="file" id="berkas-apa" hidden>
   </div>
@@ -278,12 +286,17 @@
   </div>
 </div>
 
-<div class="lembar" id="lembar-rincian" aria-hidden="true" role="dialog" aria-label="Rincian pekerjaan">
+<!-- ganti nama percakapan -->
+<div class="lembar bawah" id="lembar-nama" aria-hidden="true" role="dialog" aria-label="Ganti nama percakapan">
   <div class="kepala">
-    <h2 id="judul-rincian">Rincian</h2>
+    <h2>Ganti nama percakapan</h2>
     <button type="button" class="ikon" data-tutup aria-label="Tutup">✕</button>
   </div>
-  <div class="isi-lembar" id="isi-rincian"></div>
+  <div class="isi-lembar">
+    <label class="sr" for="nama-baru">Nama percakapan</label>
+    <input id="nama-baru" placeholder="nama percakapan">
+    <button type="button" class="tombol penuh" id="simpan-nama" style="margin-top:10px">Simpan nama</button>
+  </div>
 </div>
 
 <div id="pesan-singkat"></div>

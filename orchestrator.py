@@ -148,6 +148,46 @@ def _is_retryable(text: str) -> bool:
     return False
 
 
+def _dari_pekerja() -> bool:
+    """True kalau proses ini jalan sebagai pekerja CLI, bukan sebagai server UI.
+
+    Dipakai untuk mencegah pekerja ikut membuat folder kerja baru: mereka
+    dijalankan dengan cwd yang sudah disiapkan, jadi tidak perlu menyiapkan apa pun.
+    """
+    return bool(os.environ.get("ASTROZ_PEKERJA"))
+
+
+def cepatkah(prompt: str) -> bool:
+    """True kalau pesan ini cukup dijawab langsung oleh model, tanpa tim.
+
+    Terukur: pertanyaan seperti "malam" atau "halo" dulu dijalankan sebagai tugas
+    penuh. Akibatnya dua hal buruk: jawabannya lama karena menunggu pekerja CLI
+    hidup, dan folder kerja baru dibuat padahal tidak ada yang dikerjakan.
+    Aturannya: kalau tidak ada tanda pekerjaan berkas atau kode, dan pesannya
+    pendek, jawab langsung.
+    """
+    p = (prompt or "").strip().lower()
+    if not p:
+        return False
+    # tanda pekerjaan berkas, kode, atau perintah yang harus dijalankan
+    tanda_kerja = (
+        ".py", ".js", ".ts", ".tsx", ".html", ".css", ".json", ".md", ".txt", ".sh", ".yml", ".yaml",
+        "buat berkas", "buat file", "tulis berkas", "tulis file", "simpan ke", "hapus berkas", "hapus file",
+        "clone", "commit", "push", "pull", "git ", "npm ", "pip ", "install", "jalankan", "run ",
+        "perbaiki", "refactor", "debug", "error", "galat", "fungsi", "function", "class", "script",
+        "folder", "direktori", "proyek", "project", "repo", "test", "tes", "server", "api", "database",
+        "web", "html", "halaman", "website", "aplikasi", "app", "kode", "program", "syntax",
+    )
+    if any(t in p for t in tanda_kerja):
+        return False
+    # perintah beruntun (banyak baris) selalu dianggap pekerjaan
+    if len(p.splitlines()) > 2:
+        return False
+    if len(p) <= 220:
+        return True
+    return False
+
+
 def _model_ditolak(teks: str) -> bool:
     """True kalau kegagalan ini soal modelnya tidak dikenal, bukan soal tugasnya.
 
@@ -337,6 +377,10 @@ def run_worker(worker: str, prompt: str, task_id: str, cwd: str, model: str, tim
     # nothing, and the task still reported success. Children that trust PWD
     # over getcwd() (opencode, some shells/scripts) need this to agree.
     env["PWD"] = cwd
+    # Tandai proses ini sebagai pekerja. project.project_dir() dan
+    # ensure_repo() memakainya untuk menolak membuat folder kerja baru: pekerja
+    # sudah dijalankan di dalam folder yang benar.
+    env["ASTROZ_PEKERJA"] = "1"
     # Alat bantu (cari, buka, lihat) ada di folder tools; taruh di depan PATH
     # supaya pekerja bisa memanggilnya tanpa path panjang. Folder uvx ikut
     # dimasukkan karena plugin MCP yang dipasang dari UI bisa memakainya.
@@ -532,6 +576,9 @@ class Orchestrator:
                model: str | None = None, session_id: str | None = None) -> str:
         cfg = config.load()
         tid = uuid.uuid4().hex[:12]
+        # Pertanyaan ringan dijawab langsung, jadi tidak perlu folder kerja baru.
+        # Tanpa ini setiap "halo" meninggalkan satu folder yang menumpuk.
+        ringan = workflow == "auto" and cepatkah(prompt)
         t = {
             "id": tid,
             "prompt": prompt,
@@ -542,6 +589,8 @@ class Orchestrator:
             "workers": [],
             "results": [],
             "session": session_id or "",
+            "size": "chat" if ringan else "",
+            "workspace": "" if ringan else str(project.project_dir()),
         }
         with _TASK_LOCK:
             TASKS[tid] = t
@@ -555,11 +604,39 @@ class Orchestrator:
         t = TASKS[tid]
         try:
             cfg = config.load()
-            d = project.ensure_repo()
             model = t["model"] or cfg["gateway"].get("model")
             if not model:
                 raise RuntimeError("no model configured, pick one in the Gateway tab")
             t["model"] = model
+
+            # --- jawab langsung -------------------------------------------
+            # Pertanyaan seperti "halo" atau "malam" tidak butuh pekerja CLI,
+            # tidak butuh folder kerja, dan tidak boleh menunggu satu menit.
+            if workflow == "auto" and cepatkah(prompt):
+                t["size"] = "chat"
+                t["workers"] = []
+                hub.emit("plan", "Dijawab langsung, tanpa pekerja", task=tid, size="chat", phase="end")
+                gw = Gateway(cfg)
+                sys_pesan = (
+                    "Kamu AstroZ, asisten kerja. Jawab singkat dan ramah dalam bahasa Indonesia, "
+                    "satu sampai tiga kalimat. Jangan menyebut alat, berkas, atau pekerja."
+                )
+                jawab = gw.chat(model, [
+                    {"role": "system", "content": sys_pesan},
+                    {"role": "user", "content": prompt},
+                ])
+                teks = (jawab.get("text") or "").strip()
+                if not teks:
+                    raise RuntimeError(jawab.get("error") or "model tidak menjawab")
+                t["answer"] = teks
+                t["status"] = "done"
+                t["finished"] = time.time()
+                t["results"] = []
+                hub.emit("task", "Jawaban dikirim", task=tid, phase="done", ok=True, size="chat")
+                _persist_tasks()
+                return
+
+            d = project.ensure_repo()
             before = project.git_status()
 
             # --- plan -----------------------------------------------------

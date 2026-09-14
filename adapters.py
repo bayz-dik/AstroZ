@@ -34,7 +34,7 @@ import hub
 HOME = pathlib.Path.home()
 
 
-def _run(cmd: list[str], timeout: int = 20, env: dict | None = None) -> tuple[int, str]:
+def _run(cmd: list[str], timeout: int = 20, env: dict | None = None, cwd: str | None = None) -> tuple[int, str]:
     try:
         p = subprocess.run(
             cmd,
@@ -42,6 +42,7 @@ def _run(cmd: list[str], timeout: int = 20, env: dict | None = None) -> tuple[in
             text=True,
             timeout=timeout,
             env={**os.environ, **(env or {})},
+            cwd=cwd,
         )
         return p.returncode, (p.stdout or "") + (p.stderr or "")
     except FileNotFoundError:
@@ -444,6 +445,107 @@ def apply_all(gateway: dict, only: list[str] | None = None) -> dict:
         results=results,
     )
     return results
+
+
+# Paket npm tiap pekerja. Dipakai untuk menawarkan pemasangan otomatis dari UI,
+# supaya satu clone bisa langsung jalan tanpa terminal.
+PAKET: dict[str, str] = {
+    "claude": "@anthropic-ai/claude-code",
+    "codex": "@openai/codex",
+    "opencode": "opencode-ai",
+    "omp": "@oh-my-pi/pi-coding-agent",
+}
+
+SUMBER: dict[str, str] = {
+    "claude": "https://docs.claude.com/en/docs/claude-code",
+    "codex": "https://github.com/openai/codex",
+    "opencode": "https://opencode.ai/docs",
+    "omp": "https://github.com/oh-my-pi/pi-coding-agent",
+}
+
+
+def pasang_latar(key: str) -> str:
+    """Pasang satu CLI pekerja lewat npm, di latar belakang.
+
+    Dijalankan sebagai job supaya permintaan HTTP tidak menunggu unduhan.
+    Sesudah selesai, probe diulang supaya UI langsung melihat versinya.
+    """
+    import plugins as _plugins
+
+    paket = PAKET.get(key)
+
+    def kerja(jid: str) -> dict:
+        if not paket:
+            return {"ok": False, "pesan": f"paket untuk {key} tidak diketahui"}
+        npm = shutil.which("npm")
+        if not npm:
+            return {"ok": False, "pesan": "npm tidak ada di PATH, pasang Node.js 20 atau lebih baru"}
+        # npm global bisa punya prefix sendiri dan meninggalkan file binernya di
+        # tempat yang tidak ikut dijalankan sebagai postinstall. Menyalakan
+        # script tetap benar untuk paket ini (npm 11 mematikannya dengan
+        # default, dan tanpa ini paket seperti codex terpasang tanpa binernya).
+        env = dict(os.environ)
+        env.setdefault("npm_config_ignore_scripts", "false")
+        # Jangan berjalan di folder kerja: npm bisa menganggapnya proyek lokal.
+        env["PWD"] = "/tmp"
+        _plugins.job_baris(jid, f"memasang {paket} lewat npm, perlu beberapa menit")
+        rc, out = _run([npm, "install", "-g", paket, "--no-fund", "--no-audit"], timeout=900, env=env, cwd="/tmp")
+        if rc != 0:
+            return {"ok": False, "pesan": f"npm gagal: {out[-300:]}"}
+        # Cache adapter menyimpan path lama; kosongkan supaya probe benar-benar
+        # mencari biner yang baru dipasang, bukan mengulang hasil lama.
+        ADAPTERS[key].path = ""
+        ADAPTERS[key].version = ""
+        ADAPTERS[key].error = ""
+        st = ADAPTERS[key].probe()
+        _plugins.job_baris(jid, f"{key}: {st.get('version') or st.get('error')}")
+        if not st.get("installed"):
+            # Kegagalan yang paling membingungkan: npm melaporkan sukses tapi
+            # binernya tidak ada di PATH. Cari di prefix global dan, kalau
+            # ketemu, pasang tautan supaya bisa dipanggil pekerja.
+            alt = _cari_di_prefix(npm, key)
+            if alt:
+                ADAPTERS[key].path = alt
+                st = ADAPTERS[key].probe()
+                _plugins.job_baris(jid, f"{key}: dipakai dari {alt}")
+            else:
+                return {"ok": False, "pesan": f"{paket} terpasang tapi {key} tidak ada di PATH. Cek `npm prefix -g`."}
+        return {"ok": bool(st.get("installed")), "pesan": f"{key} {st.get('version') or 'terpasang'}"}
+
+    return _plugins.jalankan_latar(f"Pasang pekerja {key}", kerja)
+
+
+def _cari_di_prefix(npm: str, key: str) -> str:
+    """Cari biner pekerja di folder bin global npm, lalu tautkan ke /usr/local/bin.
+
+    Dipakai hanya kalau probe gagal sesudah pemasangan. Dua sebab yang pernah
+    terjadi di sini: pemasangan mendarat di prefix yang tidak ada di PATH, dan
+    npm mengganti tautan lamanya dengan nama sementara (`.omp-XXXX`) tanpa
+    pernah menaruh nama akhirnya. Jadi nama akhir dicari dulu, baru pola
+    sementara itu.
+    """
+    rc, out = _run([npm, "prefix", "-g"], timeout=30)
+    if rc != 0:
+        return ""
+    prefix = out.strip().splitlines()[-1] if out.strip() else ""
+    if not prefix:
+        return ""
+    nama = ADAPTERS[key].binary
+    bindir = pathlib.Path(prefix) / "bin"
+    kandidat = bindir / nama
+    if not kandidat.exists():
+        sementara = sorted(bindir.glob(f".{nama}-*"))
+        if not sementara:
+            return ""
+        kandidat = sementara[0]
+    tujuan = pathlib.Path("/usr/local/bin") / nama
+    try:
+        if tujuan.is_symlink() or tujuan.exists():
+            tujuan.unlink()
+        tujuan.symlink_to(kandidat)
+    except Exception:
+        return str(kandidat)
+    return str(tujuan)
 
 
 def build_command(worker: str, task: str, model: str, cwd: str) -> tuple[list[str], dict]:

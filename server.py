@@ -7,6 +7,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import threading
 import time
 
@@ -37,12 +38,40 @@ async def _startup() -> None:
     ns = sessions.load()
     hub.emit("system", f"UI AstroZ siap ({n} kejadian, {nt} tugas, {ns} percakapan tersimpan)", phase="boot")
     asyncio.create_task(_bg_health())
+    # Sinkron sekali saat start. Tanpa ini, orang yang baru mengkloning repo
+    # membuka UI dan melihat daftar model kosong walau 9Router-nya hidup, karena
+    # sinkron hanya jalan kalau tombolnya ditekan. Kunci API dan alamat gateway
+    # juga diambil di sini: 9Router yang sudah dikonfigurasi sudah menyimpan
+    # kuncinya, jadi tidak perlu dimasukkan ulang lewat UI.
+    asyncio.create_task(_sync_awal())
     # mirror Hermes activity feeds into the hub: the astroz plugin feed and the
     # live-activity plugin feed (both are written by separate processes).
     home = pathlib.Path(config.hermes_home())
     for rel, tag in (("runtime/hermes_plugin.jsonl", "astroz"), ("runtime/live_activity.jsonl", "live-activity")):
         threading.Thread(target=hub.follow_file, args=(home / rel,), kwargs={"kind": "hermes", "tag": tag}, daemon=True).start()
     threading.Thread(target=_refresh_workers, daemon=True).start()
+
+
+async def _sync_awal() -> None:
+    """Ambil kunci, alamat, dan daftar model dari 9Router begitu server hidup."""
+    try:
+        cfg = config.load()
+        gw = Gateway(cfg)
+        if not cfg["gateway"].get("api_key"):
+            kunci = gw.api_key
+            if kunci:
+                cfg = config.load()
+                cfg["gateway"]["api_key"] = kunci
+                config.save(cfg)
+                hub.emit("gateway", "Kunci API diambil dari 9Router yang sudah dikonfigurasi", has_key=True)
+        h = await asyncio.to_thread(gw.health)
+        if not h.get("online"):
+            hub.emit("gateway", "9Router belum menjawab, sinkron model dilewati", online=False)
+            return
+        res = await asyncio.to_thread(gw.sync, False)
+        hub.emit("gateway", f"Model tersinkron sendiri saat mulai: {res.get('models', 0)} model", **res)
+    except Exception as e:
+        hub.emit("gateway", f"Sinkron awal gagal: {type(e).__name__}: {e}", ok=False)
 
 
 def _refresh_workers() -> None:
@@ -96,6 +125,11 @@ async def state():
     gw = Gateway(cfg)
     gwcfg = dict(cfg["gateway"])
     gwcfg["has_key"] = bool(gw.api_key)
+    # Kunci API tidak pernah dikirim ke peramban: server ini mendengarkan di
+    # seluruh antarmuka jaringan (0.0.0.0), jadi apa pun yang ada di jawaban ini
+    # bisa dibaca siapa saja di jaringan yang sama. UI hanya butuh tahu ada
+    # atau tidak kuncinya.
+    gwcfg.pop("api_key", None)
     return {
         "gateway": gwcfg,
         "workers": adapters.status_all(),
@@ -327,6 +361,35 @@ async def task_detail(tid: str):
     return {"ok": True, "task": t, "events": [e for e in hub.recent(2000) if e.get("task") == tid][-300:]}
 
 
+@app.get("/api/tasks/{tid}/berkas")
+async def task_berkas(tid: str):
+    """Berkas yang diubah satu tugas, dihitung dari mtime sesudah tugas mulai.
+
+    Dipakai panel samping untuk menampilkan perubahan tanpa perlu git diff
+    seluruh folder kerja.
+    """
+    t = orchestrator.get_task(tid)
+    if not t:
+        return JSONResponse({"ok": False, "error": "tidak ditemukan"}, status_code=404)
+    mulai = float(t.get("created") or 0)
+    d = pathlib.Path(t.get("workspace") or project.project_dir())
+    out: list[dict] = []
+    if d.exists() and mulai:
+        for p in sorted(d.rglob("*")):
+            if not p.is_file():
+                continue
+            if any(b in p.parts for b in (".git", "node_modules", "__pycache__", ".venv")):
+                continue
+            try:
+                st = p.stat()
+            except Exception:
+                continue
+            if st.st_mtime >= mulai - 1:
+                out.append({"path": str(p.relative_to(d)), "size": st.st_size, "mtime": st.st_mtime})
+    out.sort(key=lambda x: -x["mtime"])
+    return {"ok": True, "dir": str(d), "berkas": out[:80], "jumlah": len(out)}
+
+
 # ----------------------------------------------------------------- project
 @app.get("/api/project/tree")
 async def project_tree():
@@ -424,13 +487,35 @@ async def sessions_list():
         running = [i for i in ids if (tasks.get(i) or {}).get("status") == "running"]
         s["running"] = len(running)
         s["status"] = "running" if running else "idle"
+    # Urutkan di server: UI menampilkan daftar apa adanya, jadi percakapan yang
+    # baru dipakai harus ada di atas tanpa bergantung pada urutan penyimpanan.
+    items.sort(key=lambda s: s.get("updated") or s.get("created") or 0, reverse=True)
     return {"sessions": items}
 
 
 @app.post("/api/sessions")
 async def sessions_create(payload: dict | None = None):
+    """Percakapan baru yang kosong.
+
+    Sampai ada pesan pertama, judulnya masih kosong. UI menampilkannya sebagai
+    "Percakapan baru" dan hanya menyimpan yang benar-benar dipakai, jadi daftar
+    tidak penuh percakapan kosong setiap kali tombolnya ditekan.
+    """
     s = sessions.create(((payload or {}).get("title") or "").strip())
     return {"ok": True, "session": s}
+
+
+@app.delete("/api/sessions/kosong")
+async def sessions_hapus_kosong():
+    """Buang percakapan yang belum pernah dipakai (tanpa satu pun tugas)."""
+    dihapus = 0
+    for s in sessions.list_sessions():
+        if not (s.get("tasks") or []):
+            if sessions.delete(s["id"]):
+                dihapus += 1
+    if dihapus:
+        hub.emit("system", f"{dihapus} percakapan kosong dibuang dari daftar")
+    return {"ok": True, "dihapus": dihapus}
 
 
 @app.get("/api/sessions/{sid}")
@@ -453,6 +538,7 @@ async def sessions_get(sid: str, events: int = 120):
 
 
 @app.post("/api/sessions/{sid}")
+@app.patch("/api/sessions/{sid}")
 async def sessions_update(sid: str, payload: dict):
     s = sessions.rename(sid, (payload or {}).get("title") or "")
     if not s:
@@ -535,6 +621,36 @@ async def tools_status():
         "mcp_count": len(mcp),
         "jobs": plugins.job_daftar(8),
     }
+
+
+@app.get("/api/workers/paket")
+async def workers_paket():
+    """Paket npm tiap pekerja, plus status terpasang. Dipakai UI untuk menawarkan
+    pemasangan otomatis supaya satu clone bisa langsung jalan."""
+    st = {w["key"]: w for w in adapters.status_all()}
+    out = []
+    for key, paket in adapters.PAKET.items():
+        s = st.get(key) or {}
+        out.append({
+            "key": key,
+            "label": (adapters.ADAPTERS[key].label if key in adapters.ADAPTERS else key),
+            "paket": paket,
+            "installed": bool(s.get("installed")),
+            "version": s.get("version") or "",
+            "sumber": adapters.SUMBER.get(key, ""),
+        })
+    return {"ok": True, "pekerja": out, "npm": shutil.which("npm") or ""}
+
+
+@app.post("/api/workers/{key}/pasang")
+async def worker_pasang(key: str):
+    """Pasang satu CLI pekerja lewat npm di latar belakang."""
+    if key not in adapters.PAKET:
+        return JSONResponse({"ok": False, "error": "pekerja tidak dikenal"}, status_code=404)
+    if not shutil.which("npm"):
+        return JSONResponse({"ok": False, "error": "npm tidak ada di PATH, pasang Node.js dulu"}, status_code=400)
+    jid = await asyncio.to_thread(adapters.pasang_latar, key)
+    return {"ok": True, "job": jid}
 
 
 # ------------------------------------------------------------------ plugin MCP

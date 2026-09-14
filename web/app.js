@@ -136,17 +136,25 @@ const layar = {
 };
 function susun() {
   const isi = document.querySelector(".isi");
-  const chat = document.querySelector(".chat");
   const panel = el("aktivitas");
   if (layar.alat.matches) {
-    isi.insertBefore(el("wadah-aktivitas"), null);
-    if (layar.aktivitas.matches) isi.appendChild(panel);
-    else el("wadah-aktivitas").appendChild(panel);
+    // Di >=1280px ruangnya cukup untuk percakapan + panel pekerjaan
+    // berdampingan. Di bawah itu panelnya masuk lembar alat lewat wadahnya,
+    // yang tinggal di dalam lembar itu di HTML.
+    if (layar.aktivitas.matches) {
+      isi.appendChild(el("wadah-aktivitas"));
+      isi.appendChild(panel);
+    } else {
+      el("wadah-aktivitas").appendChild(panel);
+    }
   } else {
     el("wadah-aktivitas").appendChild(panel);
   }
-  el("wadah-aktivitas").hidden = !(layar.alat.matches && !layar.aktivitas.matches);
-  if (chat && isi.contains(el("wadah-aktivitas"))) isi.insertBefore(chat, el("wadah-aktivitas"));
+  // Wadah disembunyikan hanya saat panelnya ada di kolom kanan: anak grid yang
+  // display:none tidak ikut menghitung kolom, dan itu yang membuat grid dua
+  // kolom tetap dua kolom. Di dalam lembar alat wadahnya harus hidup, kalau
+  // tidak panel kerjanya tampil kosong.
+  el("wadah-aktivitas").hidden = layar.aktivitas.matches;
 }
 for (const m of [layar.alat, layar.aktivitas]) m.addEventListener("change", () => { tutupSemuaLembar(); susun(); });
 susun();
@@ -157,17 +165,23 @@ el("tombol-plus").addEventListener("click", () => bukaLembar("lembar-plus"));
 el("pil-model").addEventListener("click", () => { bukaLembar("lembar-model"); muatModelLembar(); });
 el("aksi-plugin").addEventListener("click", () => { tutupSemuaLembar(); pindahAlat("plugin"); bukaLembar("lembar-alat"); });
 el("aksi-skill").addEventListener("click", () => { tutupSemuaLembar(); pindahAlat("skill"); bukaLembar("lembar-alat"); });
+el("aksi-pekerja").addEventListener("click", () => { tutupSemuaLembar(); pindahAlat("pekerja"); bukaLembar("lembar-alat"); });
 el("aksi-gambar").addEventListener("click", () => el("berkas-gambar").click());
 el("aksi-berkas").addEventListener("click", () => el("berkas-apa").click());
 el("buka-pasang-plugin").addEventListener("click", () => bukaLembar("lembar-plugin"));
 
-for (const b of document.querySelectorAll("[data-buka]")) {
-  b.addEventListener("click", () => {
+/* Menu titik tiga: hal-hal yang tidak punya tempat lain. Menu garis tiga
+   memegang daftar fitur, jadi di sini hanya aksi untuk percakapan yang
+   sedang dibuka. */
+for (const b of document.querySelectorAll("[data-aksi]")) {
+  b.addEventListener("click", async () => {
     tutupMenuTitik();
-    const mana = b.dataset.buka;
-    if (mana === "obrolan") { sesiBaru(); return; }
-    pindahAlat(mana);
-    bukaLembar("lembar-alat");
+    const aksi = b.dataset.aksi;
+    if (aksi === "ganti-nama") return bukaLembar("lembar-nama");
+    if (aksi === "kerja") return pindahAlat("kerja");
+    if (aksi === "bagikan") return salinPercakapan();
+    if (aksi === "tema-gelap") return pakaiTema("gelap");
+    if (aksi === "tema-terang") return pakaiTema("terang");
   });
 }
 
@@ -177,44 +191,84 @@ function pindahAlat(nama) {
     b.setAttribute("aria-current", String(b.dataset.alat === nama));
   }
   const judul = { obrolan: "Percakapan", plugin: "Plugin MCP", skill: "Skill dari GitHub",
-                  berkas: "Berkas dan tes", catatan: "Catatan", model: "Model" };
+                  pekerja: "Pekerja", berkas: "Berkas dan tes", catatan: "Catatan",
+                  model: "Model", kerja: "Kerja" };
   el("judul-alat").textContent = judul[nama] || "Alat";
 
-  const bagianAktivitas = { berkas: "berkas", catatan: "catatan", model: "model" }[nama];
+  const bagianAktivitas = { berkas: "berkas", catatan: "catatan", model: "model", kerja: "proses" }[nama];
   if (!bagianAktivitas) {
     for (const p of document.querySelectorAll("#badan-alat .panel")) p.hidden = true;
-    const tujuan = el({ obrolan: "alat-obrolan", plugin: "alat-plugin", skill: "alat-skill" }[nama] || "alat-obrolan");
+    const tujuan = el({ obrolan: "alat-obrolan", plugin: "alat-plugin", skill: "alat-skill",
+                        pekerja: "alat-pekerja" }[nama] || "alat-obrolan");
     if (tujuan) tujuan.hidden = false;
     return;
   }
-  // Berkas, catatan, dan model memakai panel aktivitas yang sama, bukan salinan.
-  for (const b of document.querySelectorAll("#tab-alat [role=tab]")) {
-    b.setAttribute("aria-selected", String(b.dataset.panel === bagianAktivitas));
-  }
-  for (const p of document.querySelectorAll("#aktivitas .panel")) {
-    p.hidden = p.id !== "panel-" + bagianAktivitas;
-  }
+  // Berkas, catatan, model, dan kerja memakai panel aktivitas yang sama,
+  // bukan salinan.
+  pindahTab(bagianAktivitas);
+  // Berkas, catatan, dan model hidup di kolom kanan pada layar lebar. Di bawah
+  // itu panelnya dipindah ke dalam lembar ini oleh susun(), jadi bagian
+  // aktivitas selalu ditampilkan lewat lembar: membuka lembar saat panelnya
+  // ada di kolom kanan justru memperlihatkan lembar kosong.
   if (layar.aktivitas.matches) {
-    // di layar lebar panelnya sudah ada di kolom kanan, jadi menu alat
-    // menutup diri dan panelnya disorot
     tutupSemuaLembar();
     const panel = el("aktivitas");
     panel.classList.add("sorot");
     setTimeout(() => panel.classList.remove("sorot"), 900);
     return;
   }
-  for (const p of document.querySelectorAll("#badan-alat .panel")) p.hidden = true;
+  bukaLembar("lembar-alat");
   el("alat-aktivitas").hidden = false;
+  // Hanya panel milik lembar ini yang disembunyikan. Selektor tanpa ">" ikut
+  // mengenai panel-proses/berkas/catatan/model yang bersarang di dalam panel
+  // kerja, jadi bagian yang baru saja dibuka lewat pindahTab() langsung
+  // disembunyikan lagi dan panelnya tampak kosong.
+  for (const p of document.querySelectorAll("#badan-alat > .panel")) {
+    if (p.id !== "alat-aktivitas") p.hidden = true;
+  }
+  if (nama === "kerja") gambarKerja();
 }
 for (const b of document.querySelectorAll("#nav-alat button")) {
   b.addEventListener("click", () => pindahAlat(b.dataset.alat));
 }
 for (const b of document.querySelectorAll("#tab-alat [role=tab]")) {
-  b.addEventListener("click", () => {
-    for (const x of document.querySelectorAll("#tab-alat [role=tab]")) x.setAttribute("aria-selected", String(x === b));
-    for (const p of document.querySelectorAll("#aktivitas .panel")) p.hidden = p.id !== "panel-" + b.dataset.panel;
-  });
+  b.addEventListener("click", () => pindahTab(b.dataset.panel));
 }
+
+/* Aksi percakapan yang sedang dibuka: ganti nama dan salin isi. */
+async function salinPercakapan() {
+  const teks = keadaan.pesan.map((p) => `${p.peran === "aku" ? "Kamu" : "AstroZ"}: ${p.teks || ""}`).join("\n\n");
+  if (!teks.trim()) { pesanSingkat("Percakapan ini masih kosong."); return; }
+  try {
+    await navigator.clipboard.writeText(teks);
+    pesanSingkat("Percakapan disalin ke papan klip.");
+  } catch {
+    // peramban bisa menolak papan klip; sediakan jalan lain
+    const ta = document.createElement("textarea");
+    ta.value = teks;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); pesanSingkat("Percakapan disalin."); }
+    catch { pesanSingkat("Papan klip tidak bisa dipakai di peramban ini.", true); }
+    ta.remove();
+  }
+}
+
+el("simpan-nama").addEventListener("click", async () => {
+  const nama = el("nama-baru").value.trim();
+  if (!nama) { pesanSingkat("Isi dulu namanya."); return; }
+  if (!keadaan.sesi) { pesanSingkat("Belum ada percakapan yang dibuka.", true); return; }
+  try {
+    await kirim(`/api/sessions/${keadaan.sesi}`, { title: nama }, "POST");
+    keadaan.judul = nama;
+    el("nama-baru").value = "";
+    tutupSemuaLembar();
+    await muatSesi();
+    pesanSingkat("Nama percakapan disimpan.");
+  } catch (e) {
+    pesanSingkat("Gagal menyimpan nama: " + e.message, true);
+  }
+});
 
 /* --------------------------------------------------------------- percakapan */
 
@@ -253,24 +307,19 @@ function gambarPesan(p) {
     if (p.tes === false) aksi.appendChild(buat("span", "waktu", "tes gagal"));
     if (p.ts) aksi.appendChild(buat("span", "waktu", waktu(p.ts)));
     if (p.tugas) {
+      // Progres kerja tidak ditulis di chat: satu tombol yang membuka panel
+      // samping, supaya percakapan tetap bersih dan tidak menumpuk.
       const b = buat("button", "aksi-ikon", "▤");
       b.type = "button";
-      b.title = "Lihat proses";
-      b.setAttribute("aria-label", "Lihat proses");
-      b.addEventListener("click", () => bukaRincian(p.tugas));
+      b.title = "Lihat proses kerja";
+      b.setAttribute("aria-label", "Lihat proses kerja");
+      b.addEventListener("click", () => { tampilkanKerja(p.tugas); });
       aksi.appendChild(b);
     }
   } else if (p.ts) {
     aksi.appendChild(buat("span", "waktu", waktu(p.ts)));
   }
   baris.appendChild(aksi);
-
-  if (p.tugas) {
-    const skrip = buat("div", "skrip");
-    skrip.dataset.tugas = p.tugas;
-    baris.appendChild(skrip);
-    gambarSkrip(skrip, p.tugas);
-  }
   return baris;
 }
 
@@ -283,15 +332,6 @@ function potongKata(teks, batas) {
   const potong = t.slice(0, batas);
   const spasi = potong.lastIndexOf(" ");
   return (spasi > batas * 0.6 ? potong.slice(0, spasi) : potong) + "…";
-}
-
-function gambarSkrip(wadah, tid) {
-  const evs = (keadaan.aktivitas && keadaan.aktivitas[tid]) || [];
-  const pakai = evs.filter((e) => ["worker", "plan", "test", "review"].includes(e.kind)).slice(-6);
-  wadah.replaceChildren();
-  for (const e of pakai) {
-    wadah.appendChild(buat("span", null, `⏺ ${e.kind}: ${potongKata(e.text, 110)}`));
-  }
 }
 
 function keDasar() {
@@ -322,10 +362,14 @@ function sesiBaru() {
   keadaan.sesi = null;
   keadaan.judul = "AstroZ";
   el("judul-bar").textContent = "AstroZ";
+  kerjaTugas = null;
   kosongkanChat(null);
   el("sapaan").textContent = sapaanWaktu();
   el("sapaan-kecil").textContent = "Siap mengerjakan. Tulis perintah di kotak bawah.";
-  el("daftar-proses").replaceChildren(buat("p", "kosong", "Belum ada pekerjaan di percakapan ini."));
+  el("judul-kerja").textContent = "Pekerjaan";
+  el("catatan-kerja").textContent = "Belum ada pekerjaan di percakapan ini.";
+  el("daftar-proses").replaceChildren();
+  el("isi-kerja").replaceChildren();
   tutupSemuaLembar();
   el("tulis").focus();
   muatSesi();
@@ -336,7 +380,7 @@ function gambarDaftarSesi(daftar) {
   const wadah = el("daftar-sesi");
   wadah.replaceChildren();
   if (!daftar.length) {
-    wadah.appendChild(buat("p", "kosong", "Belum ada percakapan. Tulis perintah di kotak bawah, percakapan pertama dibuat sendiri."));
+    wadah.appendChild(buat("p", "kosong", "Belum ada percakapan."));
     return;
   }
   for (const s of daftar) {
@@ -344,8 +388,9 @@ function gambarDaftarSesi(daftar) {
     const b = buat("button");
     b.type = "button";
     if (s.id === keadaan.sesi) b.setAttribute("aria-current", "true");
-    b.appendChild(buat("div", "judul", s.title || "tanpa judul"));
-    if (s.last) b.appendChild(buat("div", "cuplik", s.last));
+    // Hanya judul percakapan. Cuplikan jawaban tidak ditampilkan supaya daftar
+    // tetap ringkas dan mudah dipindai.
+    b.appendChild(buat("div", "judul", s.title || "Percakapan baru"));
     b.appendChild(buat("div", "waktu", `${tanggalPendek(s.updated || s.created)}  ${(s.tasks || []).length} tugas`));
     b.addEventListener("click", () => { bukaSesi(s.id); tutupSemuaLembar(); });
     const hapus = buat("button", "hapus", "hapus");
@@ -379,7 +424,9 @@ async function bukaSesi(id) {
     const d = await ambil(`/api/sessions/${id}`);
     const s = d.session || {};
     keadaan.judul = s.title || "AstroZ";
-    el("judul-bar").textContent = keadaan.judul;
+    // Judul bar selalu nama aplikasi. Judul percakapan ada di riwayat, jadi
+    // chat tidak pernah berganti nama sendiri.
+    el("judul-bar").textContent = "AstroZ";
     keadaan.aktivitas = d.activity || {};
     keadaan.pesan = [];
     kolom().replaceChildren();
@@ -401,7 +448,10 @@ async function bukaSesi(id) {
     }
     const jalan = pesan.filter((m) => m.role !== "user" && m.status === "running").map((m) => m.task);
     keadaan.tugasJalan = jalan.length ? jalan[jalan.length - 1] : null;
-    gambarProses(s.tasks || [], d.activity || {});
+    // Panel kerja menampilkan tugas terakhir di percakapan ini.
+    const semua = s.tasks || [];
+    kerjaTugas = keadaan.tugasJalan || (semua.length ? semua[semua.length - 1] : null);
+    gambarKerja();
     if (keadaan.tugasJalan) pantauTugas(keadaan.tugasJalan);
   } catch (e) {
     pesanSingkat("Percakapan tidak bisa dibuka: " + e.message, true);
@@ -494,10 +544,11 @@ el("form-tulis").addEventListener("submit", async (ev) => {
     });
     keadaan.sesi = d.session;
     keadaan.judul = d.title || keadaan.judul;
-    el("judul-bar").textContent = keadaan.judul;
     pesanAku.tugas = d.task_id;
     const p = tambahPesan({ peran: "astroz", teks: "sedang dikerjakan", ts: Date.now() / 1000, status: "jalan", tugas: d.task_id });
     keadaan.tugasJalan = d.task_id;
+    kerjaTugas = d.task_id;
+    gambarKerja();
     pantauTugas(d.task_id);
     muatSesi();
   } catch (err) {
@@ -515,6 +566,101 @@ el("tulis").addEventListener("keydown", (ev) => {
     el("form-tulis").requestSubmit();
   }
 });
+
+/* ------------------------------------------------------------------ kerja */
+
+/* Progres kerja tampil di panel latar belakang (kolom kanan di layar lebar,
+   lembar geser di layar sempit), bukan di dalam chat. Chat hanya memuat pesan
+   dan jawaban; kalau kerjanya panjang, angkanya yang berjalan, bukan
+   percakapannya yang menumpuk. */
+let kerjaTugas = null;
+let jamKerja = null;
+
+function pindahTab(panel) {
+  for (const b of document.querySelectorAll("#tab-alat [role=tab]")) {
+    b.setAttribute("aria-selected", String(b.dataset.panel === panel));
+  }
+  for (const p of document.querySelectorAll("#aktivitas .panel")) {
+    p.hidden = p.id !== "panel-" + panel;
+  }
+}
+
+function tampilkanKerja(tid) {
+  kerjaTugas = tid;
+  pindahTab("proses");
+  if (!layar.aktivitas.matches) {
+    // layar sempit: panelnya hidup di dalam lembar alat
+    pindahAlat("kerja");
+    bukaLembar("lembar-alat");
+  } else {
+    const panel = el("aktivitas");
+    panel.classList.add("sorot");
+    setTimeout(() => panel.classList.remove("sorot"), 900);
+  }
+  gambarKerja();
+  if (jamKerja) clearInterval(jamKerja);
+  jamKerja = setInterval(gambarKerja, 2500);
+}
+
+async function gambarKerja() {
+  const wadah = el("isi-kerja");
+  const daftar = el("daftar-proses");
+  if (!wadah) return;
+  if (!kerjaTugas) {
+    daftar.replaceChildren();
+    wadah.replaceChildren();
+    el("judul-kerja").textContent = "Pekerjaan";
+    el("catatan-kerja").textContent = "Belum ada pekerjaan di percakapan ini.";
+    return;
+  }
+  try {
+    const d = await ambil(`/api/tasks/${kerjaTugas}`);
+    const t = d.task || {};
+    const ringan = (t.size || "") === "chat";
+    el("judul-kerja").textContent = ringan ? "Dijawab langsung" : "Pekerjaan " + kerjaTugas;
+    el("catatan-kerja").textContent = ringan
+      ? "Pesan ini dijawab langsung oleh model, tanpa pekerja dan tanpa folder kerja."
+      : "Keadaan: " + (t.status || "?") + (t.workers && t.workers.length ? "  |  pekerja: " + t.workers.join(", ") : "");
+    daftar.replaceChildren();
+
+    const evs = (d.events || []).filter((e) => ["plan", "worker", "test", "review", "task", "git"].includes(e.kind));
+    const jalan = t.status === "running";
+    const kotak = buat("div", "kotak-kerja");
+    kotak.appendChild(buat("div", "nama", "keadaan: " + (t.status || "?")));
+    kotak.appendChild(buat("div", "baris-kecil",
+      "ukuran: " + (t.size || "otomatis") + "  |  model: " + (t.model || "bawaan")));
+    if (t.workers && t.workers.length) kotak.appendChild(buat("div", "baris-kecil", "pekerja: " + t.workers.join(", ")));
+    daftar.appendChild(kotak);
+
+    const berkas = await ambil(`/api/tasks/${kerjaTugas}/berkas`).catch(() => null);
+    if (berkas && berkas.jumlah) {
+      const bk = buat("div", "kotak-kerja");
+      bk.appendChild(buat("div", "nama", berkas.jumlah + " berkas berubah"));
+      for (const f of berkas.berkas.slice(0, 12)) {
+        bk.appendChild(buat("div", "baris-kecil", f.path + "  " + f.size + " b"));
+      }
+      daftar.appendChild(bk);
+    }
+
+    wadah.replaceChildren();
+    if (!evs.length) {
+      wadah.appendChild(buat("p", "kosong", jalan ? "Menunggu langkah pertama." : "Tidak ada catatan langkah."));
+    }
+    for (const e of evs.slice(-60)) {
+      const baris = buat("div", "kejadian");
+      baris.dataset.jenis = e.kind || "";
+      baris.appendChild(buat("div", "waktu", waktu(e.ts)));
+      const tengah = buat("div");
+      tengah.appendChild(buat("div", "jenis", e.kind || ""));
+      tengah.appendChild(buat("div", "pesan-log", e.text || e.message || ""));
+      baris.appendChild(tengah);
+      wadah.appendChild(baris);
+    }
+    if (!jalan && jamKerja) { clearInterval(jamKerja); jamKerja = null; }
+  } catch {
+    /* panel samping bukan jalur penting; biarkan tampilan terakhir */
+  }
+}
 
 /* ------------------------------------------------------------------ pantau */
 
@@ -545,11 +691,8 @@ async function pantauTugas(tid) {
         p.tes = (t.test || {}).ok;
         p.pekerja = (t.workers || [])[0];
         gambarSemuaPesan();
-      } else {
-        // tetap segarkan baris kecil di bawah jawaban
-        const skrip = document.querySelector(`.skrip[data-tugas="${tid}"]`);
-        if (skrip) gambarSkrip(skrip, tid);
       }
+      if (kerjaTugas === tid) gambarKerja();
       if (status !== "jalan") {
         clearInterval(jamPantau);
         ticker(false);
@@ -566,74 +709,12 @@ async function bukaSesiRingan(id) {
   try {
     const d = await ambil(`/api/sessions/${id}`);
     keadaan.aktivitas = d.activity || {};
-    gambarProses((d.session || {}).tasks || [], d.activity || {});
-    for (const w of document.querySelectorAll(".skrip")) gambarSkrip(w, w.dataset.tugas);
+    if (kerjaTugas) gambarKerja();
   } catch {}
   muatSesi();
 }
 
-/* -------------------------------------------------------- panel: proses */
-
-function gambarProses(ids, aktivitas) {
-  const wadah = el("daftar-proses");
-  wadah.replaceChildren();
-  if (!ids || !ids.length) {
-    wadah.appendChild(buat("p", "kosong", "Belum ada pekerjaan di percakapan ini."));
-    return;
-  }
-  for (const tid of ids.slice().reverse()) {
-    const evs = aktivitas[tid] || [];
-    const baris = buat("div", "baris-data");
-    const atas = buat("div", "atas");
-    atas.appendChild(buat("span", "nama", tid));
-    const jalan = evs.some((e) => e.kind === "task" && e.phase === "created") && !evs.some((e) => e.phase === "done" || e.phase === "failed");
-    atas.appendChild(buat("span", "tanda-cap " + (jalan ? "" : "ada"), jalan ? "jalan" : "tercatat"));
-    baris.appendChild(atas);
-    const terakhir = evs[evs.length - 1];
-    if (terakhir) {
-      // Dua baris penuh dengan potongan di batas kata, bukan satu baris
-      // terpotong di tengah kata yang jadi tidak terbaca.
-      const isi = buat("div", "teks-kecil", potongKata(terakhir.text, 200));
-      isi.style.overflowWrap = "anywhere";
-      baris.appendChild(isi);
-    }
-    const b = buat("button", "tombol kecil garis", "lihat rincian");
-    b.type = "button";
-    b.addEventListener("click", () => bukaRincian(tid));
-    baris.appendChild(b);
-    wadah.appendChild(baris);
-  }
-}
-
-async function bukaRincian(tid) {
-  el("judul-rincian").textContent = "Tugas " + tid;
-  const isi = el("isi-rincian");
-  isi.replaceChildren(buat("p", "kosong", "memuat"));
-  bukaLembar("lembar-rincian");
-  try {
-    const d = await ambil(`/api/tasks/${tid}`);
-    const t = d.task || {};
-    isi.replaceChildren();
-    const info = buat("div", "baris-data");
-    info.appendChild(buat("div", "nama", "keadaan: " + (t.status || "?")));
-    info.appendChild(buat("div", "teks-kecil", "ukuran: " + (t.size || "otomatis") + "  model: " + (t.model || "bawaan") + "  pekerja: " + ((t.workers || []).join(", ") || "belum tercatat")));
-    if (t.answer) info.appendChild(buat("div", "teks-kecil", t.answer));
-    isi.appendChild(info);
-    for (const e of (d.events || []).slice().reverse()) {
-      const baris = buat("div", "kejadian");
-      baris.dataset.jenis = e.kind || "";
-      baris.appendChild(buat("div", "waktu", waktu(e.ts)));
-      const tengah = buat("div");
-      tengah.appendChild(buat("div", "jenis", e.kind || ""));
-      tengah.appendChild(buat("div", "pesan-log", e.text || e.message || ""));
-      baris.appendChild(tengah);
-      isi.appendChild(baris);
-    }
-    if (!(d.events || []).length) isi.appendChild(buat("p", "kosong", "Belum ada catatan untuk tugas ini."));
-  } catch (e) {
-    isi.replaceChildren(buat("p", "kosong", "Rincian tidak bisa dimuat: " + e.message));
-  }
-}
+/* ---------------------------------------------------- panel: kerja dulu */
 
 /* --------------------------------------------------------- panel: model */
 
@@ -641,7 +722,7 @@ function tandaCap(ada, teks) {
   return buat("span", "tanda-cap " + (ada ? "ada" : "tidak"), teks);
 }
 
-function barisModel(m, saring, saatKlik) {
+function barisModel(m, saatKlik) {
   const baris = buat("div", "baris-data");
   const atas = buat("div", "atas");
   atas.appendChild(buat("span", "nama", m.id));
@@ -685,7 +766,7 @@ function gambarDaftarModel(wadah, d) {
     return;
   }
   wadah.appendChild(buat("p", "catatan", `${d.total} model cocok, ${daftar.length} ditampilkan.`));
-  for (const m of daftar) wadah.appendChild(barisModel(m, null, pakaiModel));
+  for (const m of daftar) wadah.appendChild(barisModel(m, pakaiModel));
 }
 
 async function muatModel() {
@@ -781,7 +862,7 @@ function gambarPekerja(daftar) {
     const baris = buat("div", "baris-data");
     const atas = buat("div", "atas");
     atas.appendChild(buat("span", "nama", w.label || w.name));
-    atas.appendChild(buat("span", "tanda-cap " + (w.available ? "ada" : ""), w.available ? "siap" : "tidak ada"));
+    atas.appendChild(buat("span", "tanda-cap " + (w.installed ? "ada" : ""), w.installed ? "siap" : "tidak ada"));
     baris.appendChild(atas);
     baris.appendChild(buat("div", "teks-kecil", w.version || w.error || "versi belum diperiksa"));
     if (w.model) baris.appendChild(buat("div", "teks-kecil", "model: " + w.model));
@@ -792,8 +873,8 @@ function gambarPekerja(daftar) {
     cek.type = "checkbox";
     cek.checked = w.enabled !== false;
     cek.addEventListener("change", async () => {
-      await kirim(`/api/workers/${w.name}`, { enabled: cek.checked });
-      pesanSingkat(`${w.name} ${cek.checked ? "dipakai" : "dimatikan"}.`);
+      await kirim(`/api/workers/${w.key}`, { enabled: cek.checked });
+      pesanSingkat(`${w.label || w.key} ${cek.checked ? "dipakai" : "dimatikan"}.`);
     });
     label.append(cek, document.createTextNode("pakai pekerja ini"));
     deret.appendChild(label);
@@ -801,8 +882,8 @@ function gambarPekerja(daftar) {
     b.type = "button";
     b.addEventListener("click", async () => {
       b.textContent = "memeriksa";
-      try { const d = await kirim(`/api/workers/${w.name}/probe`); pesanSingkat(`${w.name}: ${d.version || d.error || "selesai"}`); }
-      catch (e) { pesanSingkat(`${w.name}: ${e.message}`, true); }
+      try { const d = await kirim(`/api/workers/${w.key}/probe`, {}); pesanSingkat(`${w.label || w.key}: ${d.version || d.error || "selesai"}`); }
+      catch (e) { pesanSingkat(`${w.key}: ${e.message}`, true); }
       finally { await muatPekerja(); }
     });
     deret.appendChild(b);
@@ -814,7 +895,16 @@ function gambarPekerja(daftar) {
 async function muatPekerja() {
   try {
     const d = await ambil("/api/workers");
-    gambarPekerja(d.workers || []);
+    // /api/workers memisahkan status (versi, terpasang) dari setelan
+    // (model, dipakai). Tanpa digabung, baris model tidak pernah muncul dan
+    // centang "pakai pekerja ini" selalu terlihat aktif walau dimatikan.
+    const cfg = d.cfg || {};
+    const daftar = (d.workers || []).map((w) => ({
+      ...w,
+      model: (cfg[w.key] || {}).model || "",
+      enabled: (cfg[w.key] || {}).enabled !== false,
+    }));
+    gambarPekerja(daftar);
   } catch (e) {
     el("daftar-pekerja").replaceChildren(buat("p", "kosong", "Daftar pekerja tidak bisa dimuat: " + e.message));
   }
@@ -823,7 +913,7 @@ async function muatPekerja() {
 el("periksa-pekerja").addEventListener("click", async () => {
   el("periksa-pekerja").disabled = true;
   for (const w of keadaan.pekerja) {
-    try { await kirim(`/api/workers/${w.name}/probe`); } catch {}
+    try { await kirim(`/api/workers/${w.key}/probe`, {}); } catch {}
   }
   await muatPekerja();
   el("periksa-pekerja").disabled = false;
@@ -834,6 +924,71 @@ el("terapkan-pekerja").addEventListener("click", async () => {
   try { await kirim("/api/apply", { model: keadaan.modelSekarang }); pesanSingkat("Model diterapkan ke pekerja."); await muatPekerja(); }
   catch (e) { pesanSingkat("Gagal menerapkan model: " + e.message, true); }
 });
+
+/* ---------------------------------------------------- panel: pekerja baru */
+
+/* Daftar pekerja: mana yang terpasang, dan tombol pasang untuk yang belum.
+   Tujuannya satu clone bisa langsung jalan tanpa terminal. */
+async function muatPekerjaPasang() {
+  const wadah = el("daftar-pasang");
+  if (!wadah) return;
+  try {
+    const d = await ambil("/api/workers/paket");
+    wadah.replaceChildren();
+    if (!d.npm) {
+      wadah.appendChild(buat("p", "catatan", "npm tidak ada di PATH. Pasang Node.js 20 atau lebih baru dulu, lalu muat ulang halaman ini."));
+    }
+    // Kemajuan pemasangan tampil di sini, tepat di bawah tombolnya.
+    const catatan = buat("pre", "isi-berkas");
+    catatan.id = "log-pasang";
+    catatan.textContent = "Belum ada pemasangan.";
+    for (const p of d.pekerja || []) {
+      const baris = buat("div", "baris-data");
+      const atas = buat("div", "atas");
+      atas.appendChild(buat("span", "nama", p.label));
+      atas.appendChild(buat("span", "tanda-cap " + (p.installed ? "ada" : ""), p.installed ? "terpasang" : "belum ada"));
+      baris.appendChild(atas);
+      baris.appendChild(buat("div", "teks-kecil", p.paket));
+      if (p.version) baris.appendChild(buat("div", "teks-kecil", p.version));
+      if (p.sumber) {
+        const a = buat("a", "teks-kecil", p.sumber);
+        a.href = p.sumber;
+        a.target = "_blank";
+        a.rel = "noreferrer";
+        baris.appendChild(a);
+      }
+      if (!p.installed && d.npm) {
+        // Hanya yang belum terpasang yang bisa dipasang. Pemasangan ulang tidak
+        // disediakan dari sini: `npm install -g` untuk paket besar bisa
+        // menggantung lama, dan satu klik yang berjalan berjam-jam lebih buruk
+        // daripada tidak ada tombolnya.
+        const b = buat("button", "tombol kecil", "Pasang sekarang");
+        b.type = "button";
+        b.addEventListener("click", async () => {
+          b.disabled = true;
+          b.textContent = "memasang";
+          catatan.textContent = "memasang " + p.paket + ", perlu beberapa menit";
+          try {
+            const r = await kirim(`/api/workers/${p.key}/pasang`, {});
+            await pantauJob(r.job, "log-pasang");
+            await muatPekerjaPasang();
+            await muatPekerja();
+          } catch (e) {
+            pesanSingkat("Gagal memasang: " + e.message, true);
+          } finally {
+            b.disabled = false;
+            b.textContent = "Pasang sekarang";
+          }
+        });
+        baris.appendChild(b);
+      }
+      wadah.appendChild(baris);
+    }
+    wadah.appendChild(catatan);
+  } catch (e) {
+    wadah.replaceChildren(buat("p", "kosong", "Daftar pekerja tidak bisa dimuat: " + e.message));
+  }
+}
 
 /* -------------------------------------------------------- panel: berkas */
 
@@ -1010,14 +1165,18 @@ el("pasang-plugin").addEventListener("click", async () => {
 });
 
 /* Job di latar belakang: clone repo atau unduh paket plugin. */
-async function pantauJob(jid) {
+async function pantauJob(jid, ke) {
   if (!jid) return;
-  const kotak = el("log-plugin");
+  const kotak = ke ? el(ke) : el("log-plugin");
+  let terakhir = null;
   for (let i = 0; i < 240; i++) {
     try {
       const d = await ambil(`/api/jobs/${jid}`);
       const j = d.job || {};
-      if (kotak) kotak.textContent = [j.judul, ...(j.baris || []).slice(-6), j.hasil].filter(Boolean).join("\n");
+      // Baris kemajuan pemasangan ditulis di tempat aksinya berada, bukan di
+      // kotak log plugin MCP: mengirimnya ke sana membuat pemasangan pekerja
+      // tampak tidak melakukan apa pun.
+      if (kotak) { terakhir = j; kotak.textContent = [j.judul, ...(j.baris || []).slice(-6), j.hasil].filter(Boolean).join("\n"); }
       if (j.status !== "jalan") {
         pesanSingkat(j.hasil || (j.status === "selesai" ? "Selesai." : "Gagal."), j.status === "gagal");
         return j;
@@ -1025,6 +1184,10 @@ async function pantauJob(jid) {
     } catch {}
     await new Promise((r) => setTimeout(r, 2500));
   }
+  // Pemanggilnya memuat ulang daftar, dan itu menghapus kotak log ini. Simpan
+  // baris terakhir supaya pemasangan yang panjang tidak berakhir tanpa jejak.
+  if (kotak && terakhir) kotak.textContent = [terakhir.judul, ...(terakhir.baris || []).slice(-6)].filter(Boolean).join("\n");
+  return terakhir;
 }
 
 /* --------------------------------------------------- panel: skill GitHub */
@@ -1154,7 +1317,11 @@ function sambungKejadian() {
 }
 
 async function mulai() {
-  await Promise.all([muatSesi(), muatModel(), muatPekerja(), muatBerkas(), muatGit(), muatCatatan(false), muatMcp(), muatSkill(), muatMarketplace()]);
+  await Promise.all([muatSesi(), muatModel(), muatPekerja(), muatBerkas(), muatGit(), muatCatatan(false), muatMcp(), muatSkill(), muatMarketplace(), muatPekerjaPasang()]);
+  // Percakapan kosong yang belum pernah dipakai dibuang supaya riwayat tidak
+  // penuh baris "Percakapan baru".
+  await kirim("/api/sessions/kosong", {}, "DELETE").catch(() => null);
+  await muatSesi();
   sambungKejadian();
   const d = await ambil("/api/state").catch(() => null);
   if (d) gambarAlatBantu(d.gateway || {});

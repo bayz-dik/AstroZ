@@ -20,9 +20,6 @@ panel terpisah di sebelahnya.
 
 ## Yang perlu ada dulu
 
-AstroZ bukan aplikasi yang bisa langsung dipakai tanpa persiapan. Empat hal ini
-harus ada, dan tiga di antaranya bukan bagian dari repo:
-
 1. **Python 3.10 atau lebih baru**, dengan tiga paket di `requirements.txt`
    (fastapi, uvicorn, PyYAML). Pasang di venv supaya tidak menabrak python
    sistem:
@@ -32,25 +29,29 @@ harus ada, dan tiga di antaranya bukan bagian dari repo:
    cd astroz
    python3 -m venv .venv
    .venv/bin/pip install -r requirements.txt
+   ./run.sh
    ```
 
    `run.sh` mencari python berurutan: `$PY`, lalu `.venv`, lalu `python3`. Kalau
    paketnya belum lengkap, skrip berhenti dengan perintah yang harus dijalankan,
    bukan gagal di tengah dengan pesan uvicorn yang membingungkan.
 
-2. **9Router** di `:20128`, beserta satu kunci API salah satu penyedia model.
-   Ini gerbang model untuk semua pekerja, dan tidak ada di repo ini. Tanpa ini
-   UI tetap terbuka, tapi setiap tugas akan gagal karena tidak ada model yang
-   bisa dipanggil. Kalau 9Router belum ada, `run.sh` memberi tahu dan tetap
-   menyalakan bagian lain.
+2. **9Router** di `:20128`. Ini gerbang model untuk semua pekerja. Begitu
+   AstroZ menyala, kunci API, alamat gateway, dan daftar modelnya diambil
+   sendiri dari 9Router: tidak perlu menempelkan kunci di UI dan tidak perlu
+   menekan tombol sinkron. Kalau 9Router belum ada, `run.sh` memberi tahu dan
+   bagian lain tetap menyala.
 
-3. **Minimal satu CLI pekerja**, salah satu dari Claude Code, Codex, OpenCode,
-   atau OMP. Kalau tidak ada satu pun, tugas tidak bisa dikerjakan. Bagian
-   Model dan pekerja di menu Alat menunjukkan mana yang terpasang.
+3. **Node.js 20 atau lebih baru**, untuk memasang CLI pekerja. Empat pekerja
+   (Claude Code, Codex, OpenCode, OMP) bisa dipasang langsung dari UI: menu
+   garis tiga, bagian Pekerja, tekan Pasang sekarang. Tidak perlu terminal.
 
-4. **Kunci API.** Isi lewat UI di menu Alat bagian Model, atau salin
-   `team.yaml.example` menjadi `team.yaml` lalu isi `api_key`. Berkas
-   `team.yaml` tidak ikut ke git.
+4. **Satu CLI pekerja minimal** supaya tugas bisa dikerjakan. Satu pekerja sudah
+   cukup untuk bekerja; menambah pekerja lain membuat tugas besar bisa dipecah
+   paralel dan dibandingkan hasilnya, jadi lebih cepat dan lebih teliti.
+
+Yang tidak perlu: kunci API tidak perlu diisi ulang di UI, karena sudah dibaca
+dari 9Router.
 
 ## Jalankan
 
@@ -76,14 +77,18 @@ proot ini `ss` tidak melaporkan socket yang listening, jadi pemeriksaan berbasis
 
 | Bagian | Isi |
 |---|---|
-| Chat | pesanmu dan jawaban AstroZ. Pesanmu blok berlatar hangat, jawaban AstroZ teks polos dengan satu baris kecil berisi langkah kerja. Selalu menempel ke pesan terbaru |
-| Menu alat | dibuka dari tombol garis tiga di kiri atas: Obrolan, Plugin MCP, Skill dari GitHub, Berkas dan tes, Catatan kejadian, Model dan pekerja |
-| Panel kanan | di layar 1280px ke atas, pekerjaan di percakapan ini tampil sebagai kolom tetap. Di bawah itu pindah jadi lembar geser |
+| Chat | pesanmu dan jawaban AstroZ. Pesanmu blok berlatar hangat, jawaban AstroZ teks polos. Progres kerja tidak ditulis di sini, hanya satu tombol kecil untuk membukanya |
+| Menu alat | dibuka dari tombol garis tiga di kiri atas: Obrolan, Proses kerja, Plugin MCP, Skill dari GitHub, Pekerja, Berkas dan tes, Catatan kejadian, Model |
+| Menu titik tiga | aksi untuk percakapan yang sedang dibuka: lihat proses kerja, ganti nama, salin percakapan, tema |
+| Panel kerja | keadaan tugas terakhir, berkas yang berubah, dan langkah-langkahnya. Kolom tetap di 1280px ke atas, lembar geser di bawahnya |
 
-Di layar lebar 1280px ke atas ketiganya tampil bersamaan: daftar percakapan di
-kiri, chat di tengah, pekerjaan di kanan. Di antara 1000 dan 1279px panel
-pekerjaan jadi lembar geser supaya kolom chat tidak diperas. Di bawah 1000px
-semuanya lembar geser, dan chat memakai seluruh layar.
+Di layar 1280px ke atas keduanya tampil bersamaan: chat dan panel kerja. Di
+bawah 1280px panel kerja jadi lembar geser supaya kolom chat tidak diperas, dan
+daftar percakapan juga lembar geser dari tombol di kanan atas.
+
+Pesan yang jelas bukan pekerjaan (sapaan, pertanyaan pendek) dijawab langsung
+oleh model tanpa memanggil pekerja CLI dan tanpa membuat folder kerja baru.
+Panel kerjanya menandai ini sebagai "Dijawab langsung".
 
 ## Satu model untuk lima tempat
 
@@ -291,7 +296,7 @@ sungguhan dengan menelusuri setiap simpul teks yang benar-benar tampil
 
 Hasil audit terakhir di browser: 94 simpul teks diperiksa, 0 gagal, di kedua
 tema. Di lebar 375px tidak ada geseran mendatar dan semua sasaran sentuh
-minimal 44px. Di lebar 1000-1199px panel alat otomatis pindah jadi lembar
+minimal 44px. Di lebar 1000-1279px panel kerja otomatis pindah jadi lembar
 geser supaya kolom percakapan tidak diperas.
 
 Ikon diambil dari teks, bukan dari pustaka ikon. Animasi hanya dipakai untuk

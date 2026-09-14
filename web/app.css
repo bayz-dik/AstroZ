@@ -95,8 +95,16 @@ body {
   -webkit-text-size-adjust: 100%;
   overscroll-behavior-y: none;
   scrollbar-color: var(--garis-kuat) transparent;
+  /* Tidak ada kotak biru saat diketuk di HP. Sorotan bawaan peramban itu
+     membuat setiap ketukan terlihat seperti kesalahan. */
+  -webkit-tap-highlight-color: transparent;
 }
 
+button, a, [role="tab"], .baris-aksi, .nav-alat button, .pohon button {
+  -webkit-tap-highlight-color: transparent;
+}
+/* Sorotan hanya untuk papan tulis, bukan untuk sentuhan atau klik tetikus */
+button:focus:not(:focus-visible), [role="tab"]:focus:not(:focus-visible) { outline: none; }
 ::selection { background: var(--sorot); }
 
 h1, h2, h3 { margin: 0; font-family: var(--font-judul); font-weight: 500; line-height: 1.2; }
@@ -167,11 +175,15 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 .ikon-titik { font-size: 20px; line-height: 0.6; }
 
 .menu-turun {
-  position: absolute; right: 10px; top: 52px; z-index: 45;
-  min-width: 220px; padding: 6px;
+  position: absolute; right: 10px; top: calc(100% + 4px); z-index: 50;
   background: var(--permukaan); border-radius: var(--radius-2);
-  box-shadow: var(--cincin-kuat), var(--naik);
+  box-shadow: var(--cincin), var(--naik);
+  padding: 5px; min-width: 196px; max-width: min(240px, 78vw);
 }
+/* Menu ini tidak boleh menutupi percakapan lebih dari yang perlu: lebar
+   dibatasi, teksnya dibungkus, dan tingginya tidak pernah melebihi layar. */
+.menu-turun { max-height: min(70vh, 420px); overflow-y: auto; }
+.menu-turun button { white-space: normal; text-align: left; line-height: 1.35; }
 .menu-turun button {
   display: block; width: 100%; text-align: left;
   background: transparent; border: 0; cursor: pointer;
@@ -245,16 +257,34 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 .cap.selesai { background: transparent; box-shadow: 0 0 0 1px var(--selesai); color: var(--selesai); }
 .cap.gagal { background: transparent; box-shadow: 0 0 0 1px var(--galat); color: var(--galat); }
 .waktu { font-family: var(--font-mesin); font-size: 11px; color: var(--tinta-meta); }
-.skrip {
-  font-size: 12px; color: var(--tinta-meta); margin-top: 8px;
-  display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center;
+.lampiran { margin-bottom: 6px; }
+.pesan.astroz .isi-pesan {
+  white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
 }
-.skrip button {
-  background: transparent; border: 0; padding: 0; cursor: pointer;
-  color: var(--aksen-teks); text-decoration: underline;
+.pesan.astroz.menunggu .isi-pesan { color: var(--tinta-meta); }
+.pesan .isi-pesan { max-width: 100%; }
+
+.baris-aksi-pesan {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  margin-top: 10px;
+}
+.aksi-ikon {
+  background: transparent; border: 0; cursor: pointer;
+  width: 34px; height: 34px; border-radius: var(--radius-1);
+  color: var(--tinta-meta); font-size: 14px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.aksi-ikon:hover { background: var(--permukaan-hangat); color: var(--tinta); }
+.aksi-ikon.aktif { color: var(--aksen-teks); }
+.cap {
   font-family: var(--font-mesin); font-size: 11px;
-  display: inline-flex; align-items: center; min-height: 32px;
+  border-radius: var(--radius-pil); padding: 2px 10px;
+  background: var(--permukaan-hangat); color: var(--tinta-lembut);
 }
+.cap.jalan { background: transparent; box-shadow: 0 0 0 1px var(--aksen-teks); color: var(--aksen-teks); }
+.cap.selesai { background: transparent; box-shadow: 0 0 0 1px var(--selesai); color: var(--selesai); }
+.cap.gagal { background: transparent; box-shadow: 0 0 0 1px var(--galat); color: var(--galat); }
+.waktu { font-family: var(--font-mesin); font-size: 11px; color: var(--tinta-meta); }
 
 .lampiran {
   font-family: var(--font-mesin); font-size: 12px;
@@ -462,7 +492,7 @@ pre.isi-berkas {
   box-shadow: var(--naik);
 }
 .lembar.tampil { transform: translateX(0); }
-.lembar.kiri { left: 0; right: auto; width: min(340px, 88vw); border-radius: 0 var(--radius-3) var(--radius-3) 0; transform: translateX(-102%); }
+.lembar.kiri { left: 0; right: auto; width: min(232px, 68vw); border-radius: 0 var(--radius-3) var(--radius-3) 0; transform: translateX(-102%); }
 .lembar.kiri.tampil { transform: translateX(0); }
 .lembar.bawah {
   top: auto; left: 0; right: 0; width: 100%; bottom: 0; max-height: 84vh;
@@ -506,17 +536,28 @@ pre.isi-berkas {
 }
 .daftar .baris-sesi > button:first-child:hover { background: var(--sorot); }
 .daftar .baris-sesi > button[aria-current="true"] { background: var(--sorot); box-shadow: inset 2px 0 0 var(--aksen); }
-.baris-sesi .judul { font-weight: 500; font-size: 14px; }
-.baris-sesi .cuplik {
-  font-size: 13px; color: var(--tinta-lembut); margin-top: 2px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.baris-sesi .waktu { font-family: var(--font-mesin); font-size: 11px; color: var(--tinta-meta); margin-top: 4px; }
+/* baris riwayat: hanya judul percakapan, tanpa cuplikan jawaban */
+.baris-sesi .judul { font-weight: 500; font-size: 14px; line-height: 1.35; }
+.baris-sesi .waktu { font-family: var(--font-mesin); font-size: 11px; color: var(--tinta-meta); margin-top: 3px; }
 .baris-sesi .hapus {
   border: 0; background: transparent; color: var(--tinta-meta);
   padding: 0 14px; cursor: pointer; font-size: 13px; min-width: var(--tinggi-target);
 }
 .baris-sesi .hapus:hover { color: var(--galat); }
+
+/* panel kerja: baris kejadian yang lebih ringkas di kolom sempit.
+   minmax(0, 1fr) wajib: 1fr saja tidak boleh menyusut di bawah lebar isinya,
+   jadi satu baris log yang panjang melebarkan seluruh halaman. */
+#isi-kerja { margin-top: 4px; }
+#isi-kerja .kejadian { grid-template-columns: 12px 44px minmax(0, 1fr); gap: 6px; font-size: 12px; }
+#isi-kerja .kejadian .waktu { font-size: 10px; }
+.kotak-kerja {
+  background: var(--permukaan); border-radius: var(--radius-2);
+  padding: 10px 12px; margin-top: 8px; box-shadow: var(--cincin);
+  font-size: 13px; color: var(--tinta-2);
+}
+.kotak-kerja .nama { font-family: var(--font-mesin); font-size: 12px; word-break: break-word; overflow-wrap: anywhere; }
+.kotak-kerja .baris-kecil { font-size: 12px; color: var(--tinta-meta); margin-top: 3px; overflow-wrap: anywhere; }
 
 .cip {
   font-family: var(--font-mesin); font-size: 11px;
@@ -539,18 +580,29 @@ pre.isi-berkas {
 
 /* ------------------------------------------------------------ layar lebar */
 
-/* 1000-1199px: dua kolom, daftar pekerjaan jadi lembar geser supaya kolom
-   percakapan tidak diperas */
+/* 1000-1279px: satu kolom percakapan, panel kerja jadi lembar geser supaya
+   kolom percakapan tidak diperas */
 @media (min-width: 1000px) and (max-width: 1279px) {
-  .isi { grid-template-columns: var(--lebar-alat) minmax(0, 1fr); }
-  .aktivitas { display: none; }
+  /* Dulu di sini ada kolom --lebar-alat untuk daftar alat. Alat sudah pindah ke
+     lembar sendiri (menu garis tiga), jadi markupnya tidak punya anak itu lagi:
+     menyisakan kolomnya membuat chat terjepit di kolom pertama selebar 292px
+     dan sisi kanannya kosong. */
+  .isi { grid-template-columns: minmax(0, 1fr); }
+  /* panel kerja pindah ke lembar alat lewat wadahnya, jadi harus bisa tampil
+     di sana: di >=1280px ia disembunyikan supaya tidak jadi kolom kedua */
+  #wadah-aktivitas { display: block; }
+  .aktivitas { display: flex; }
   .hanya-sempit { display: inline-flex !important; }
+  /* panel kerja ikut pindah ke dalam lembar alat. Tanpa kolom yang bisa
+     menyusut, satu baris panjang melebarkan seluruh halaman. */
+  #alat-aktivitas { padding: 12px; }
+  #alat-aktivitas .kejadian { grid-template-columns: 12px 44px minmax(0, 1fr); }
 }
 
-/* >=1280px: tiga kolom */
+/* >=1280px: percakapan dan panel kerja berdampingan */
 @media (min-width: 1280px) {
   .isi {
-    grid-template-columns: var(--lebar-alat) minmax(0, 1fr) var(--lebar-aktivitas);
+    grid-template-columns: minmax(0, 1fr) var(--lebar-aktivitas);
     height: 100%;
   }
   .aktivitas { display: flex; }

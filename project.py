@@ -18,6 +18,12 @@ SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".next", "d
 
 def project_dir() -> pathlib.Path:
     p = pathlib.Path(config.load()["project_dir"]).expanduser()
+    # Pekerja CLI dijalankan dengan cwd yang sudah disiapkan orkestrator. Kalau
+    # mereka juga memanggil ini (lewat project.ensure_repo atau alat bantu),
+    # folder kerja baru ikut dibuat di mesin pekerja. Jangan: cukup pastikan
+    # cwd-nya ada.
+    if os.environ.get("ASTROZ_PEKERJA"):
+        return pathlib.Path.cwd()
     p.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -34,6 +40,11 @@ def _git(args: list[str], cwd: pathlib.Path, timeout: int = 25) -> tuple[int, st
 
 def ensure_repo() -> pathlib.Path:
     d = project_dir()
+    # Di dalam pekerja, jangan pernah git init: cwd adalah folder kerja yang
+    # sudah disiapkan orkestrator. Menjalankan init di sini adalah cara folder
+    # kerja baru muncul sendiri setiap kali pekerja menyentuh berkas.
+    if os.environ.get("ASTROZ_PEKERJA"):
+        return d
     if not (d / ".git").exists():
         _git(["init", "-q"], d)
         _git(["config", "user.email", "astroz@local"], d)
