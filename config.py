@@ -39,6 +39,9 @@ DEFAULTS: dict[str, Any] = {
         "auto_fallback": True,
         "healthy": [],
         "model_meta": {},
+        # Model yang pernah dijawab gateway dengan "unrecognized_model". Dipakai
+        # supaya rantai cadangan tidak mencoba model mati berulang kali.
+        "model_rejected": [],
         # Model yang dipakai alat `lihat` untuk membaca gambar. Kosong berarti
         # alat mencoba daftar bawaannya sendiri.
         "vision_model": "",

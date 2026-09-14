@@ -17,6 +17,7 @@ import adapters
 import config
 import hub
 import orchestrator
+import plugins
 import project
 import sessions
 from gateway import Gateway
@@ -241,6 +242,13 @@ async def gateway_probe(payload: dict | None = None):
         meta.setdefault(r["model"], {})["health"] = {"ok": r["ok"], "status": r["status"], "duration": r["duration"], "error": r["error"], "at": config.now()}
     cfg["gateway"]["model_meta"] = meta
     cfg["gateway"]["healthy"] = [r["model"] for r in res if r["ok"]]
+    # Model yang menjawab bukan berarti modelnya dikenal: gateway bisa membalas
+    # "unrecognized_model" untuk id yang sudah tidak ada. Bersihkan catatan
+    # model yang ditolak begitu model itu teruji hidup lagi.
+    hidup = set(cfg["gateway"]["healthy"])
+    sisa = [m for m in (cfg["gateway"].get("model_rejected") or []) if m not in hidup]
+    if sisa != (cfg["gateway"].get("model_rejected") or []):
+        cfg["gateway"]["model_rejected"] = sisa
     config.save(cfg)
     ok = [r["model"] for r in res if r["ok"]]
     hub.emit("gateway", f"Tes model: {len(ok)} dari {len(res)} menjawab, {', '.join(ok[:8])}", healthy=ok)
@@ -464,7 +472,12 @@ async def chat_send(payload: dict):
     text = ((payload or {}).get("text") or "").strip()
     if not text:
         return JSONResponse({"ok": False, "error": "tulis dulu pesannya"}, status_code=400)
-    s = sessions.ensure((payload or {}).get("session"), text)
+    # Satu percakapan baru per kiriman kalau UI tidak menyebut sesi. Tanpa ini
+    # semua pesan masuk ke percakapan pertama dan daftarnya menumpuk jadi satu.
+    sid = (payload or {}).get("session") or None
+    if not sid and (payload or {}).get("baru"):
+        sid = sessions.create("")["id"]
+    s = sessions.ensure(sid, text)
     orch = orchestrator.Orchestrator()
     tid = orch.submit(
         text,
@@ -503,6 +516,104 @@ async def upload(payload: dict):
     path.write_bytes(mentah)
     hub.emit("system", f"Lampiran disimpan: {path}")
     return {"ok": True, "path": str(path), "size": len(mentah)}
+
+
+# ------------------------------------------------------------------ alat
+@app.get("/api/tools/status")
+async def tools_status():
+    """Ringkas: gateway, pekerja, plugin MCP, dan paket skill."""
+    cfg = config.load()
+    mcp = plugins.mcp_daftar()
+    skills = plugins.skill_daftar()
+    return {
+        "gateway": {"online": bool(cfg["gateway"].get("online")), "model": cfg["gateway"].get("model")},
+        "workers": [{"key": w["key"], "label": w.get("label") or w["key"], "installed": w["installed"],
+                     "version": w.get("version") or "", "enabled": w.get("enabled", True)} for w in adapters.status_all()],
+        "mcp": mcp,
+        "skills": skills,
+        "skill_count": sum(s["jumlah"] for s in skills),
+        "mcp_count": len(mcp),
+        "jobs": plugins.job_daftar(8),
+    }
+
+
+# ------------------------------------------------------------------ plugin MCP
+@app.get("/api/mcp")
+async def mcp_list():
+    return {"ok": True, "servers": plugins.mcp_daftar(), "siap": plugins.MCP_SIAP}
+
+
+@app.post("/api/mcp")
+async def mcp_add(payload: dict):
+    body = payload or {}
+    nama = (body.get("nama") or "").strip()
+    target = (body.get("target") or body.get("command") or "").strip()
+    if not nama or not target:
+        return JSONResponse({"ok": False, "error": "nama dan command/url wajib diisi"}, status_code=400)
+    transport = (body.get("transport") or ("http" if target.startswith("http") else "stdio")).strip()
+    args = body.get("args") or []
+    if isinstance(args, str):
+        args = args.split()
+    env = body.get("env") or {}
+    header = body.get("header") or {}
+    if isinstance(env, str):
+        env = dict(x.split("=", 1) for x in env.split() if "=" in x)
+    if isinstance(header, str):
+        header = dict(x.split("=", 1) for x in header.split() if "=" in x)
+    d = plugins.mcp_definisi(nama, transport, target, args, env, header)
+    pekerja = body.get("pekerja") or None
+    jid = plugins.mcp_pasang_latar(d, pekerja)
+    return {"ok": True, "job": jid}
+
+
+@app.delete("/api/mcp/{nama}")
+async def mcp_remove(nama: str):
+    res = await asyncio.to_thread(plugins.mcp_hapus, nama)
+    hub.emit("system", f"Plugin MCP {nama} dilepas dari pekerja")
+    return {"ok": True, "hasil": res}
+
+
+# ------------------------------------------------------------------ skill
+@app.get("/api/skills")
+async def skills_list():
+    return {"ok": True, "paket": plugins.skill_daftar(), "siap": plugins.skill_ringkas_untuk_pekerja()}
+
+
+@app.post("/api/skills")
+async def skills_add(payload: dict):
+    body = payload or {}
+    url = (body.get("url") or body.get("repo") or "").strip()
+    if not url:
+        return JSONResponse({"ok": False, "error": "url repo wajib diisi"}, status_code=400)
+    try:
+        jid = plugins.skill_pasang(url, (body.get("nama") or "").strip())
+    except ValueError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    return {"ok": True, "job": jid}
+
+
+@app.delete("/api/skills/{nama}")
+async def skills_remove(nama: str):
+    res = await asyncio.to_thread(plugins.skill_hapus, nama)
+    return JSONResponse({"ok": res["ok"], **res}, status_code=200 if res["ok"] else 404)
+
+
+@app.get("/api/marketplace")
+async def marketplace():
+    return {"ok": True, "daftar": plugins.MARKETPLACE}
+
+
+@app.get("/api/jobs")
+async def jobs_list():
+    return {"ok": True, "jobs": plugins.job_daftar(20)}
+
+
+@app.get("/api/jobs/{jid}")
+async def jobs_get(jid: str):
+    j = plugins.job_lihat(jid)
+    if not j:
+        return JSONResponse({"ok": False, "error": "job tidak ditemukan"}, status_code=404)
+    return {"ok": True, "job": j}
 
 
 # ------------------------------------------------------------------ static

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import queue
 import re
 import subprocess
@@ -147,24 +148,55 @@ def _is_retryable(text: str) -> bool:
     return False
 
 
+def _model_ditolak(teks: str) -> bool:
+    """True kalau kegagalan ini soal modelnya tidak dikenal, bukan soal tugasnya.
+
+    Terukur: gateway menjawab "unrecognized_model" untuk beberapa model yang
+    masih ada di daftar cadangan lama. Mencoba model berikutnya hanya membuang
+    waktu kalau yang berikutnya juga tidak dikenal, jadi rantai cadangan
+    dipotong begitu jenis galat ini terlihat.
+    """
+    low = (teks or "").lower()
+    return any(t in low for t in ("unrecognized_model", "model_not_found", "unknown model",
+                                 "no such model", "invalid model", "model is not supported"))
+
+
 def model_chain(cfg: dict, primary: str) -> list[str]:
     """Ordered models to try for a task: the selected one, then the fallbacks.
 
     A single free upstream provider saturates easily, so a task that dies on a
     429 is a routing problem, not a work problem. Fallbacks come from
     ``gateway.fallback_models`` and, when empty, from the models that answered
-    the last health probe.
+    the last health probe. Cadangan yang pernah ditolak gateway dibuang, supaya
+    satu tugas tidak menunggu tiga model mati berturut-turut.
     """
     gw = cfg["gateway"]
+    mati = {m for m in (gw.get("model_rejected") or []) if m}
     chain = [primary] if primary else []
     for m in gw.get("fallback_models") or []:
-        if m and m not in chain:
+        if m and m not in chain and m not in mati:
             chain.append(m)
     if gw.get("auto_fallback", True):
         for m in gw.get("healthy") or []:
-            if m and m not in chain:
+            if m and m not in chain and m not in mati:
                 chain.append(m)
     return chain[:5]
+
+
+def tandai_model_ditolak(model: str) -> None:
+    """Catat model yang ditolak gateway supaya tidak dicoba lagi di tugas lain."""
+    if not model:
+        return
+    try:
+        cfg = config.load()
+        daftar = list(cfg["gateway"].get("model_rejected") or [])
+        if model not in daftar:
+            daftar.append(model)
+            cfg["gateway"]["model_rejected"] = daftar[-40:]
+            config.save(cfg)
+            hub.emit("gateway", f"Model {model} ditolak gateway, dikeluarkan dari daftar cadangan", model=model)
+    except Exception:
+        pass
 
 
 def _pick_workers(cfg: dict, want: int) -> list[str]:
@@ -197,6 +229,20 @@ def _worker_env(worker: str, model: str) -> dict:
     return adapters.ADAPTERS[worker].env(gw, model)
 
 
+def _bin_dir() -> str:
+    """Folder tempat uvx dan uv dipasang di mesin ini.
+
+    Plugin MCP yang dipasang dari UI bisa memakai `uvx` (server berbasis Python).
+    Terukur: omp gagal memuat plugin itu dengan "Executable not found in $PATH:
+    uvx", karena /root/.hermes/bin tidak ada di PATH pekerja. Tambahkan folder
+    yang benar-benar memuat binernya, jangan tebak-tebak.
+    """
+    for kandidat in (pathlib.Path.home() / ".hermes" / "bin", pathlib.Path("/usr/local/bin")):
+        if (kandidat / "uvx").exists() or (kandidat / "uv").exists():
+            return str(kandidat)
+    return ""
+
+
 def _worker_brief(cwd: str, model: str) -> str:
     """Konteks singkat untuk setiap pekerja: folder kerja dan alat yang tersedia.
 
@@ -221,6 +267,18 @@ def _worker_brief(cwd: str, model: str) -> str:
         baris.append(f"- Model yang kamu pakai ({model}) bisa melihat gambar langsung.")
     else:
         baris.append(f"- Model yang kamu pakai ({model}) tidak bisa melihat gambar langsung, pakai `lihat`.")
+    # Skill yang dipasang dari UI sudah ditautkan ke folder yang kamu baca sendiri
+    # (~/.claude/skills, ~/.agents/skills, $CODEX_HOME/skills, ~/.omp/agent/skills).
+    # Sebutkan supaya kamu benar-benar memakainya, bukan mengarang caranya sendiri.
+    try:
+        import plugins as _plugins
+
+        skills = _plugins.skill_ringkas_untuk_pekerja(24)
+    except Exception:
+        skills = []
+    if skills:
+        baris.append("- Skill siap pakai (sudah ada di folder skill kamu, pakai kalau tugasnya cocok):")
+        baris.append("    " + ", ".join(skills))
     baris.append("- Jawab dalam bahasa Indonesia. Jangan pakai tanda pisah panjang.")
     return "\n".join(baris) + "\n\n"
 
@@ -280,8 +338,14 @@ def run_worker(worker: str, prompt: str, task_id: str, cwd: str, model: str, tim
     # over getcwd() (opencode, some shells/scripts) need this to agree.
     env["PWD"] = cwd
     # Alat bantu (cari, buka, lihat) ada di folder tools; taruh di depan PATH
-    # supaya pekerja bisa memanggilnya tanpa path panjang.
-    env["PATH"] = str(config.ROOT / "tools") + os.pathsep + env.get("PATH", "")
+    # supaya pekerja bisa memanggilnya tanpa path panjang. Folder uvx ikut
+    # dimasukkan karena plugin MCP yang dipasang dari UI bisa memakainya.
+    jalur = [str(config.ROOT / "tools")]
+    biner = _bin_dir()
+    if biner:
+        jalur.append(biner)
+    jalur.append(env.get("PATH", ""))
+    env["PATH"] = os.pathsep.join(jalur)
     prompt = _worker_brief(cwd, model) + prompt
     last: dict = {}
     for attempt in range(1, max(1, retries) + 1):
@@ -679,6 +743,12 @@ class Orchestrator:
             if res.get("stalled"):
                 # The worker wedged, not the model: another model will wedge the
                 # same way, so stop and let the caller try a different worker.
+                break
+            # Model yang tidak dikenal gateway akan ditolak lagi di tugas lain,
+            # dan mencoba cadangan berikutnya setelah ini cuma menambah waktu
+            # tunggu tanpa hasil. Catat lalu berhenti.
+            if _model_ditolak((res.get("text") or "") + " " + str(res.get("error") or "")):
+                tandai_model_ditolak(m)
                 break
         return res
 

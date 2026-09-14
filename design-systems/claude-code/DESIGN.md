@@ -83,23 +83,62 @@ ketiga tanpa latar hanya teks bergaris bawah.
 
 ## Susunan
 
-HP: satu kolom. Bar atas, alur percakapan yang punya gulir sendiri, kotak tulis
-di bawah. Daftar percakapan dan panel alat jadi lembar geser.
+HP: satu kolom. Bar atas berisi tombol menu (garis tiga) di kiri, judul di
+tengah kiri, dan ikon percakapan serta ikon titik di kanan. Alur percakapan
+punya gulir sendiri, kotak tulis di bawah.
 
-Layar lebar (>=1000px): tiga kolom dipisah garis. Percakapan di kiri, chat di
-tengah, aktivitas di kanan. Ketiganya bisa digulir sendiri.
+Layar kosong: satu lambang bintang kecil berwarna aksen, satu sapaan serif
+mengikuti jam, satu baris keterangan, lalu kotak tulis. Tidak ada kartu
+sambutan, tidak ada saran perintah bertumpuk.
 
-Chat memakai gelembung. Pesan pemakai berlatar permukaan hangat di kanan,
-jawaban AstroZ berlatar permukaan di kiri. Aktivitas kerja tidak pernah masuk
-ke chat.
+Kotak tulis: satu kotak bergaris dengan sudut membulat, teks di dalamnya,
+lalu satu baris tombol di bawahnya: tombol bulat `+` (lampiran, plugin, skill),
+pil nama model, pemilih ukuran tugas, dan tombol kirim bulat berwarna aksen.
+Tidak ada baris kedua di bawahnya.
 
-Tinggi sasaran sentuh minimal 44px. Tidak ada gulir mendatar di lebar 375px.
+Chat: pesan pemakai memakai blok berlatar permukaan hangat dengan sudut
+membulat, rata kiri. Jawaban AstroZ berupa teks tanpa kotak, dengan garis
+pemisah tipis antar pesan. Di bawah jawaban ada satu baris kecil berisi
+keadaan (selesai, pekerja, tes) dan ringkasan langkah kerja. Aktivitas kerja
+tidak pernah masuk ke chat sebagai kotak terpisah.
+
+Menu alat (tombol garis tiga) memuat: Obrolan, Plugin MCP, Skill dari GitHub,
+Berkas dan tes, Catatan kejadian, Model dan pekerja. Satu bagian terlihat pada
+satu waktu. Percakapan baru selalu membuat percakapan baru; satu percakapan
+tidak menumpuk semua tugas.
+
+Layar lebar 1280px ke atas: tiga kolom dipisah garis, percakapan di kiri, chat
+di tengah, panel pekerjaan di kanan. 1000 sampai 1279px: dua kolom, panel
+pekerjaan pindah jadi lembar geser. Di bawah 1000px semuanya lembar geser.
+
+Tinggi sasaran sentuh minimal 44px di layar sempit. Tidak ada gulir mendatar
+di lebar 375px.
 
 ## Gerak
 
 Minimal. Hanya tanggapan sentuh, satu garis kilau saat tugas berjalan, dan
 penanda kecil di gelembung yang sedang dikerjakan. Semuanya berhenti begitu
 tugas selesai. `prefers-reduced-motion` mematikan semuanya.
+
+## Yang dikelola dari UI, bukan dari terminal
+
+Semua yang dibutuhkan untuk bekerja ada di layar, tanpa membuka terminal:
+
+- Model: pil nama model di kotak tulis, atau menu alat bagian Model. Ganti
+  sekali, langsung ikut ke Hermes dan keempat pekerja.
+- Plugin MCP: menu alat bagian Plugin MCP. Satu definisi ditulis ke konfigurasi
+  keempat pekerja sekaligus, dan paketnya diunduh lebih dulu supaya pemakaian
+  pertama tidak gagal.
+- Skill dari GitHub: menu alat bagian Skill dari GitHub. Repo dikloning ke
+  `~/.astroz/skills/<nama>`, lalu setiap folder berisi `SKILL.md` ditautkan ke
+  folder skill yang dibaca pekerja. Pekerja diberi tahu daftar namanya di setiap
+  tugas, jadi langsung dipakai tanpa perintah tambahan.
+- Berkas, git, dan tes: menu alat bagian Berkas dan tes.
+- Lampiran: tombol `+` di kotak tulis (gambar atau berkas apa saja).
+
+Aturan yang dipegang: jangan menambah tombol atau mode yang tidak melakukan
+apa-apa. Kalau sebuah fitur belum punya jalur yang benar-benar jalan, jangan
+ditampilkan.
 
 ## Suara tulisan
 
