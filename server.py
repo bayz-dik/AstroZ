@@ -383,9 +383,12 @@ def _task_messages(tid: str) -> list[dict]:
         "task": tid,
     }]
     status = t.get("status") or "running"
+    # Tugas lama (dibuat sebelum jawaban disimpan) tidak punya task["answer"]:
+    # ambil baris paling informatif dari pekerja supaya tidak tampil kosong.
+    answer = t.get("answer") or orchestrator.best_answer_text(t.get("results") or [])
     out.append({
         "role": "astroz",
-        "text": t.get("answer") or "",
+        "text": answer,
         "ts": t.get("finished") or t.get("created"),
         "task": tid,
         "status": status,
