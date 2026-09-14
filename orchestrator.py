@@ -197,6 +197,66 @@ def _worker_env(worker: str, model: str) -> dict:
     return adapters.ADAPTERS[worker].env(gw, model)
 
 
+def _worker_brief(cwd: str, model: str) -> str:
+    """Konteks singkat untuk setiap pekerja: folder kerja dan alat yang tersedia.
+
+    Pekerja CLI tidak tahu apa pun soal AstroZ. Tanpa keterangan ini, alat cari,
+    buka, dan lihat ada di PATH tapi tidak pernah dipakai, dan pekerja mengarang
+    jawaban ketika tugasnya butuh informasi dari luar.
+    """
+    meta = (config.load()["gateway"].get("model_meta", {}) or {}).get(model) or {}
+    caps = meta.get("caps") or {}
+    bisa_lihat = bool(caps.get("vision"))
+    baris = [
+        "Konteks kerja:",
+        f"- Folder kerja: {cwd}. Simpan semua berkas di dalam folder ini.",
+        "- Alat tambahan, jalankan lewat shell:",
+        '    cari "kata kunci"   cari di web, hasilnya judul, tautan, ringkasan',
+        "    buka <url>           ambil isi satu halaman web sebagai teks",
+        "    lihat <berkas>       baca isi berkas gambar (PNG, JPEG, WebP, GIF) jadi teks",
+        "- Pakai cari dan buka kalau tugas butuh informasi dari luar. Jangan mengarang fakta:",
+        "  kalau tidak ketemu, katakan tidak ketemu.",
+    ]
+    if bisa_lihat:
+        baris.append(f"- Model yang kamu pakai ({model}) bisa melihat gambar langsung.")
+    else:
+        baris.append(f"- Model yang kamu pakai ({model}) tidak bisa melihat gambar langsung, pakai `lihat`.")
+    baris.append("- Jawab dalam bahasa Indonesia. Jangan pakai tanda pisah panjang.")
+    return "\n".join(baris) + "\n\n"
+
+
+def _menunggu_jaringan(pid: int) -> bool:
+    """True kalau proses punya satu koneksi TCP yang sedang terbuka.
+
+    Dipakai pembatas kemacetan: pekerja CLI diam saat model berpikir lama, dan
+    koneksi ke gateway yang masih terbuka membedakan "menunggu jawaban" dari
+    "benar-benar macet".
+    """
+    try:
+        inode: set[str] = set()
+        for f in pathlib.Path(f"/proc/{pid}/fd").iterdir():
+            try:
+                taut = os.readlink(f)
+            except Exception:
+                continue
+            if taut.startswith("socket:["):
+                inode.add(taut[8:-1])
+        if not inode:
+            return False
+        for jalur in ("/proc/net/tcp", "/proc/net/tcp6"):
+            try:
+                baris = pathlib.Path(jalur).read_text().splitlines()[1:]
+            except Exception:
+                continue
+            for b in baris:
+                kolom = b.split()
+                if len(kolom) >= 10 and kolom[9] in inode and kolom[3] == "01":
+                    return True
+    except Exception:
+        pass
+    return False
+
+
 def run_worker(worker: str, prompt: str, task_id: str, cwd: str, model: str, timeout: int = 900,
                retries: int = 3) -> dict:
     """Run one worker CLI, streaming its stdout/stderr into the hub.
@@ -219,6 +279,10 @@ def run_worker(worker: str, prompt: str, task_id: str, cwd: str, model: str, tim
     # nothing, and the task still reported success. Children that trust PWD
     # over getcwd() (opencode, some shells/scripts) need this to agree.
     env["PWD"] = cwd
+    # Alat bantu (cari, buka, lihat) ada di folder tools; taruh di depan PATH
+    # supaya pekerja bisa memanggilnya tanpa path panjang.
+    env["PATH"] = str(config.ROOT / "tools") + os.pathsep + env.get("PATH", "")
+    prompt = _worker_brief(cwd, model) + prompt
     last: dict = {}
     for attempt in range(1, max(1, retries) + 1):
         cmd = a.command(prompt, model, cwd)
@@ -281,6 +345,12 @@ def run_worker(worker: str, prompt: str, task_id: str, cwd: str, model: str, tim
                     hub.emit("worker", f"[{worker}] melebihi batas waktu {timeout}s", task=task_id, worker=worker, ok=False)
                     break
                 if stall and time.time() - last_useful > stall:
+                    if _menunggu_jaringan(p.pid):
+                        # Ada koneksi TCP aktif: pekerja sedang menunggu jawaban
+                        # model, bukan macet. Ini yang dulu salah dinilai macet:
+                        # opencode dan claude diam saat model berpikir lama.
+                        last_useful = time.time()
+                        continue
                     p.kill()
                     timed_out = True
                     stalled = True

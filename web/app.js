@@ -1,811 +1,809 @@
-/* AstroZ UI logic.
-   Three surfaces, deliberately not merged:
-     - chat column: my messages and AstroZ's answers, one bubble each;
-     - activity: what the supervisor and the workers are doing, in its own
-       boxes (drawer on a phone, side column on a wide screen);
-     - tools: model, files, git, tests.
-   The chat scrolls inside its own column and stays pinned to the newest turn,
-   so a running task never pushes the answer out of view. */
+/* AstroZ. Satu berkas, tanpa kerangka kerja. Lihat DESIGN.md untuk arah tampilan. */
 
-const $ = (s) => document.querySelector(s);
-const $$ = (s) => Array.from(document.querySelectorAll(s));
-const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h !== undefined) e.innerHTML = h; return e; };
-
-const S = {
-  sessions: [],
-  sid: localStorage.getItem("astroz.sid") || "",
-  messages: [],
-  activity: {},
-  live: {},            /* task id -> last line seen */
-  running: new Set(),
-  tab: "jalankan",
-  modelPick: null,
-  models: [],
-  providers: [],
-  provider: "",
-  threadsOpen: false,
-  toolsOpen: false,
-  detailTask: null,
+const el = (id) => document.getElementById(id);
+const alur = el("alur");
+const keadaan = {
+  sesi: null,
+  judul: "",
+  entri: [],
+  nomor: 0,
+  tugasJalan: null,
+  lampiran: null,
+  kejadianTerakhir: 0,
+  modelSekarang: "",
+  pekerja: [],
+  sehat: [],
 };
 
-/* --------------------------------------------------------------- helpers */
-const esc = (s) => String(s == null ? "" : s)
-  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-  .replace(/"/g, "&quot;")
-  .replace(/\u2014/g, ",");            /* no em dash anywhere in the UI */
+/* ------------------------------------------------------------------ bantuan */
 
-const stripProvider = (m) => (!m ? "" : (m.includes("/") ? m.split("/").slice(1).join("/") : m));
+async function minta(jalan, opsi) {
+  const r = await fetch(jalan, opsi);
+  const teks = await r.text();
+  let data = {};
+  try { data = teks ? JSON.parse(teks) : {}; } catch { data = { teks }; }
+  if (!r.ok) throw new Error(data.error || `permintaan gagal (${r.status})`);
+  return data;
+}
+const ambil = (jalan) => minta(jalan);
+const kirim = (jalan, isi) => minta(jalan, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(isi || {}),
+});
 
-const clock = (ts) => ts ? new Date(ts * 1000).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "";
-const when = (ts) => ts ? new Date(ts * 1000).toLocaleString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
-const secs = (a, b) => (a && b) ? Math.max(1, Math.round(b - a)) + "s" : "";
-
-const STATUS = {
-  running: ["sedang dikerjakan", "warn"],
-  done: ["selesai", "ok"],
-  error: ["gagal", "bad"],
-  interrupted: ["terputus", "bad"],
-};
-
-function statusTag(st) {
-  const w = STATUS[st] || [st || "tidak diketahui", ""];
-  return `<span class="tag ${w[1]}">${esc(w[0])}</span>`;
+function pesanSingkat(teks, galat) {
+  const kotak = el("pesan-singkat");
+  kotak.textContent = teks;
+  kotak.className = "pesan-singkat";
+  if (galat) kotak.style.color = "var(--galat)";
+  else kotak.style.color = "";
+  clearTimeout(kotak._jam);
+  kotak._jam = setTimeout(() => { kotak.textContent = ""; }, 4200);
 }
 
-/* light markdown: paragraphs, bullets, fenced code, inline code */
-function rich(text) {
-  const src = esc(text || "").trim();
-  if (!src) return "";
-  const parts = src.split(/```/);
-  let html = "";
-  parts.forEach((chunk, i) => {
-    if (i % 2) { html += `<pre>${chunk.replace(/^\w*\n/, "")}</pre>`; return; }
-    chunk.split(/\n{2,}/).forEach((block) => {
-      const b = block.trim();
-      if (!b) return;
-      if (/^[-*] /m.test(b)) {
-        const items = b.split(/\n/).filter((l) => /^[-*] /.test(l.trim())).map((l) => `<li>${l.trim().replace(/^[-*] /, "")}</li>`).join("");
-        html += `<ul>${items}</ul>`;
-      } else {
-        html += `<p>${b.replace(/\n/g, "<br>").replace(/`([^`]+)`/g, "<code>$1</code>")}</p>`;
-      }
-    });
-  });
-  return html;
+function waktu(ts) {
+  if (!ts) return "";
+  const d = new Date(ts * 1000);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
 }
 
-async function api(path, opt) {
-  try {
-    const r = await fetch(path, opt || {});
-    try { return await r.json(); } catch { return { ok: false, error: "balasan bukan JSON" }; }
-  } catch (e) { return { ok: false, error: String(e && e.message || e) }; }
-}
-const post = (p, body) => api(p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
-
-function toast(text, kind) {
-  const box = $("#toasts");
-  const t = el("div", "toast " + (kind || ""));
-  t.innerHTML = `<span>${esc(text)}</span>`;
-  const x = el("button", "x", "\u00d7");
-  x.setAttribute("aria-label", "Tutup pesan");
-  x.onclick = () => t.remove();
-  t.appendChild(x);
-  box.appendChild(t);
-  setTimeout(() => { if (t.isConnected) t.remove(); }, kind === "bad" ? 9000 : 5000);
+function tanggalPendek(ts) {
+  if (!ts) return "";
+  const d = new Date(ts * 1000);
+  if (Number.isNaN(d.getTime())) return "";
+  const hari = Math.floor((Date.now() / 1000 - ts) / 86400);
+  if (hari <= 0) return waktu(ts);
+  if (hari === 1) return "kemarin";
+  return d.toLocaleDateString("id-ID", { day: "numeric", month: "short" });
 }
 
-/* ------------------------------------------------------------ scrolling */
-const scroller = () => $("#messages");
-function nearBottom() {
-  const c = scroller();
-  return c.scrollHeight - c.scrollTop - c.clientHeight < 120;
-}
-function toBottom(force) {
-  const c = scroller();
-  if (force || nearBottom()) c.scrollTop = c.scrollHeight;
+function buat(tag, kelas, teks) {
+  const n = document.createElement(tag);
+  if (kelas) n.className = kelas;
+  if (teks !== undefined && teks !== null) n.textContent = teks;
+  return n;
 }
 
-/* ticker text comes straight from a worker's stdout: strip the progress chatter
-   and the punctuation the models like to sprinkle in */
-function cleanLine(s) {
-  return String(s || "")
-    .replace(/\u2014/g, ",")
-    .replace(/^\[[^\]]+\]\s*/, "")
-    .replace(/^(working|thinking|processing|starting)[.\u2026\s]*$/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+/* -------------------------------------------------------------------- tema */
 
-/* ------------------------------------------------------------- messages */
-function turnUser(m) {
-  const li = el("li", "turn me");
-  li.dataset.task = m.task || "";
-  li.innerHTML = `<div class="bubble">${rich(m.text)}</div><div class="stamp">${clock(m.ts)}</div>`;
-  return li;
-}
-
-function turnAstro(m) {
-  const li = el("li", "turn astro");
-  li.dataset.task = m.task || "";
-  li.dataset.role = "astroz";
-  const st = m.status || "running";
-  const done = st === "done" || st === "error" || st === "interrupted";
-  const dur = m.ts ? secs(m.created, m.ts) : "";
-  const tags = [
-    statusTag(st),
-    m.size ? `<span class="tag">${esc(m.size)}</span>` : "",
-    (m.workers || []).length ? `<span class="tag">${esc((m.workers || []).join(", "))}</span>` : "",
-    m.model ? `<span class="tag">${esc(stripProvider(m.model))}</span>` : "",
-    m.tests === true ? `<span class="tag ok">tes lulus</span>` : "",
-    m.tests === false && !m.tests_skipped ? `<span class="tag bad">tes gagal</span>` : "",
-    m.review ? `<span class="tag ${String(m.review).toUpperCase().startsWith("PASS") ? "ok" : "warn"}">penilaian ${esc(String(m.review).toLowerCase())}</span>` : "",
-  ].filter(Boolean).join("");
-
-  const body = m.text ? `<div class="answer">${rich(m.text)}</div>` : "";
-  const working = done ? "" : `<div class="working"><span class="bars"><i></i><i></i><i></i><i></i></span><span>sedang dikerjakan</span></div>
-     <div class="ticker" id="tick-${esc(m.task)}">menyiapkan rencana</div>`;
-  const empty = done && !m.text ? `<p class="note" style="margin:0">Tidak ada jawaban yang bisa dibaca. Buka aktivitas untuk melihat keluaran mentah.</p>` : "";
-
-  li.innerHTML = `<div class="bubble">${body}${empty}${working}
-      <div class="meta">${tags}</div>
-      <div class="meta"><button class="btn sm ghost" data-act="open">Lihat aktivitas</button></div>
-      <div class="stamp">${clock(m.ts)}${dur ? " · " + dur : ""}</div>
-    </div>`;
-  li.querySelector("[data-act=open]").onclick = () => openActivity(m.task);
-  return li;
-}
-
-function renderMessages(force) {
-  const box = $("#messages");
-  const stick = force || nearBottom();
-  box.innerHTML = "";
-  if (!S.messages.length) {
-    box.appendChild(el("div", "wrap", `
-      <div class="empty">
-        <h2>Tulis apa yang mau dikerjakan</h2>
-        <p>AstroZ meneruskan pesanmu ke tim: satu perencana, empat pekerja, lalu satu penilai.
-        Jawabannya muncul di sini. Proses kerjanya ada di panel aktivitas, terpisah dari percakapan.</p>
-      </div>`));
-    return;
+function pakaiTema(nama) {
+  document.documentElement.dataset.tema = nama;
+  try { localStorage.setItem("astroz-tema", nama); } catch {}
+  for (const b of document.querySelectorAll("[data-pilih-tema]")) {
+    b.setAttribute("aria-pressed", String(b.dataset.pilihTema === nama));
   }
-  const frag = document.createDocumentFragment();
-  const wrap = el("div", "wrap");
-  S.messages.forEach((m) => wrap.appendChild(m.role === "user" ? turnUser(m) : turnAstro(m)));
-  frag.appendChild(wrap);
-  box.appendChild(frag);
-  if (stick) toBottom(true);
+  const gelap = nama === "gelap";
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", gelap ? "#262624" : "#FAF9F5");
+}
+try {
+  const simpan = localStorage.getItem("astroz-tema");
+  if (simpan) pakaiTema(simpan);
+  else if (window.matchMedia("(prefers-color-scheme: dark)").matches) pakaiTema("gelap");
+} catch {}
+for (const b of document.querySelectorAll("[data-pilih-tema]")) {
+  b.addEventListener("click", () => pakaiTema(b.dataset.pilihTema));
 }
 
-function findTurn(tid) { return document.querySelector(`.turn.astro[data-task="${tid}"]`); }
+/* ------------------------------------------------------------------ lapisan */
 
-function patchTurn(tid, patch) {
-  const li = findTurn(tid);
-  if (!li) return false;
-  const bubble = li.querySelector(".bubble");
-  const answer = bubble.querySelector(".answer");
-  if (patch.text !== undefined) {
-    if (answer) answer.innerHTML = rich(patch.text);
-    else {
-      const a = el("div", "answer", rich(patch.text));
-      bubble.insertBefore(a, bubble.firstChild);
+function bukaLembar(id) {
+  const l = el(id);
+  l.classList.add("tampil");
+  l.setAttribute("aria-hidden", "false");
+  el("tirai").classList.add("tampil");
+}
+function tutupSemuaLembar() {
+  for (const l of document.querySelectorAll(".lembar")) {
+    l.classList.remove("tampil");
+    l.setAttribute("aria-hidden", "true");
+  }
+  el("tirai").classList.remove("tampil");
+}
+el("tirai").addEventListener("click", tutupSemuaLembar);
+for (const b of document.querySelectorAll("[data-tutup]")) b.addEventListener("click", tutupSemuaLembar);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") tutupSemuaLembar(); });
+
+/* Susunan: di layar lebar panel jadi kolom, di HP jadi lembar geser. Satu
+   simpul dipindah, bukan digandakan, supaya isinya tidak pernah berbeda.
+   Di 1000-1199px kolom tengah terlalu sempit untuk kolom alat, jadi alat
+   dipindah ke lembar geser dan tombolnya dimunculkan lagi. */
+const lebar = window.matchMedia("(min-width: 1000px)");
+const cukup = window.matchMedia("(min-width: 1200px)");
+function susun() {
+  const isi = document.querySelector(".isi");
+  const chat = document.querySelector(".chat");
+  if (lebar.matches) {
+    isi.insertBefore(el("rail-sesi"), chat);
+    isi.appendChild(el("aktivitas"));
+  } else {
+    el("isi-lembar-sesi").appendChild(el("rail-sesi"));
+    el("isi-lembar-alat").appendChild(el("aktivitas"));
+  }
+  document.body.classList.toggle("sempit-lebar", lebar.matches && !cukup.matches);
+}
+lebar.addEventListener("change", () => { tutupSemuaLembar(); susun(); });
+cukup.addEventListener("change", () => { tutupSemuaLembar(); susun(); });
+susun();
+
+el("buka-sesi").addEventListener("click", () => bukaLembar("lembar-sesi"));
+el("buka-alat").addEventListener("click", () => bukaLembar("lembar-alat"));
+
+/* ------------------------------------------------------- panel alat: tab */
+
+for (const b of document.querySelectorAll("#tab-alat [role=tab]")) {
+  b.addEventListener("click", () => {
+    for (const x of document.querySelectorAll("#tab-alat [role=tab]")) {
+      x.setAttribute("aria-selected", String(x === b));
     }
-  }
-  if (patch.status) {
-    const tag = bubble.querySelector(".meta .tag");
-    const w = STATUS[patch.status] || [patch.status, ""];
-    if (tag) { tag.className = "tag " + w[1]; tag.textContent = w[0]; }
-    if (patch.status !== "running") {
-      const wk = bubble.querySelector(".working");
-      if (wk) wk.remove();
-      const tk = bubble.querySelector(".ticker");
-      if (tk) tk.remove();
+    for (const p of document.querySelectorAll("#aktivitas .panel")) {
+      p.hidden = p.id !== "panel-" + b.dataset.panel;
     }
-  }
-  if (patch.ticker) {
-    const tk = li.querySelector(".ticker");
-    if (tk) tk.textContent = patch.ticker;
-  }
-  return true;
-}
-
-/* --------------------------------------------------------------- threads */
-async function loadThreads() {
-  const r = await api("/api/sessions");
-  S.sessions = (r && r.sessions) || [];
-  renderThreads();
-}
-
-function renderThreads() {
-  const box = $("#thread-list");
-  box.innerHTML = "";
-  if (!S.sessions.length) {
-    box.appendChild(el("div", "empty", "<p>Belum ada percakapan.</p>"));
-    return;
-  }
-  S.sessions.forEach((s) => {
-    const b = el("button", "thread");
-    b.setAttribute("aria-current", String(s.id === S.sid));
-    b.innerHTML = `<span class="t">${esc(s.title)}</span>
-      <span class="m">${esc((s.last || "").trim() || "belum ada isi")}</span>
-      <span class="row"><span class="pip ${s.running ? "" : "idle"}"></span>
-      <span class="m" style="margin:0">${s.task_count} pesan${s.running ? " · sedang jalan" : ""}</span></span>`;
-    b.onclick = () => { openSession(s.id); closeDrawers(); };
-    box.appendChild(b);
   });
 }
 
-async function openSession(sid, keep) {
-  S.sid = sid;
-  localStorage.setItem("astroz.sid", sid);
-  const r = await api("/api/sessions/" + encodeURIComponent(sid));
-  if (!r || !r.ok) {
-    toast("Percakapan tidak bisa dibuka", "bad");
+/* ------------------------------------------------------------------- chat */
+
+function tambahEntri(entri) {
+  entri.no = ++keadaan.nomor;
+  keadaan.entri.push(entri);
+  gambarEntri(entri);
+  keDasar();
+}
+
+function gambarEntri(e) {
+  const baris = buat("article", `entri ${e.peran} ${e.status || ""}`);
+  baris.dataset.no = e.no;
+  baris.appendChild(buat("span", "no", String(e.no).padStart(2, "0")));
+  const badan = buat("div", "badan");
+
+  if (e.lampiran) {
+    badan.appendChild(buat("span", "lampiran", "gambar: " + e.lampiran.split("/").pop()));
+  }
+  const gelembung = buat("div", "gelembung", e.teks || (e.peran === "astroz" && e.status === "jalan" ? "sedang dikerjakan" : ""));
+  if (e.peran === "astroz" && e.status === "jalan") gelembung.classList.add("shimmer");
+  badan.appendChild(gelembung);
+
+  const meta = buat("div", "meta");
+  if (e.peran === "aku") {
+    meta.appendChild(buat("span", null, waktu(e.ts)));
+  } else {
+    const cap = buat("span", "cap " + (e.status || ""));
+    cap.textContent = e.status === "jalan" ? "sedang jalan"
+      : e.status === "gagal" ? "gagal"
+      : e.status === "selesai" ? "selesai" : "jawaban";
+    meta.appendChild(cap);
+    if (e.worker) meta.appendChild(buat("span", null, e.worker));
+    if (e.size) meta.appendChild(buat("span", null, e.size));
+    if (e.tes === true) meta.appendChild(buat("span", null, "tes lulus"));
+    if (e.tes === false) meta.appendChild(buat("span", null, "tes gagal"));
+    if (e.ts) meta.appendChild(buat("span", null, waktu(e.ts)));
+    if (e.tugas) {
+      const b = buat("button", null, "lihat proses");
+      b.type = "button";
+      b.addEventListener("click", () => bukaRincian(e.tugas));
+      meta.appendChild(b);
+    }
+  }
+  badan.appendChild(meta);
+  baris.appendChild(badan);
+  alur.appendChild(baris);
+  return baris;
+}
+
+function keDasar() {
+  alur.scrollTop = alur.scrollHeight;
+}
+
+function kosongkanChat(pesanKosong) {
+  alur.replaceChildren();
+  keadaan.entri = [];
+  keadaan.nomor = 0;
+  if (pesanKosong) {
+    const p = buat("p", "kosong", pesanKosong);
+    alur.appendChild(p);
+  }
+}
+
+/* --------------------------------------------------------------- percakapan */
+
+function gambarDaftarSesi(daftar) {
+  const wadah = el("daftar-sesi");
+  wadah.replaceChildren();
+  if (!daftar.length) {
+    wadah.appendChild(buat("p", "kosong", "Belum ada percakapan. Tulis perintah di kotak bawah, percakapan pertama dibuat sendiri."));
     return;
   }
-  S.messages = r.messages || [];
-  S.activity = r.activity || {};
-  S.running = new Set(S.messages.filter((m) => m.role === "astroz" && m.status === "running").map((m) => m.task));
-  $("#chat-title").textContent = r.session.title || "Percakapan";
-  renderMessages(true);
-  renderRuns();
-  if (!keep) $("#input").focus();
-}
-
-async function newSession() {
-  const r = await post("/api/sessions", {});
-  if (!r || !r.ok) { toast("Gagal membuat percakapan", "bad"); return; }
-  await loadThreads();
-  await openSession(r.session.id);
-  closeDrawers();
-}
-
-async function ensureSession() {
-  if (S.sid) return S.sid;
-  const r = await post("/api/sessions", {});
-  if (r && r.ok) { S.sid = r.session.id; localStorage.setItem("astroz.sid", r.session.id); await loadThreads(); }
-  return S.sid;
-}
-
-/* -------------------------------------------------------------- composer */
-async function send() {
-  const box = $("#input");
-  const text = box.value.trim();
-  if (!text) { toast("Tulis dulu pesannya.", "bad"); box.focus(); return; }
-  await ensureSession();
-  const btn = $("#send");
-  btn.disabled = true;
-  box.disabled = true;
-  const r = await post("/api/chat", { text, session: S.sid, workflow: $("#size").value });
-  btn.disabled = false;
-  box.disabled = false;
-  if (!r || !r.ok) {
-    toast("Gagal mengirim: " + ((r && r.error) || "tidak diketahui"), "bad");
-    return;
-  }
-  box.value = "";
-  box.style.height = "auto";
-  S.sid = r.session;
-  localStorage.setItem("astroz.sid", r.session);
-  S.running.add(r.task_id);
-  S.messages.push({ role: "user", text, ts: Date.now() / 1000, task: r.task_id });
-  S.messages.push({ role: "astroz", text: "", ts: 0, task: r.task_id, status: "running", workers: [], model: "" });
-  renderMessages(true);
-  renderRuns();
-  loadThreads();
-}
-
-/* ------------------------------------------------------------ activity UI */
-function openActivity(tid) {
-  S.detailTask = tid;
-  const task = (S.messages.find((m) => m.task === tid && m.role === "astroz")) || {};
-  $("#detail-title").textContent = (S.messages.find((m) => m.task === tid && m.role === "user") || {}).text || "Aktivitas";
-  renderActivity(tid);
-  $("#activity-drawer").classList.add("on");
-  $("#activity-drawer").setAttribute("aria-hidden", "false");
-}
-function closeActivity() {
-  $("#activity-drawer").classList.remove("on");
-  $("#activity-drawer").setAttribute("aria-hidden", "true");
-  S.detailTask = null;
-}
-
-function evLine(e) {
-  const d = el("div", "ev");
-  const text = e.text || "";
-  const long = text.length > 240;
-  d.innerHTML = `<span class="t">${clock(e.ts)}</span><span class="k k-${esc(e.kind)}">${esc(e.kind)}</span>`
-    + `<span class="body">${esc(long ? text.slice(0, 240) + "\u2026" : text)}</span>`;
-  if (long) {
-    const b = el("button", "more", "lihat semua");
-    b.setAttribute("aria-expanded", "false");
-    b.onclick = (ev) => {
+  for (const s of daftar) {
+    const baris = buat("div", "baris-sesi");
+    const b = buat("button");
+    b.type = "button";
+    if (s.id === keadaan.sesi) b.setAttribute("aria-current", "true");
+    b.appendChild(buat("div", "judul", s.title || "tanpa judul"));
+    if (s.last) b.appendChild(buat("div", "cuplik", s.last));
+    b.appendChild(buat("div", "waktu", `${tanggalPendek(s.updated || s.created)}  ${(s.tasks || []).length} tugas`));
+    b.addEventListener("click", () => { bukaSesi(s.id); tutupSemuaLembar(); });
+    const hapus = buat("button", "hapus", "hapus");
+    hapus.type = "button";
+    hapus.setAttribute("aria-label", "hapus percakapan " + (s.title || ""));
+    hapus.addEventListener("click", async (ev) => {
       ev.stopPropagation();
-      const on = b.getAttribute("aria-expanded") === "true";
-      b.setAttribute("aria-expanded", String(!on));
-      d.querySelector(".body").textContent = on ? text.slice(0, 240) + "\u2026" : text;
-      b.textContent = on ? "lihat semua" : "tutup";
-    };
-    d.appendChild(b);
-  }
-  return d;
-}
-
-function renderActivity(tid) {
-  const evs = (S.activity[tid] || []);
-  const task = S.messages.find((m) => m.task === tid && m.role === "astroz") || {};
-  const box = $("#detail-body");
-  box.innerHTML = "";
-
-  const tags = [
-    statusTag(task.status || "running"),
-    task.size ? `<span class="tag">${esc(task.size)}</span>` : "",
-    task.model ? `<span class="tag">${esc(stripProvider(task.model))}</span>` : "",
-    task.tests === true ? `<span class="tag ok">tes lulus</span>` : "",
-    task.tests === false && !task.tests_skipped ? `<span class="tag bad">tes gagal</span>` : "",
-  ].filter(Boolean).join("");
-  box.appendChild(el("div", "meta", tags));
-
-  /* supervisor first: the plan and the verdict are the decisions */
-  const plan = evs.find((e) => e.kind === "plan" && e.plan);
-  if (plan && plan.plan) {
-    box.appendChild(el("h2", null, "Rencana dari perencana"));
-    box.appendChild(el("pre", "out", esc(JSON.stringify(plan.plan, null, 1))));
-  }
-
-  const byWorker = {};
-  evs.filter((e) => e.kind === "worker" && e.worker).forEach((e) => {
-    const w = byWorker[e.worker] || (byWorker[e.worker] = { lines: [], end: null, start: null });
-    if (e.phase === "out" && e.text) w.lines.push(e.text.replace(/^\[[^\]]+\]\s*/, ""));
-    if (e.phase === "end") w.end = e;
-    if (e.phase === "start") w.start = e;
-  });
-  const names = Object.keys(byWorker);
-  if (names.length) {
-    box.appendChild(el("h2", null, "Pekerja"));
-    names.forEach((n) => {
-      const w = byWorker[n];
-      const d = el("div", "worker");
-      d.innerHTML = `<div class="top"><span class="nm">${esc(n)}</span>
-        ${w.end ? `<span class="tag ${w.end.ok ? "ok" : "bad"}">${w.end.ok ? "selesai" : "gagal"}</span>` : `<span class="tag warn">jalan</span>`}
-        ${w.end && w.end.duration ? `<span class="tag">${Math.round(w.end.duration)}s</span>` : ""}</div>`;
-      const body = (w.lines.join("\n") || "").trim();
-      if (body) d.appendChild(el("pre", "out", esc(body.slice(-4000))));
-      box.appendChild(d);
+      if (!confirm("Hapus percakapan ini dari daftar? Tugas dan berkasnya tetap ada.")) return;
+      await minta(`/api/sessions/${s.id}`, { method: "DELETE" });
+      if (s.id === keadaan.sesi) { keadaan.sesi = null; kosongkanChat("Belum ada percakapan yang dibuka."); }
+      await muatSesi();
+      pesanSingkat("Percakapan dihapus dari daftar.");
     });
-  }
-
-  const tests = evs.filter((e) => e.kind === "test" && e.phase === "end");
-  if (tests.length) {
-    const t = tests[tests.length - 1];
-    box.appendChild(el("h2", null, "Tes"));
-    box.appendChild(el("pre", "out", esc(`${t.ok ? "LULUS" : "TIDAK LULUS"} · kode ${t.rc} · ${Math.round(t.duration || 0)}s\n\n${(t.output || "").slice(-3000)}`)));
-  }
-
-  const rev = evs.filter((e) => e.kind === "review" && e.phase === "end");
-  if (rev.length) {
-    box.appendChild(el("h2", null, "Penilaian"));
-    box.appendChild(el("pre", "out", esc((rev[rev.length - 1].text || "").slice(0, 4000))));
-  }
-
-  const git = evs.filter((e) => e.kind === "git");
-  if (git.length) {
-    box.appendChild(el("h2", null, "Perubahan berkas"));
-    box.appendChild(el("pre", "out", esc(git.map((g) => g.text || "").join("\n").slice(0, 4000))));
-  }
-
-  box.appendChild(el("h2", null, "Semua kejadian"));
-  const feed = el("div", "feed");
-  if (!evs.length) feed.innerHTML = '<div class="empty">Belum ada kejadian.</div>';
-  else evs.forEach((e) => feed.appendChild(evLine(e)));
-  box.appendChild(feed);
-  feed.scrollTop = feed.scrollHeight;
-}
-
-function appendActivity(e) {
-  if (!e || !e.task) return;
-  const list = S.activity[e.task] || (S.activity[e.task] = []);
-  list.push(e);
-  if (list.length > 400) list.shift();
-  if (S.detailTask === e.task) renderActivity(e.task);
-  renderRuns();
-}
-
-/* --------------------------------------------------------------- runs pane */
-function renderRuns() {
-  const box = $("#runs");
-  if (!box) return;
-  box.innerHTML = "";
-  const tasks = [];
-  const seen = new Set();
-  S.messages.filter((m) => m.role === "astroz").forEach((m) => {
-    if (!seen.has(m.task)) { seen.add(m.task); tasks.push(m); }
-  });
-  if (!tasks.length) {
-    box.innerHTML = '<div class="empty"><p>Belum ada pekerjaan di percakapan ini.</p></div>';
-    return;
-  }
-  tasks.reverse().forEach((m) => {
-    const prompt = (S.messages.find((x) => x.task === m.task && x.role === "user") || {}).text || "";
-    const st = m.status || "running";
-    const w = STATUS[st] || [st, ""];
-    const b = el("button", "run");
-    b.innerHTML = `<span class="l1"><span class="pip ${st === "running" ? "" : "idle"}"></span>
-        <span class="ttl">${esc(prompt.slice(0, 90))}</span>
-        <span class="tag ${w[1]}">${esc(w[0])}</span></span>
-      <span class="l2">${esc((m.workers || []).join(", ") || "belum mulai")}${m.model ? " · " + esc(stripProvider(m.model)) : ""}</span>`;
-    b.onclick = () => openActivity(m.task);
-    box.appendChild(b);
-  });
-}
-
-/* ------------------------------------------------------------- tools pane */
-function setTab(tab) {
-  S.tab = tab;
-  $$("#tool-seg button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.pane === tab)));
-  $$(".pane").forEach((p) => p.classList.toggle("on", p.id === "pane-" + tab));
-  if (tab === "model") loadModels();
-  if (tab === "berkas") { loadTree(); loadGit(); }
-  if (tab === "log") fillLog();
-}
-
-/* model */
-async function loadModels() {
-  const q = ($("#model-search").value || "").trim();
-  const onlyOk = $("#model-ok").checked;
-  const url = "/api/gateway/models?limit=400" + (onlyOk ? "&only_healthy=1" : "")
-    + (S.provider ? "&provider=" + encodeURIComponent(S.provider) : "")
-    + (q ? "&q=" + encodeURIComponent(q) : "");
-  const r = await api(url);
-  const box = $("#model-list");
-  if (!r || r.error) { box.innerHTML = '<div class="empty"><p>Gagal memuat daftar model.</p></div>'; return; }
-  S.models = r.models || [];
-  S.providers = r.providers || [];
-  const cur = r.current || "";
-  $("#model-now").textContent = cur || "belum dipilih";
-  renderProviders();
-  box.innerHTML = "";
-  if (!S.models.length) {
-    box.innerHTML = '<div class="empty"><p>Belum ada model yang cocok. Tekan "Muat dari gateway" untuk membaca ulang daftarnya.</p></div>';
-    return;
-  }
-  const list = el("div", "list");
-  S.models.slice(0, 150).forEach((m) => {
-    const b = el("button", "row2" + (m.id === (S.modelPick || cur) ? " pick" : ""));
-    const caps = m.caps || {};
-    b.innerHTML = `<span class="grow"><span>${esc(stripProvider(m.id))}</span><br>
-        <span class="path">${esc(m.provider || "")}${caps.contextWindow ? " · " + Math.round(caps.contextWindow / 1000) + "k" : ""}${m.callable ? " · bisa dipanggil" : ""}</span></span>
-      ${m.id === cur ? '<span class="tag ok">dipakai</span>' : ""}
-      ${m.health && m.health.ok ? `<span class="tag ok">hidup</span>` : (m.health ? '<span class="tag bad">tidak menjawab</span>' : "")}`;
-    b.onclick = () => { S.modelPick = m.id; loadModels(); $("#apply-model").disabled = false; $("#pick-note").textContent = "Dipilih: " + m.id; };
-    list.appendChild(b);
-  });
-  box.appendChild(list);
-  if (S.models.length > 150) box.appendChild(el("p", "note", `Menampilkan 150 dari ${r.total} model. Persempit dengan pencarian atau provider.`));
-}
-
-function renderProviders() {
-  const box = $("#providers");
-  if (!box) return;
-  box.innerHTML = "";
-  const all = el("button", "tag" + (S.provider ? "" : " ok"), "semua");
-  all.onclick = () => { S.provider = ""; loadModels(); };
-  box.appendChild(all);
-  S.providers.slice(0, 12).forEach((p) => {
-    const b = el("button", "tag" + (S.provider === p.id ? " ok" : ""), `${p.id} ${p.count}`);
-    b.onclick = () => { S.provider = p.id; loadModels(); };
-    box.appendChild(b);
-  });
-}
-
-async function loadWorkers() {
-  const r = await api("/api/state");
-  if (!r || !r.workers) return;
-  const box = $("#workers");
-  box.innerHTML = "";
-  r.workers.forEach((w) => {
-    const cfg = (r.worker_cfg || {})[w.key] || {};
-    const d = el("div", "worker");
-    d.innerHTML = `<div class="top"><span class="pip ${w.installed ? "" : "idle"}"></span>
-        <span class="nm">${esc(w.label || w.key)}</span>
-        <span class="tag ${w.installed ? "ok" : "bad"}">${w.installed ? "terpasang" : "tidak ada"}</span></div>
-      <div class="p">${esc(w.version || w.error || "versi tidak diketahui")}</div>
-      <div class="p">${esc(w.path || "-")}</div>`;
-    const row = el("div", "btnrow");
-    row.style.marginTop = "8px";
-    const lab = el("label", "sw");
-    lab.innerHTML = `<input type="checkbox" ${cfg.enabled !== false ? "checked" : ""}> dipakai`;
-    lab.querySelector("input").onchange = (e) => saveWorker(w.key, { enabled: e.target.checked });
-    const mi = el("input");
-    mi.placeholder = "paksa model lain";
-    mi.value = cfg.model || "";
-    mi.setAttribute("aria-label", "Model khusus untuk " + (w.label || w.key));
-    mi.onchange = () => saveWorker(w.key, { model: mi.value });
-    const pb = el("button", "btn sm ghost", "Periksa");
-    pb.onclick = async () => {
-      pb.disabled = true; pb.textContent = "Memeriksa";
-      await post(`/api/workers/${w.key}/probe`);
-      pb.disabled = false; pb.textContent = "Periksa";
-      loadWorkers();
-    };
-    row.appendChild(lab); row.appendChild(pb);
-    d.appendChild(mi); d.appendChild(row);
-    box.appendChild(d);
-  });
-}
-
-async function saveWorker(k, patch) {
-  const r = await post("/api/workers/" + k, patch);
-  if (!r || r.ok === false) toast("Gagal menyimpan setelan pekerja", "bad");
-  loadWorkers();
-}
-
-/* files, git, tests */
-async function loadTree() {
-  const r = await api("/api/project/tree");
-  const box = $("#tree");
-  if (!r || r.error) { box.innerHTML = '<div class="empty"><p>Gagal memuat daftar berkas.</p></div>'; return; }
-  $("#proj-dir").textContent = r.dir || "";
-  box.innerHTML = "";
-  const entries = r.entries || [];
-  if (!entries.length) { box.innerHTML = '<div class="empty"><p>Folder ini masih kosong.</p></div>'; return; }
-  entries.forEach((e) => {
-    if (e.type === "dir") { box.appendChild(el("div", "dir", esc(e.path))); return; }
-    const b = el("button", "file", `${esc(e.path)} <span class="tag">${e.size}b</span>`);
-    b.onclick = async () => {
-      const f = await api("/api/project/file?path=" + encodeURIComponent(e.path));
-      $("#file-out").textContent = (f && f.ok) ? f.content : "Gagal membuka berkas: " + ((f && f.error) || "tidak diketahui");
-      $("#file-name").textContent = e.path;
-    };
-    box.appendChild(b);
-  });
-}
-
-async function loadGit() {
-  const g = await api("/api/git");
-  if (!g || g.error) { $("#git-out").textContent = "Gagal memuat status git."; return; }
-  $("#git-out").textContent =
-    (g.branch ? "Cabang: " + g.branch + "\n" : "")
-    + (g.status ? "Belum disimpan:\n" + g.status + "\n" : "Tidak ada perubahan yang menunggu.\n")
-    + (g.diffstat ? "\nRingkasan:\n" + g.diffstat + "\n" : "")
-    + "\nCommit terakhir:\n" + (g.log || "(belum ada)");
-  const d = await api("/api/git/diff");
-  $("#diff-out").textContent = (d && d.diff) || "Tidak ada perbedaan.";
-}
-
-async function runTest() {
-  const out = $("#test-out");
-  out.textContent = "Menjalankan tes";
-  const r = await post("/api/test", { command: $("#test-cmd").value || null });
-  const res = (r && r.result) || {};
-  if (!r || r.error) { out.textContent = "Gagal menjalankan tes: " + ((r && r.error) || "tidak diketahui"); return; }
-  out.textContent = (res.skipped ? "Tidak ada perintah tes yang bisa dijalankan."
-    : `${res.ok ? "LULUS" : "TIDAK LULUS"} · kode ${res.rc} · ${res.duration || 0} detik\n\n`) + (res.output || "");
-}
-
-/* ------------------------------------------------------------- SSE stream */
-function handleEvent(e) {
-  pushLog(e);
-  if (e.session && e.session !== S.sid && e.kind !== "system") { loadThreads(); }
-  if (!e.task) {
-    if (e.kind === "gateway" || e.kind === "system") loadStateChips();
-    return;
-  }
-  const mine = S.messages.some((m) => m.task === e.task);
-  appendActivity(e);
-  if (!mine) { if (e.kind === "task" && e.phase === "done") loadThreads(); return; }
-
-  if (e.kind === "worker" && e.phase === "out") {
-    const line = cleanLine(e.text);
-    if (line) patchTurn(e.task, { ticker: line.slice(0, 180) });
-  } else if (e.kind === "worker" && e.phase === "start") {
-    patchTurn(e.task, { ticker: `pekerja ${e.worker || ""} mulai` });
-  } else if (e.kind === "plan" && e.phase === "start") {
-    patchTurn(e.task, { ticker: "menyusun rencana" });
-  } else if (e.kind === "test" && e.phase === "end") {
-    patchTurn(e.task, { ticker: e.ok ? "tes lulus" : "tes belum lulus, mencoba perbaikan" });
-  } else if (e.kind === "review" && e.phase === "end") {
-    patchTurn(e.task, { ticker: "penilaian: " + (e.verdict || "selesai") });
-  } else if (e.kind === "task" && e.phase === "answer") {
-    patchTurn(e.task, { text: e.answer || "" });
-  } else if (e.kind === "task" && (e.phase === "done" || e.phase === "error")) {
-    patchTurn(e.task, { status: e.phase === "done" ? "done" : "error" });
-    S.running.delete(e.task);
-    const m = S.messages.find((x) => x.task === e.task && x.role === "astroz");
-    if (m) { m.status = e.phase === "done" ? "done" : "error"; m.ts = Date.now() / 1000; }
-    refreshTask(e.task);
-    loadThreads();
-    renderRuns();
+    baris.append(b, hapus);
+    wadah.appendChild(baris);
   }
 }
 
-async function refreshTask(tid) {
-  if (!S.sid) return;
-  const r = await api("/api/sessions/" + encodeURIComponent(S.sid));
-  if (!r || !r.ok) return;
-  const before = S.messages.length;
-  S.messages = r.messages || [];
-  S.activity = r.activity || {};
-  const li = findTurn(tid);
-  if (li && r.messages) {
-    const m = r.messages.find((x) => x.task === tid && x.role === "astroz");
-    if (m) { const fresh = turnAstro(m); li.replaceWith(fresh); toBottom(); }
-  } else if (S.messages.length !== before) {
-    renderMessages(true);
+async function muatSesi() {
+  try {
+    const d = await ambil("/api/sessions");
+    gambarDaftarSesi(d.sessions || []);
+  } catch (e) {
+    el("daftar-sesi").replaceChildren(buat("p", "kosong", "Daftar percakapan tidak bisa dimuat: " + e.message));
   }
-  renderRuns();
 }
 
-async function loadStateChips() {
-  const r = await api("/api/state");
-  if (!r || !r.gateway) return;
-  const g = r.gateway;
-  const chip = $("#chip-model");
-  chip.textContent = stripProvider(g.model) || "belum ada model";
-  chip.title = g.model || "";
-  const gw = $("#chip-gw");
-  gw.className = "tag " + (g.online ? "ok" : "bad");
-  gw.textContent = g.online ? "gateway hidup" : "gateway mati";
-  $("#foot-info").textContent = `${g.base_url || "-"} · ${g.model_count || 0} model · proyek ${(r.project || {}).dir || "-"}`;
-}
-
-/* ------------------------------------------------------------- drawers */
-function closeDrawers() {
-  $("#threads").classList.remove("on");
-  $("#tools").classList.remove("on");
-  $("#scrim").classList.remove("on");
-}
-function openThreads() { $("#threads").classList.add("on"); $("#scrim").classList.add("on"); }
-function openTools() { $("#tools").classList.add("on"); $("#scrim").classList.add("on"); }
-
-/* --------------------------------------------------------------- log pane */
-const LOG_KINDS = ["worker", "plan", "test", "review", "git", "gateway", "hermes", "system", "log", "discuss"];
-let LOG_MAX_ID = 0;
-let LOG_FILLED = null;
-
-async function fillLog() {
-  const box = $("#log-feed");
-  if (!box) return;
-  const kind = $("#log-filter").value;
-  if (kind === LOG_FILLED) return;
-  box.innerHTML = '<div class="empty">Memuat catatan</div>';
-  const r = await api("/api/events/recent?limit=300" + (kind ? "&kind=" + encodeURIComponent(kind) : ""));
-  const events = (r && r.events) || [];
-  box.innerHTML = "";
-  if (!events.length) {
-    box.innerHTML = '<div class="empty"><p>Belum ada catatan untuk saringan ini.</p></div>';
-    LOG_FILLED = kind;
-    return;
-  }
-  events.forEach((e) => { if (LOG_KINDS.includes(e.kind)) box.appendChild(evLine(e)); });
-  if (!box.children.length) box.innerHTML = '<div class="empty"><p>Belum ada catatan untuk saringan ini.</p></div>';
-  else box.scrollTop = box.scrollHeight;
-  LOG_MAX_ID = Math.max(LOG_MAX_ID, ...events.map((e) => e.id || 0));
-  LOG_FILLED = kind;
-}
-
-function pushLog(e) {
-  if (!LOG_KINDS.includes(e.kind)) return;
-  if ((e.id || 0) <= LOG_MAX_ID) return;
-  const sel = $("#log-filter");
-  if (sel && sel.value && e.kind !== sel.value) return;
-  const box = $("#log-feed");
-  if (!box) return;
-  if (box.querySelector(".empty")) box.innerHTML = "";
-  box.appendChild(evLine(e));
-  while (box.children.length > 400) box.removeChild(box.firstChild);
-  const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
-  if (stick) box.scrollTop = box.scrollHeight;
-  LOG_MAX_ID = Math.max(LOG_MAX_ID, e.id || 0);
-}
-
-/* ------------------------------------------------------------------ boot */
-function wire() {
-  $("#composer").addEventListener("submit", (e) => { e.preventDefault(); send(); });
-  const ta = $("#input");
-  ta.addEventListener("input", () => {
-    ta.style.height = "auto";
-    ta.style.height = Math.min(190, ta.scrollHeight) + "px";
-  });
-  ta.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
-  });
-  $("#new-thread").onclick = newSession;
-  $("#open-threads").onclick = openThreads;
-  $("#open-tools").onclick = openTools;
-  $("#close-activity").onclick = closeActivity;
-  $("#activity-drawer").querySelector(".scrim").onclick = closeActivity;
-  $("#scrim").onclick = closeDrawers;
-  $("#log-filter").onchange = () => { LOG_FILLED = null; fillLog(); };
-  $("#log-clear").onclick = () => {
-    $("#log-feed").innerHTML = '<div class="empty"><p>Tampilan dikosongkan. Catatan baru muncul di sini.</p></div>';
-    LOG_FILLED = $("#log-filter").value;
-  };
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { closeActivity(); closeDrawers(); }
-  });
-  $$("[data-close]").forEach((b) => b.onclick = closeDrawers);
-  $$("#tool-seg button").forEach((b) => b.onclick = () => setTab(b.dataset.pane));
-  $$("#file-seg button").forEach((b) => b.onclick = () => {
-    $$("#file-seg button").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
-    $$(".fpane").forEach((p) => p.classList.toggle("on", p.id === "f-" + b.dataset.f));
-    if (b.dataset.f === "git") loadGit();
-  });
-  $("#model-search").oninput = () => { clearTimeout(window.__mt); window.__mt = setTimeout(loadModels, 250); };
-  $("#model-ok").onchange = loadModels;
-  $("#model-sync").onclick = async () => {
-    const b = $("#model-sync"); b.disabled = true; b.textContent = "Memuat";
-    const r = await post("/api/gateway/sync?apply=0");
-    b.disabled = false; b.textContent = "Muat dari gateway";
-    if (!r || r.error) { toast("Gagal memuat daftar model", "bad"); return; }
-    toast(`${r.models || 0} model terbaca dari gateway`, "ok");
-    loadModels(); loadStateChips();
-  };
-  $("#model-probe").onclick = async () => {
-    const b = $("#model-probe"); b.disabled = true; b.textContent = "Menguji";
-    const r = await post("/api/gateway/probe", {});
-    b.disabled = false; b.textContent = "Tes mana yang hidup";
-    if (!r || r.error) { toast("Gagal menguji model", "bad"); return; }
-    toast(`${(r.healthy || []).length} dari ${(r.results || []).length} model menjawab`, (r.healthy || []).length ? "ok" : "bad");
-    loadModels();
-  };
-  let armed = false;
-  $("#apply-model").onclick = async () => {
-    if (!S.modelPick) { toast("Pilih dulu satu model", "bad"); return; }
-    if (!armed) {
-      armed = true;
-      $("#apply-model").textContent = "Tekan sekali lagi untuk menerapkan";
-      setTimeout(() => { armed = false; $("#apply-model").textContent = "Terapkan ke semua"; }, 6000);
-      return;
+async function bukaSesi(id) {
+  keadaan.sesi = id;
+  try {
+    const d = await ambil(`/api/sessions/${id}`);
+    const s = d.session || {};
+    keadaan.judul = s.title || "Percakapan";
+    el("judul-sesi").textContent = keadaan.judul;
+    kosongkanChat(null);
+    const pesan = d.messages || [];
+    if (!pesan.length) kosongkanChat("Percakapan ini masih kosong.");
+    for (const m of pesan) {
+      tambahEntri({
+        peran: m.role === "user" ? "aku" : "astroz",
+        teks: m.text,
+        ts: m.ts,
+        tugas: m.task,
+        status: m.role === "user" ? "" : (m.status === "done" ? "selesai" : m.status === "failed" || m.status === "error" ? "gagal" : m.status === "running" ? "jalan" : ""),
+        tes: m.tests === undefined ? undefined : m.tests,
+        size: m.size,
+      });
     }
-    armed = false;
-    const b = $("#apply-model"); b.disabled = true; b.textContent = "Menerapkan";
-    const r = await post("/api/gateway/model", { model: S.modelPick, apply_workers: true });
-    b.disabled = false; b.textContent = "Terapkan ke semua";
-    if (!r || r.error) { toast("Gagal menerapkan model", "bad"); return; }
-    const bad = Object.entries(r.workers || {}).filter(([, v]) => !v.ok).map(([k]) => k);
-    toast(bad.length ? `Diterapkan, gagal di: ${bad.join(", ")}` : "Model diterapkan ke semua pekerja", bad.length ? "bad" : "ok");
-    loadStateChips(); loadModels(); loadWorkers();
-  };
-  $("#proj-refresh").onclick = loadTree;
-  $("#git-refresh").onclick = loadGit;
-  $("#test-run").onclick = runTest;
-  $("#git-commit-save").onclick = async () => {
-    const msg = $("#git-msg").value.trim();
-    if (!msg) { toast("Tulis dulu pesan commit-nya.", "bad"); return; }
-    const r = await post("/api/git/commit", { message: msg });
-    if (!r || !r.ok) { toast("Commit gagal: " + ((r && (r.error || r.out)) || "tidak diketahui"), "bad"); return; }
-    toast("Perubahan sudah disimpan sebagai commit", "ok");
-    $("#git-msg").value = "";
-    loadGit();
-  };
-  $("#workers-apply").onclick = async () => {
-    const r = await post("/api/apply", {});
-    if (!r || r.error) { toast("Gagal menerapkan", "bad"); return; }
-    toast("Model diterapkan ke semua pekerja", "ok");
-    loadWorkers(); loadStateChips();
-  };
-  $("#workers-probe").onclick = async () => {
-    const r = await api("/api/state");
-    for (const w of (r.workers || [])) await post(`/api/workers/${w.key}/probe`);
-    toast("Semua pekerja diperiksa", "ok");
-    loadWorkers();
-  };
+    const jalan = pesan.filter((m) => m.role !== "user" && m.status === "running").map((m) => m.task);
+    keadaan.tugasJalan = jalan.length ? jalan[jalan.length - 1] : null;
+    gambarProses(s.tasks || [], d.activity || {});
+    if (keadaan.tugasJalan) pantauTugas(keadaan.tugasJalan);
+  } catch (e) {
+    pesanSingkat("Percakapan tidak bisa dibuka: " + e.message, true);
+  }
+  await muatSesi();
 }
 
-async function boot() {
-  wire();
-  setTab("jalankan");
-  await loadStateChips();
-  await loadThreads();
-  if (S.sid && S.sessions.some((s) => s.id === S.sid)) await openSession(S.sid, true);
-  else if (S.sessions.length) await openSession(S.sessions[0].id, true);
-  else { $("#chat-title").textContent = "Percakapan baru"; renderMessages(true); }
-  loadWorkers();
-  fillLog();
-  const es = new EventSource("/api/events?replay=60");
-  es.onmessage = (m) => { let e; try { e = JSON.parse(m.data); } catch { return; } handleEvent(e); };
-  es.onerror = () => { $("#chip-gw").className = "tag bad"; $("#chip-gw").textContent = "sambungan putus"; };
-  setInterval(loadStateChips, 20000);
+el("sesi-baru").addEventListener("click", () => {
+  keadaan.sesi = null;
+  keadaan.judul = "Percakapan baru";
+  el("judul-sesi").textContent = keadaan.judul;
+  kosongkanChat("Percakapan baru. Tulis perintah pertama di kotak bawah.");
+  el("daftar-proses").replaceChildren(buat("p", "kosong", "Belum ada pekerjaan di percakapan ini."));
+  el("tulis").focus();
+  muatSesi();
+});
+
+/* --------------------------------------------------------------- kirim tugas */
+
+el("pilih-gambar").addEventListener("click", () => el("berkas-gambar").click());
+
+el("berkas-gambar").addEventListener("change", async (ev) => {
+  const berkas = ev.target.files && ev.target.files[0];
+  if (!berkas) return;
+  if (berkas.size > 12 * 1024 * 1024) { pesanSingkat("Gambar lebih dari 12 MB, perkecil dulu.", true); return; }
+  const buf = await berkas.arrayBuffer();
+  let biner = "";
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i += 8192) biner += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+  try {
+    const d = await kirim("/api/upload", { name: berkas.name, data: btoa(biner) });
+    keadaan.lampiran = d.path;
+    const wadah = el("lampiran");
+    wadah.replaceChildren();
+    wadah.hidden = false;
+    wadah.appendChild(buat("span", "lampiran", "gambar siap dikirim: " + berkas.name));
+    const batal = buat("button", "tombol kecil diam", "batalkan");
+    batal.type = "button";
+    batal.addEventListener("click", () => { keadaan.lampiran = null; wadah.hidden = true; wadah.replaceChildren(); });
+    wadah.appendChild(batal);
+    pesanSingkat("Gambar disimpan. Pekerja akan membacanya dengan perintah lihat.");
+  } catch (e) {
+    pesanSingkat("Gambar gagal disimpan: " + e.message, true);
+  }
+  ev.target.value = "";
+});
+
+el("form-tulis").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const kotak = el("tulis");
+  const teks = kotak.value.trim();
+  if (!teks) { pesanSingkat("Tulis dulu isi pesannya."); kotak.focus(); return; }
+  const lampiran = keadaan.lampiran;
+  let penuh = teks;
+  if (lampiran) penuh += `\n\nGambar terlampir: ${lampiran}\nPakai perintah lihat untuk membacanya.`;
+
+  el("kirim").disabled = true;
+  tambahEntri({ peran: "aku", teks, ts: Date.now() / 1000, lampiran });
+  kotak.value = "";
+  keadaan.lampiran = null;
+  el("lampiran").hidden = true;
+  el("lampiran").replaceChildren();
+
+  try {
+    const d = await kirim("/api/chat", { text: penuh, session: keadaan.sesi, workflow: el("ukuran").value });
+    keadaan.sesi = d.session;
+    keadaan.judul = d.title || keadaan.judul;
+    el("judul-sesi").textContent = keadaan.judul;
+    const e = { peran: "astroz", teks: "sedang dikerjakan", ts: Date.now() / 1000, status: "jalan", tugas: d.task_id, no: ++keadaan.nomor };
+    keadaan.entri.push(e);
+    gambarEntri(e);
+    keDasar();
+    keadaan.tugasJalan = d.task_id;
+    pantauTugas(d.task_id);
+    muatSesi();
+  } catch (err) {
+    tambahEntri({ peran: "astroz", teks: "Pesan tidak terkirim: " + err.message, status: "gagal", ts: Date.now() / 1000 });
+    pesanSingkat("Pesan tidak terkirim: " + err.message, true);
+  } finally {
+    el("kirim").disabled = false;
+    kotak.focus();
+  }
+});
+
+el("tulis").addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" && !ev.shiftKey) {
+    ev.preventDefault();
+    el("form-tulis").requestSubmit();
+  }
+});
+
+/* ------------------------------------------------------------------ pantau */
+
+let jamPantau = null;
+
+async function pantauTugas(tid) {
+  clearInterval(jamPantau);
+  let lewat = 0;
+  ticker(true);
+  jamPantau = setInterval(async () => {
+    lewat += 3;
+    try {
+      const d = await ambil(`/api/tasks/${tid}`);
+      const t = d.task || {};
+      const entri = keadaan.entri.find((x) => x.tugas === tid && x.peran === "astroz");
+      const status = t.status === "done" ? "selesai" : t.status === "failed" || t.status === "error" ? "gagal" : "jalan";
+      const jawab = t.answer || "";
+      if (entri && (entri.status !== status || (jawab && entri.teks !== jawab))) {
+        entri.status = status;
+        entri.teks = jawab || entri.teks;
+        entri.ts = t.finished || entri.ts;
+        entri.tes = (t.test || {}).ok;
+        entri.worker = (t.workers || [])[0];
+        gambarUlangSemua();
+      }
+      if (status !== "jalan") {
+        clearInterval(jamPantau);
+        ticker(false);
+        keadaan.tugasJalan = null;
+        if (keadaan.sesi) bukaSesiRingan(keadaan.sesi);
+      }
+    } catch {
+      if (lewat > 900) { clearInterval(jamPantau); ticker(false); }
+    }
+  }, 3000);
 }
 
-boot();
+function gambarUlangSemua() {
+  const daftar = keadaan.entri.slice();
+  alur.replaceChildren();
+  for (const e of daftar) gambarEntri(e);
+  keDasar();
+}
+
+async function bukaSesiRingan(id) {
+  try {
+    const d = await ambil(`/api/sessions/${id}`);
+    gambarProses((d.session || {}).tasks || [], d.activity || {});
+  } catch {}
+  muatSesi();
+}
+
+/* Garis kilau di bawah bar: menyala hanya selama ada tugas berjalan. */
+function ticker(aktif) {
+  const t = el("ticker");
+  if (t) t.classList.toggle("aktif", !!aktif);
+}
+
+/* -------------------------------------------------------- panel: proses */
+
+function gambarProses(ids, aktivitas) {
+  const wadah = el("daftar-proses");
+  wadah.replaceChildren();
+  if (!ids || !ids.length) {
+    wadah.appendChild(buat("p", "kosong", "Belum ada pekerjaan di percakapan ini."));
+    return;
+  }
+  for (const tid of ids.slice().reverse()) {
+    const evs = aktivitas[tid] || [];
+    const baris = buat("div", "baris-data");
+    const atas = buat("div", "atas");
+    atas.appendChild(buat("span", "nama", tid));
+    const jalan = evs.some((e) => e.kind === "task" && e.phase === "created") && !evs.some((e) => e.phase === "done" || e.phase === "failed");
+    atas.appendChild(buat("span", "tanda-cap " + (jalan ? "" : "ada"), jalan ? "jalan" : "tercatat"));
+    baris.appendChild(atas);
+    const terakhir = evs[evs.length - 1];
+    if (terakhir) baris.appendChild(buat("div", "kecil", (terakhir.text || "").slice(0, 120)));
+    const b = buat("button", "tombol kecil garis", "lihat rincian");
+    b.type = "button";
+    b.addEventListener("click", () => bukaRincian(tid));
+    baris.appendChild(b);
+    wadah.appendChild(baris);
+  }
+}
+
+async function bukaRincian(tid) {
+  el("judul-rincian").textContent = "Tugas " + tid;
+  const isi = el("isi-rincian");
+  isi.replaceChildren(buat("p", "kosong", "memuat"));
+  bukaLembar("lembar-rincian");
+  try {
+    const d = await ambil(`/api/tasks/${tid}`);
+    const t = d.task || {};
+    isi.replaceChildren();
+    const info = buat("div", "baris-data");
+    info.appendChild(buat("div", "nama", "keadaan: " + (t.status || "?")));
+    info.appendChild(buat("div", "kecil", "ukuran: " + (t.size || "otomatis") + "  model: " + (t.model || "bawaan") + "  pekerja: " + ((t.workers || []).join(", ") || "belum tercatat")));
+    if (t.answer) info.appendChild(buat("div", "kecil", t.answer));
+    isi.appendChild(info);
+    for (const e of (d.events || []).slice().reverse()) {
+      const baris = buat("div", "kejadian");
+      baris.dataset.jenis = e.kind || "";
+      baris.appendChild(buat("div", "waktu", waktu(e.ts)));
+      const tengah = buat("div");
+      tengah.appendChild(buat("div", "jenis", e.kind || ""));
+      tengah.appendChild(buat("div", "pesan", e.text || e.message || ""));
+      baris.appendChild(tengah);
+      isi.appendChild(baris);
+    }
+    if (!(d.events || []).length) isi.appendChild(buat("p", "kosong", "Belum ada catatan untuk tugas ini."));
+  } catch (e) {
+    isi.replaceChildren(buat("p", "kosong", "Rincian tidak bisa dimuat: " + e.message));
+  }
+}
+
+/* --------------------------------------------------------- panel: model */
+
+let modelTersaring = { q: "", provider: "", hanyaHidup: false };
+
+function tandaCap(ada, teks) {
+  const n = buat("span", "tanda-cap " + (ada ? "ada" : "tidak"), teks);
+  return n;
+}
+
+function gambarDaftarModel(d) {
+  const wadah = el("daftar-model");
+  wadah.replaceChildren();
+  const daftar = d.models || [];
+  if (!daftar.length) {
+    wadah.appendChild(buat("p", "kosong", "Tidak ada model yang cocok. Coba muat dari gateway atau ubah kata kunci."));
+    return;
+  }
+  wadah.appendChild(buat("p", "catatan", `${d.total} model cocok, ${daftar.length} ditampilkan.`));
+  for (const m of daftar) {
+    const caps = m.caps || {};
+    const baris = buat("div", "baris-data");
+    const atas = buat("div", "atas");
+    atas.appendChild(buat("span", "nama", m.id));
+    if (m.id === d.current) atas.appendChild(buat("span", "tanda-cap ada", "dipakai"));
+    baris.appendChild(atas);
+    const deret = buat("div", "meta");
+    deret.appendChild(tandaCap(!!caps.vision, "gambar"));
+    deret.appendChild(tandaCap(!!caps.search, "cari"));
+    const sehat = (m.health || {}).ok;
+    deret.appendChild(buat("span", null, sehat === true ? "sudah diuji hidup" : sehat === false ? "tidak menjawab" : "belum diuji"));
+    if (m.provider) deret.appendChild(buat("span", null, m.provider));
+    baris.appendChild(deret);
+    const b = buat("button", "tombol kecil garis", m.id === d.current ? "sedang dipakai" : "pakai model ini");
+    b.type = "button";
+    b.disabled = m.id === d.current;
+    b.addEventListener("click", () => pakaiModel(m.id));
+    baris.appendChild(b);
+    wadah.appendChild(baris);
+  }
+}
+
+function gambarProvider(providers) {
+  const wadah = el("daftar-provider");
+  wadah.replaceChildren();
+  const semua = buat("button", "tombol kecil" + (modelTersaring.provider ? " garis" : ""), "semua");
+  semua.type = "button";
+  semua.addEventListener("click", () => { modelTersaring.provider = ""; muatModel(); });
+  wadah.appendChild(semua);
+  for (const p of providers || []) {
+    const b = buat("button", "tombol kecil" + (modelTersaring.provider === p.id ? "" : " garis"), `${p.id} ${p.count}`);
+    b.type = "button";
+    b.addEventListener("click", () => { modelTersaring.provider = p.id; muatModel(); });
+    wadah.appendChild(b);
+  }
+}
+
+async function muatModel() {
+  const p = new URLSearchParams({ limit: "120", callable_only: "1" });
+  if (modelTersaring.q) p.set("q", modelTersaring.q);
+  if (modelTersaring.provider) p.set("provider", modelTersaring.provider);
+  if (modelTersaring.hanyaHidup) p.set("only_healthy", "1");
+  try {
+    const d = await ambil("/api/gateway/models?" + p.toString());
+    gambarDaftarModel(d);
+    gambarProvider(d.providers);
+    keadaan.modelSekarang = d.current || "";
+    const gw = await ambil("/api/state");
+    const caps = ((gw.gateway || {}).model_meta || {})[d.current] || {};
+    const c = caps.caps || {};
+    el("model-sekarang").textContent = `${d.current || "belum dipilih"}  |  ${c.vision ? "bisa melihat gambar" : "tidak bisa melihat gambar"}  |  ${c.search ? "bisa mencari sendiri" : "tidak mencari sendiri"}`;
+    el("model-kini").textContent = d.current || "";
+    el("keadaan-gateway").textContent = (gw.gateway || {}).online ? "gateway hidup" : "gateway tidak menjawab";
+    el("keadaan-gateway").className = "keadaan " + ((gw.gateway || {}).online ? "hidup" : "mati");
+  } catch (e) {
+    el("daftar-model").replaceChildren(buat("p", "kosong", "Daftar model tidak bisa dimuat: " + e.message));
+  }
+}
+
+el("cari-model").addEventListener("input", (ev) => {
+  modelTersaring.q = ev.target.value.trim();
+  clearTimeout(el("cari-model")._jam);
+  el("cari-model")._jam = setTimeout(muatModel, 300);
+});
+el("hanya-hidup").addEventListener("change", (ev) => { modelTersaring.hanyaHidup = ev.target.checked; muatModel(); });
+el("model-sinkron").addEventListener("click", async () => {
+  el("model-sinkron").disabled = true;
+  try { const d = await kirim("/api/gateway/sync"); pesanSingkat(`Katalog dimuat: ${d.count || d.model_count || 0} model.`); await muatModel(); }
+  catch (e) { pesanSingkat("Gagal memuat katalog: " + e.message, true); }
+  finally { el("model-sinkron").disabled = false; }
+});
+el("model-uji").addEventListener("click", async () => {
+  el("model-uji").disabled = true;
+  pesanSingkat("Menguji model, perlu beberapa detik.");
+  try { const d = await kirim("/api/gateway/probe", {}); pesanSingkat(`${(d.healthy || []).length} dari ${(d.results || []).length} model menjawab.`); await muatModel(); }
+  catch (e) { pesanSingkat("Uji model gagal: " + e.message, true); }
+  finally { el("model-uji").disabled = false; }
+});
+
+async function pakaiModel(id) {
+  el("catatan-model").textContent = "menerapkan " + id + " ...";
+  try {
+    await kirim("/api/gateway/model", { model: id, apply_workers: true });
+    el("catatan-model").textContent = id + " dipakai di Hermes dan keempat pekerja.";
+    pesanSingkat(id + " sekarang dipakai.");
+    await muatModel();
+    await muatPekerja();
+  } catch (e) {
+    el("catatan-model").textContent = "gagal: " + e.message;
+    pesanSingkat("Gagal memakai model: " + e.message, true);
+  }
+}
+el("pakai-model").addEventListener("click", () => {
+  if (keadaan.modelSekarang) pakaiModel(keadaan.modelSekarang);
+  else pesanSingkat("Pilih dulu satu model dari daftar.");
+});
+
+/* -------------------------------------------------------- panel: pekerja */
+
+function gambarPekerja(daftar) {
+  const wadah = el("daftar-pekerja");
+  wadah.replaceChildren();
+  keadaan.pekerja = daftar;
+  for (const w of daftar) {
+    const baris = buat("div", "baris-data");
+    const atas = buat("div", "atas");
+    atas.appendChild(buat("span", "nama", w.name));
+    atas.appendChild(buat("span", "tanda-cap " + (w.available ? "ada" : ""), w.available ? "siap" : "tidak ada"));
+    baris.appendChild(atas);
+    baris.appendChild(buat("div", "kecil", w.version || w.error || "versi belum diperiksa"));
+    if (w.model) baris.appendChild(buat("div", "kecil", "model: " + w.model));
+    const deret = buat("div", "meta");
+    const label = buat("label");
+    label.style.display = "flex";
+    label.style.gap = "8px";
+    label.style.alignItems = "center";
+    const cek = document.createElement("input");
+    cek.type = "checkbox";
+    cek.checked = w.enabled !== false;
+    cek.addEventListener("change", async () => {
+      await kirim(`/api/workers/${w.name}`, { enabled: cek.checked });
+      pesanSingkat(`${w.name} ${cek.checked ? "dipakai" : "dimatikan"}.`);
+    });
+    label.append(cek, document.createTextNode("pakai pekerja ini"));
+    deret.appendChild(label);
+    const b = buat("button", null, "periksa");
+    b.type = "button";
+    b.addEventListener("click", async () => {
+      b.textContent = "memeriksa";
+      try { const d = await kirim(`/api/workers/${w.name}/probe`); pesanSingkat(`${w.name}: ${d.version || d.error || "selesai"}`); }
+      catch (e) { pesanSingkat(`${w.name}: ${e.message}`, true); }
+      finally { await muatPekerja(); }
+    });
+    deret.appendChild(b);
+    baris.appendChild(deret);
+    wadah.appendChild(baris);
+  }
+}
+
+async function muatPekerja() {
+  try {
+    const d = await ambil("/api/workers");
+    gambarPekerja(d.workers || []);
+  } catch (e) {
+    el("daftar-pekerja").replaceChildren(buat("p", "kosong", "Daftar pekerja tidak bisa dimuat: " + e.message));
+  }
+}
+
+el("periksa-pekerja").addEventListener("click", async () => {
+  el("periksa-pekerja").disabled = true;
+  for (const w of keadaan.pekerja) {
+    try { await kirim(`/api/workers/${w.name}/probe`); } catch {}
+  }
+  await muatPekerja();
+  el("periksa-pekerja").disabled = false;
+  pesanSingkat("Pemeriksaan pekerja selesai.");
+});
+
+el("terapkan-pekerja").addEventListener("click", async () => {
+  try { await kirim("/api/apply", { model: keadaan.modelSekarang }); pesanSingkat("Model diterapkan ke pekerja."); await muatPekerja(); }
+  catch (e) { pesanSingkat("Gagal menerapkan model: " + e.message, true); }
+});
+
+/* ---------------------------------------------------------- panel: berkas */
+
+async function muatBerkas() {
+  try {
+    const d = await ambil("/api/project/tree");
+    el("dir-kerja").textContent = "Folder kerja: " + d.dir;
+    const wadah = el("pohon-berkas");
+    wadah.replaceChildren();
+    const entries = d.entries || [];
+    if (!entries.length) wadah.appendChild(buat("p", "kosong", "Folder kerja masih kosong."));
+    for (const b of entries) {
+      const tombol = buat("button", null, `${b.type === "dir" ? "[folder] " : ""}${b.path}${b.size ? "  " + b.size + " b" : ""}`);
+      tombol.type = "button";
+      if (b.type === "dir") tombol.disabled = true;
+      else tombol.addEventListener("click", () => bukaBerkas(b.path));
+      wadah.appendChild(tombol);
+    }
+  } catch (e) {
+    el("pohon-berkas").replaceChildren(buat("p", "kosong", "Daftar berkas tidak bisa dimuat: " + e.message));
+  }
+}
+
+async function bukaBerkas(path) {
+  el("nama-berkas").textContent = path;
+  el("isi-berkas").textContent = "memuat";
+  try {
+    const d = await ambil("/api/project/file?path=" + encodeURIComponent(path));
+    el("isi-berkas").textContent = d.content || "(berkas kosong)";
+  } catch (e) {
+    el("isi-berkas").textContent = "Berkas tidak bisa dibaca: " + e.message;
+  }
+}
+
+async function muatGit() {
+  try {
+    const d = await ambil("/api/git");
+    el("keadaan-git").textContent = [d.branch ? "cabang " + d.branch : "", d.clean ? "tidak ada perubahan tertunda" : "ada perubahan belum disimpan", d.out || ""].filter(Boolean).join("\n");
+    const diff = await ambil("/api/git/diff");
+    el("beda-git").textContent = (diff.diff || "(tidak ada perbedaan)").slice(0, 6000);
+  } catch (e) {
+    el("keadaan-git").textContent = "Keadaan git tidak bisa dibaca: " + e.message;
+  }
+}
+
+el("muat-berkas").addEventListener("click", () => { muatBerkas(); muatGit(); });
+el("simpan-commit").addEventListener("click", async () => {
+  const pesan = el("pesan-commit").value.trim();
+  if (!pesan) { pesanSingkat("Tulis dulu pesan commit-nya."); el("pesan-commit").focus(); return; }
+  try {
+    const d = await kirim("/api/git/commit", { message: pesan });
+    pesanSingkat(d.noop ? "Tidak ada perubahan untuk disimpan." : "Commit tersimpan.");
+    el("pesan-commit").value = "";
+    muatGit();
+  } catch (e) { pesanSingkat("Commit gagal: " + e.message, true); }
+});
+el("jalankan-tes").addEventListener("click", async () => {
+  el("hasil-tes").textContent = "menjalankan";
+  try {
+    const d = await kirim("/api/test", { command: el("perintah-tes").value.trim() });
+    const r = d.result || {};
+    el("hasil-tes").textContent = `perintah: ${r.command || "-"}\nlulus: ${r.ok ? "ya" : "tidak"}\n\n${r.out || ""}`.slice(0, 8000);
+  } catch (e) { el("hasil-tes").textContent = "Tes gagal dijalankan: " + e.message; }
+});
+
+/* --------------------------------------------------------- panel: catatan */
+
+function tambahCatatan(e) {
+  const wadah = el("isi-catatan");
+  const saring = el("saring-catatan").value;
+  if (saring && e.kind !== saring) return;
+  const baris = buat("div", "kejadian");
+  baris.dataset.jenis = e.kind || "";
+  baris.appendChild(buat("div", "waktu", waktu(e.ts)));
+  const tengah = buat("div");
+  tengah.appendChild(buat("div", "jenis", e.kind || ""));
+  tengah.appendChild(buat("div", "pesan", e.text || e.message || ""));
+  baris.appendChild(tengah);
+  wadah.prepend(baris);
+  while (wadah.children.length > 400) wadah.lastChild.remove();
+}
+
+async function muatCatatan(ulang) {
+  if (ulang) el("isi-catatan").replaceChildren();
+  try {
+    const d = await ambil("/api/events/recent?limit=200");
+    const daftar = (d.events || []).slice().reverse();
+    for (const e of daftar) tambahCatatan(e);
+  } catch {}
+}
+
+el("saring-catatan").addEventListener("change", () => muatCatatan(true));
+el("bersihkan-catatan").addEventListener("click", () => muatCatatan(true));
+
+/* ------------------------------------------------------------------- mulai */
+
+function sambungKejadian() {
+  try {
+    const sumber = new EventSource("/api/events");
+    sumber.onmessage = (ev) => {
+      try {
+        const e = JSON.parse(ev.data);
+        tambahCatatan(e);
+        if (e.task && keadaan.tugasJalan === e.task && e.phase === "done") {
+          clearInterval(jamPantau);
+          pantauTugas(e.task);
+        }
+      } catch {}
+    };
+  } catch {}
+}
+
+async function mulai() {
+  await Promise.all([muatSesi(), muatModel(), muatPekerja(), muatBerkas(), muatGit(), muatCatatan(false)]);
+  sambungKejadian();
+  const d = await ambil("/api/state").catch(() => null);
+  if (d) {
+    const gw = d.gateway || {};
+    el("keadaan-gateway").textContent = gw.online ? "gateway hidup" : "gateway tidak menjawab";
+    el("keadaan-gateway").className = "keadaan " + (gw.online ? "hidup" : "mati");
+    el("model-kini").textContent = gw.model || "";
+    el("dir-kerja").textContent = "Folder kerja: " + ((d.project || {}).dir || "");
+    gambarAlat(gw);
+  }
+  const daftar = await ambil("/api/sessions").catch(() => ({ sessions: [] }));
+  const sesi = (daftar.sessions || [])[0];
+  if (sesi) bukaSesi(sesi.id);
+  else kosongkanChat("Belum ada percakapan. Tulis perintah di kotak bawah, percakapan pertama dibuat sendiri.");
+}
+
+function gambarAlat(gw) {
+  const wadah = el("daftar-alat");
+  wadah.replaceChildren();
+  const alat = [
+    ["cari \"kata kunci\"", "mencari di web, hasilnya judul, tautan, dan ringkasan. Ada juga --berita untuk kepala berita terbaru."],
+    ["buka <url>", "membuka satu halaman web dan mengembalikan isinya sebagai teks."],
+    ["lihat <berkas>", "membaca berkas gambar jadi teks, memakai model " + (gw.vision_model || "yang bisa melihat gambar") + "."],
+  ];
+  for (const [nama, keterangan] of alat) {
+    const baris = buat("div", "baris-data");
+    baris.appendChild(buat("div", "nama", nama));
+    baris.appendChild(buat("div", "kecil", keterangan));
+    wadah.appendChild(baris);
+  }
+}
+
+mulai();

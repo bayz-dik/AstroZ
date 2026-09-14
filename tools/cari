@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+"""cari: pencarian web untuk para pekerja.
+
+Sumber: Bing RSS (hasil bersih, tanpa perlu kunci) dan API Wikipedia bahasa
+Indonesia untuk pertanyaan ensiklopedis. DuckDuckGo diblokir dari container ini,
+jadi jangan dipakai.
+
+Pemakaian:
+  cari "ibukota indonesia"
+  cari "harga bitcoin hari ini" --n 5
+  cari "sejarah jakarta" --wiki
+"""
+from __future__ import annotations
+
+import argparse
+import base64
+import html
+import json
+import re
+import sys
+import time
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
+
+UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
+
+
+STOPWORD = {
+    "yang", "dengan", "untuk", "dari", "pada", "adalah", "akan", "tidak", "bisa",
+    "dalam", "juga", "atau", "ini", "itu", "saya", "kamu", "apa", "siapa", "kapan",
+    "dimana", "bagaimana", "mengapa", "the", "and", "for", "with", "what", "who",
+    "when", "where", "how", "why", "this", "that", "from",
+}
+
+
+def _get(url: str, timeout: int = 20, ulang: int = 2) -> str:
+    """GET dengan satu percobaan ulang: Bing kadang menutup koneksi tanpa jawaban."""
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "id,en;q=0.8"})
+    galat: Exception | None = None
+    for _ in range(max(1, ulang)):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.read().decode("utf-8", "replace")
+        except Exception as e:
+            galat = e
+            time.sleep(1.5)
+    raise galat if galat else RuntimeError("gagal")
+
+
+def _kata_penting(q: str) -> list[str]:
+    return [w for w in re.split(r"\W+", q.lower()) if len(w) > 3 and w not in STOPWORD]
+
+
+def _nyambung(h: dict, kata: list[str]) -> bool:
+    """True kalau hasil ini benar-benar membahas kata kunci.
+
+    Bing dari alamat pusat data kadang menjawab dengan hasil untuk kueri lain
+    yang sama sekali tidak berhubungan (terbukti: "ibukota indonesia" dijawab
+    daftar resep). Hasil seperti itu dibuang supaya pekerja tidak memakai
+    fakta yang salah.
+    """
+    if not kata:
+        return True
+    teks = ((h.get("judul") or "") + " " + (h.get("ringkas") or "") + " " + (h.get("url") or "")).lower()
+    return any(w in teks for w in kata)
+
+
+def _bersih(s: str) -> str:
+    s = re.sub(r"<[^>]+>", " ", s or "")
+    s = html.unescape(s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _url_asli(href: str) -> str:
+    """Bing membungkus tautan hasil dengan pengalih /ck/a. Ambil alamat aslinya."""
+    href = html.unescape(href or "")
+    if "bing.com/ck/a" not in href:
+        return href
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
+    u = (q.get("u") or [""])[0]
+    if u.startswith("a1"):
+        s = u[2:]
+        s += "=" * (-len(s) % 4)
+        try:
+            return base64.urlsafe_b64decode(s).decode("utf-8", "replace")
+        except Exception:
+            return ""
+    return ""
+
+
+def bing(q: str, n: int) -> list[dict]:
+    """Hasil dari Bing HTML. Bing RSS terbukti mengembalikan hasil yang tidak nyambung."""
+    url = "https://www.bing.com/search?" + urllib.parse.urlencode({"q": q, "setlang": "id", "cc": "ID"})
+    h = _get(url)
+    out = []
+    for blok in re.findall(r'<li class="b_algo".*?</li>', h, re.S):
+        m = re.search(r'<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', blok, re.S)
+        if not m:
+            continue
+        link = _url_asli(m.group(1))
+        if not link or "bing.com" in link:
+            continue
+        ringkas = ""
+        for pat in (r"<p[^>]*>(.*?)</p>", r'class="b_caption"[^>]*>(.*?)</div>'):
+            s = re.search(pat, blok, re.S)
+            if s:
+                ringkas = _bersih(s.group(1))[:320]
+                break
+        out.append({"judul": _bersih(m.group(2)), "url": link, "ringkas": ringkas, "sumber": "bing"})
+        if len(out) >= n:
+            break
+    return out
+
+
+def wiki(q: str, n: int) -> list[dict]:
+    url = "https://id.wikipedia.org/w/api.php?" + urllib.parse.urlencode(
+        {"action": "query", "list": "search", "srsearch": q, "format": "json", "srlimit": n}
+    )
+    d = json.loads(_get(url))
+    out = []
+    for hit in (d.get("query") or {}).get("search") or []:
+        out.append({
+            "judul": hit.get("title"),
+            "url": "https://id.wikipedia.org/wiki/" + urllib.parse.quote((hit.get("title") or "").replace(" ", "_")),
+            "ringkas": _bersih(hit.get("snippet") or "")[:320],
+            "sumber": "wikipedia",
+        })
+    return out
+
+
+FEED_BERITA = (
+    ("antara", "https://www.antaranews.com/rss/terkini.xml"),
+    ("cnn indonesia", "https://www.cnnindonesia.com/rss"),
+)
+
+
+def berita(q: str, n: int) -> list[dict]:
+    """Kepala berita terbaru dari kanal RSS Indonesia, disaring kata kunci.
+
+    Kalau tidak ada judul yang cocok, yang dikembalikan adalah kepala berita
+    terbaru: untuk pertanyaan "berita hari ini" itu justru jawabannya.
+    """
+    kata = [w for w in re.split(r"\W+", q.lower()) if len(w) > 3]
+    cocok: list[dict] = []
+    terbaru: list[dict] = []
+    for nama, feed in FEED_BERITA:
+        try:
+            root = ET.fromstring(_get(feed))
+        except Exception:
+            continue
+        for item in root.iter("item"):
+            judul = _bersih(item.findtext("title") or "")
+            link = (item.findtext("link") or "").strip()
+            tanggal = _bersih(item.findtext("pubDate") or "")
+            if not judul or not link:
+                continue
+            baris = {"judul": judul, "url": link, "ringkas": tanggal, "sumber": nama}
+            if len(terbaru) < n:
+                terbaru.append(baris)
+            if kata and any(w in judul.lower() for w in kata):
+                cocok.append(baris)
+    if cocok:
+        return cocok[:n]
+    if kata:
+        return []
+    return terbaru[:n]
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Cari di web.")
+    ap.add_argument("kata", nargs="*", help="kata kunci")
+    ap.add_argument("--n", type=int, default=6, help="jumlah hasil (bawaan 6)")
+    ap.add_argument("--wiki", action="store_true", help="pakai Wikipedia saja")
+    ap.add_argument("--berita", action="store_true", help="kepala berita terbaru (kosongkan kata kunci untuk berita hari ini)")
+    ap.add_argument("--json", action="store_true", help="keluarkan JSON")
+    a = ap.parse_args()
+    q = " ".join(a.kata)
+    hasil: list[dict] = []
+    sumber: list[str] = []
+
+    def tambah(baru: list[dict], nama: str) -> None:
+        ada = {h["url"] for h in hasil}
+        ditambah = [h for h in baru if h.get("url") and h["url"] not in ada]
+        if ditambah:
+            hasil.extend(ditambah)
+            sumber.append(nama)
+
+    if a.wiki:
+        try:
+            tambah(wiki(q, a.n), "wikipedia")
+        except Exception as e:
+            print(f"wikipedia gagal: {type(e).__name__}: {e}", file=sys.stderr)
+    elif a.berita:
+        tambah(berita(q, a.n), "berita")
+    else:
+        try:
+            mentah = bing(q, a.n)
+        except Exception as e:
+            mentah = []
+            print(f"pencarian gagal: {type(e).__name__}: {e}", file=sys.stderr)
+        kata = _kata_penting(q)
+        nyambung = [h for h in mentah if _nyambung(h, kata)]
+        if mentah and not nyambung:
+            print(f"hasil mesin pencari tidak nyambung dengan kueri, dibuang {len(mentah)} baris", file=sys.stderr)
+        tambah(nyambung, "bing")
+        if len(hasil) < a.n:
+            try:
+                tambah(wiki(q, a.n), "wikipedia")
+            except Exception:
+                pass
+        if not hasil:
+            tambah(berita(q, a.n), "berita")
+
+    if a.json:
+        print(json.dumps({"kata": q, "sumber": ", ".join(sumber), "hasil": hasil[: a.n]}, ensure_ascii=False, indent=1))
+        return 0 if hasil else 1
+    if not hasil:
+        print(f"tidak ada hasil untuk: {q}")
+        return 1
+    print(f"hasil pencarian untuk: {q}  (sumber: {', '.join(sumber)})")
+    for i, h in enumerate(hasil[: a.n], 1):
+        print(f"\n{i}. {h['judul']}")
+        print(f"   {h['url']}")
+        if h.get("ringkas"):
+            print(f"   {h['ringkas']}")
+    print("\nRingkasan di atas kutipan mentah dari mesin pencari. Buka halamannya dengan `buka <url>` sebelum memakai angka atau tanggalnya.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

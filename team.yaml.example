@@ -3,14 +3,15 @@ gateway:
   api_base: http://127.0.0.1:20129/v1
   upstream_base_url: http://127.0.0.1:20128
   hermes_api_base: ''
+  # Model untuk alat `lihat` yang membaca gambar jadi teks. Isi dengan model
+  # yang punya kemampuan melihat gambar, misalnya kenari-id/mimo-v2-5.
+  vision_model: kenari-id/mimo-v2-5
   api_key: ''  # isi dari dashboard 9Router, atau lewat tab Model di UI
-  model: oc-prod/qwen3.8-flash
-  model_count: 1593
-  last_sync: 1789316330.5498664
-  online: true
+  model: kenari-id/deepseek-v4-1-flash
   fallback_models:
-  - oc-prod/gemini-3.7-flash
-  - oc-prod/step-3.7-flash
+  - kenari-id/gemini-3-7-flash
+  - kenari-id/grok-4-6
+  - kenari-id/deepseek-v4-1-flash
   auto_fallback: true
   healthy:
   - oc-prod/qwen3.8-flash

@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+"""lihat: baca isi gambar dan kembalikan sebagai teks.
+
+Pekerja CLI hanya bisa melihat gambar kalau model yang dipakainya punya
+kemampuan itu. Alat ini menutup celah tersebut: gambar dikirim ke model yang
+memang bisa melihat lewat gateway, lalu hasilnya dikembalikan sebagai teks,
+jadi pekerja mana pun bisa memakai gambar.
+
+Model dilihat dari gateway.vision_model di team.yaml. Kalau kosong, dipilih
+otomatis dari model yang punya kemampuan vision dan providernya menjawab.
+
+Pemakaian:
+  lihat gambar.png
+  lihat tangkapan.jpg --tanya "apa isi tabel ini?"
+  lihat logo.svg --model kenari-id/gemini-3-7-flash
+"""
+from __future__ import annotations
+
+import argparse
+import base64
+import hashlib
+import json
+import mimetypes
+import pathlib
+import re
+import sqlite3
+import sys
+import urllib.error
+import urllib.request
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+TEAM = ROOT / "team.yaml"
+
+MIME_OK = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+
+# Model yang pernah terbukti menjawab untuk gambar di mesin ini. Dipakai
+# berurutan sampai ada yang menjawab.
+KANDIDAT = (
+    "kenari-id/mimo-v2-5",
+    "kenari-id/gemini-3-7-flash",
+    "kenari-id/gemini-3-6-flash",
+    "kenari-id/gpt-5-4-mini",
+)
+
+
+def data_url(path: pathlib.Path) -> str:
+    mime = mimetypes.guess_type(path.name)[0] or "image/png"
+    if mime == "image/jpg":
+        mime = "image/jpeg"
+    if mime not in MIME_OK:
+        raise SystemExit(f"format tidak didukung: {mime}. Pakai PNG, JPEG, WebP, atau GIF.")
+    b64 = base64.b64encode(path.read_bytes()).decode()
+    return f"data:{mime};base64,{b64}"
+
+# Alat ini harus jalan dengan python apa pun (termasuk python3 sistem yang tidak
+# punya PyYAML), jadi team.yaml dibaca dengan pembaca sederhana, bukan yaml.
+def _team() -> dict:
+    out = {"api_base": "http://127.0.0.1:20129/v1", "base_url": "http://127.0.0.1:20128",
+           "api_key": "", "vision_model": ""}
+    try:
+        for line in TEAM.read_text(encoding="utf-8").splitlines():
+            m = re.match(r"\s*(api_base|base_url|api_key|vision_model)\s*:\s*(.+?)\s*$", line)
+            if m:
+                out[m.group(1)] = m.group(2).strip().strip("'\"")
+    except Exception:
+        pass
+    return out
+
+
+def _kunci_dari_9router() -> str:
+    """Kunci API aktif, langsung dari basis data 9Router."""
+    db = pathlib.Path.home() / ".9router" / "db" / "data.sqlite"
+    if not db.exists():
+        return ""
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        row = con.execute("select key from apiKeys where isActive=1 order by createdAt asc limit 1").fetchone()
+        con.close()
+        return row[0] if row else ""
+    except Exception:
+        return ""
+
+
+def _token_9router() -> str:
+    d = pathlib.Path.home() / ".9router"
+    try:
+        raw = (d / "machine-id").read_text().strip()
+        secret = (d / "auth" / "cli-secret").read_text().strip()
+    except Exception:
+        return ""
+    if not raw or not secret:
+        return ""
+    return hashlib.sha256((raw + "9r-cli-auth" + secret).encode()).hexdigest()[:16]
+
+
+def _panggil(model: str, url: str, pertanyaan: str, timeout: int = 150) -> str:
+    cfg = _team()
+    key = cfg["api_key"] or _kunci_dari_9router()
+    body = {
+        "model": model,
+        "max_tokens": 900,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": pertanyaan},
+                {"type": "image_url", "image_url": {"url": url}},
+            ],
+        }],
+    }
+    req = urllib.request.Request(
+        cfg["api_base"].rstrip("/") + "/chat/completions",
+        data=json.dumps(body).encode(),
+        method="POST",
+    )
+    req.add_header("Content-Type", "application/json")
+    if key:
+        req.add_header("Authorization", "Bearer " + key)
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        raw = r.read().decode("utf-8", "replace")
+    obj, _ = json.JSONDecoder().raw_decode(raw)
+    msg = (obj.get("choices") or [{}])[0].get("message", {}) or {}
+    return (msg.get("content") or msg.get("reasoning") or "").strip()
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Baca isi gambar sebagai teks.")
+    ap.add_argument("gambar", help="path berkas gambar")
+    ap.add_argument("--tanya", default="Jelaskan isi gambar ini dengan rinci: teks yang terlihat, angka, warna, dan hal penting lain. Kalau ada tabel, tuliskan isinya.",
+                    help="pertanyaan untuk gambar")
+    ap.add_argument("--model", default="", help="paksa model tertentu")
+    a = ap.parse_args()
+
+    p = pathlib.Path(a.gambar)
+    if not p.exists():
+        print(f"berkas tidak ada: {p}", file=sys.stderr)
+        return 2
+    try:
+        url = data_url(p)
+    except SystemExit as e:
+        print(str(e), file=sys.stderr)
+        return 2
+
+    dipilih = a.model or _team()["vision_model"]
+    urutan = [dipilih] if dipilih else []
+    urutan += [m for m in KANDIDAT if m not in urutan]
+
+    galat = []
+    for model in urutan:
+        try:
+            teks = _panggil(model, url, a.tanya)
+            if teks:
+                print(f"gambar: {p}  ({p.stat().st_size} byte)")
+                print(f"dibaca oleh: {model}")
+                print()
+                print(teks)
+                return 0
+            galat.append(f"{model}: balasan kosong")
+        except urllib.error.HTTPError as e:
+            galat.append(f"{model}: HTTP {e.code}")
+        except Exception as e:
+            galat.append(f"{model}: {type(e).__name__} {e}")
+    print("tidak ada model yang bisa membaca gambar ini.", file=sys.stderr)
+    for g in galat:
+        print("  " + g, file=sys.stderr)
+    print("Set gateway.vision_model di team.yaml ke model yang bisa melihat gambar.", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

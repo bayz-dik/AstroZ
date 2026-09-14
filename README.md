@@ -215,22 +215,45 @@ MODEL=oc-prod/gemini-3.7-flash /root/AstroZ/tests/smoke.sh
 
 ## Catatan tampilan
 
-Tema gelap dipilih karena ini alat kerja yang dipakai malam hari dari HP, sering
-dengan satu tangan. Paletnya dua warna inti ditambah satu aksen hijau untuk aksi
-utama dan status hidup.
+Arah tampilan sekarang mengikuti rumah terracotta ala Claude Code. Aturan
+lengkapnya di `design-systems/claude-code/DESIGN.md`, nilai tokennya di
+`design-systems/claude-code/tokens.css`, dan asal setiap nilai di
+`design-systems/claude-code/source/evidence.md`.
 
-Angka kontras dihitung, bukan dikira-kira, dan diuji dengan rumus WCAG:
+Dua sumber yang dipakai:
 
-| Pasangan | Rasio |
-|---|---|
-| teks utama `#F8FAFC` pada permukaan `#1B2336` | 14.98:1 |
-| teks sekunder `#A6B4C8` pada `#1B2336` | 7.45:1 |
-| aksen `#22C55E` pada `#1B2336` | 6.88:1 |
-| teks di atas aksen `#0F172A` pada `#22C55E` | 7.83:1 |
-| tepi komponen `#6B7C99` pada permukaan `#232D42` | 3.26:1 (ambang elemen non-teks) |
+- `design-systems/claude/` dari repo [nexu-io/open-design](https://github.com/nexu-io/open-design)
+  (Apache-2.0): kanvas perkamen, aksen terracotta, netral serba hangat,
+  kedalaman memakai cincin `0 0 0 1px`, radius 8/12/16px, tanpa gradien.
+- Palet Claude Code yang dibaca langsung dari binari `@anthropic-ai/claude-code`
+  yang terpasang di mesin ini (aksen `#D97757`, hijau `#69DB7C`, kuning
+  `#FFC107`, merah `#FF6B80`, latar gelap keluarga `rgb(38,38,38)`).
+
+Hurufnya Fraunces (judul), Inter (teks), JetBrains Mono (angka dan kode),
+ketiganya lisensi OFL dan disimpan sendiri di `web/fonts/` supaya UI tetap
+sama tanpa internet.
+
+Angka kontras dihitung dengan rumus WCAG, lalu diperiksa ulang di browser
+sungguhan dengan menelusuri setiap simpul teks yang benar-benar tampil
+(latar belakang dikomposit berlapis, termasuk baris percakapan yang terpilih):
+
+| Pasangan | Terang | Gelap |
+|---|---|---|
+| teks utama pada latar halaman | 17.50:1 | 13.75:1 |
+| teks lembut pada latar halaman | 6.26:1 | 6.82:1 |
+| teks meta pada latar halaman | 5.23:1 | 5.79:1 |
+| teks pada tombol aksen | 4.63:1 | 4.86:1 |
+| aksen sebagai teks | 5.45:1 | 5.09:1 |
+| selesai / jalan / gagal | 6.20 / 5.45 / 5.72 | 8.68 / 9.30 / 5.54 |
+| garis batas kontrol | 3.20:1 | 3.53:1 |
+
+Hasil audit terakhir di browser: 94 simpul teks diperiksa, 0 gagal, di kedua
+tema. Di lebar 375px tidak ada geseran mendatar dan semua sasaran sentuh
+minimal 44px. Di lebar 1000-1199px panel alat otomatis pindah jadi lembar
+geser supaya kolom percakapan tidak diperas.
 
 Ikon diambil dari teks, bukan dari pustaka ikon. Animasi hanya dipakai untuk
-menandai hal yang sedang berjalan (penanda kerja dan titik yang berjalan di
-banner), dan semuanya berhenti saat pekerjaan selesai. Ukuran target sentuh
-minimal 44px, navigasi utama 56px. Tampilan diuji pada lebar 375px, 768px, dan
-1280px, termasuk pemeriksaan fokus keyboard dan tidak adanya geseran mendatar.
+menandai hal yang sedang berjalan (garis kilau di bawah bar dan kilau aksen
+pada gelembung yang sedang dikerjakan), dan semuanya berhenti saat pekerjaan
+selesai. `prefers-reduced-motion` mematikan semuanya. Tampilan diuji pada
+lebar 375px, 1100px, dan 1280px, termasuk fokus keyboard.

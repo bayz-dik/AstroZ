@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
+import os
 import pathlib
+import re
 import threading
 import time
 
@@ -473,6 +476,33 @@ async def chat_send(payload: dict):
     sessions.attach(s["id"], tid, text)
     hub.emit("task", f"Percakapan {s['id']}: pesan baru", task=tid, session=s["id"], phase="created")
     return {"ok": True, "session": s["id"], "task_id": tid, "title": s["title"]}
+
+
+@app.post("/api/upload")
+async def upload(payload: dict):
+    """Simpan gambar lampiran ke folder kerja supaya pekerja bisa membacanya.
+
+    UI mengirim base64, bukan multipart, supaya tidak perlu menambah pustaka.
+    """
+    nama = ((payload or {}).get("name") or "lampiran.png").strip()
+    data = (payload or {}).get("data") or ""
+    if not data:
+        return JSONResponse({"ok": False, "error": "data gambar kosong"}, status_code=400)
+    if data.startswith("data:") and "," in data[:120]:
+        data = data.split(",", 1)[1]
+    try:
+        mentah = base64.b64decode(data, validate=False)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "data bukan base64"}, status_code=400)
+    if len(mentah) > 12 * 1024 * 1024:
+        return JSONResponse({"ok": False, "error": "gambar lebih dari 12 MB"}, status_code=400)
+    aman = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(nama))[:80] or "lampiran.png"
+    tujuan = project.project_dir() / "lampiran"
+    tujuan.mkdir(parents=True, exist_ok=True)
+    path = tujuan / f"{int(time.time())}_{aman}"
+    path.write_bytes(mentah)
+    hub.emit("system", f"Lampiran disimpan: {path}")
+    return {"ok": True, "path": str(path), "size": len(mentah)}
 
 
 # ------------------------------------------------------------------ static

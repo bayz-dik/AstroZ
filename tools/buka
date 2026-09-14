@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""buka: ambil isi satu halaman web sebagai teks.
+
+Memakai r.jina.ai untuk mengubah halaman jadi teks bersih. Kalau layanan itu
+tidak bisa dihubungi, dipakai pembacaan langsung lalu tag HTML dibuang.
+
+Pemakaian:
+  buka https://id.wikipedia.org/wiki/Jakarta
+  buka https://example.com --maks 6000
+"""
+from __future__ import annotations
+
+import argparse
+import html
+import re
+import sys
+import urllib.request
+
+UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
+
+
+def _get(url: str, timeout: int = 30) -> str:
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "id,en;q=0.8"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read().decode("utf-8", "replace")
+
+
+def bersihkan_html(teks: str) -> str:
+    teks = re.sub(r"(?is)<(script|style|noscript|svg)[^>]*>.*?</\1>", " ", teks)
+    teks = re.sub(r"(?is)<br\s*/?>|</p>|</div>|</li>|</h[1-6]>", "\n", teks)
+    teks = re.sub(r"<[^>]+>", " ", teks)
+    teks = html.unescape(teks)
+    teks = re.sub(r"[ \t]+", " ", teks)
+    teks = re.sub(r"\n\s*\n\s*\n+", "\n\n", teks)
+    return teks.strip()
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Ambil isi satu halaman web sebagai teks.")
+    ap.add_argument("url")
+    ap.add_argument("--maks", type=int, default=4000, help="batas karakter keluaran (bawaan 4000)")
+    a = ap.parse_args()
+    url = a.url.strip()
+    if not url.startswith(("http://", "https://")):
+        print("url harus mulai dengan http:// atau https://", file=sys.stderr)
+        return 2
+    isi = ""
+    cara = ""
+    try:
+        isi = _get("https://r.jina.ai/" + url, timeout=35)
+        cara = "r.jina.ai"
+    except Exception:
+        isi = ""
+    if not isi.strip():
+        try:
+            isi = bersihkan_html(_get(url, timeout=30))
+            cara = "baca langsung"
+        except Exception as e:
+            print(f"gagal membuka {url}: {type(e).__name__}: {e}", file=sys.stderr)
+            return 1
+    isi = isi.strip()
+    print(f"sumber: {url}  (cara: {cara}, {len(isi)} karakter)")
+    print()
+    print(isi[: a.maks])
+    if len(isi) > a.maks:
+        print(f"\n(dipotong, {len(isi) - a.maks} karakter lagi tidak ditampilkan)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

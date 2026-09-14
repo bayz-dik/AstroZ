@@ -39,6 +39,9 @@ DEFAULTS: dict[str, Any] = {
         "auto_fallback": True,
         "healthy": [],
         "model_meta": {},
+        # Model yang dipakai alat `lihat` untuk membaca gambar. Kosong berarti
+        # alat mencoba daftar bawaannya sendiri.
+        "vision_model": "",
     },
     "project_dir": str(pathlib.Path.home() / "AstroZ" / "workspace"),
     "workers": {

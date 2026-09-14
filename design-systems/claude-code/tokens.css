@@ -1,0 +1,145 @@
+/* ─────────────────────────────────────────────────────────────────────────
+ * design-systems/claude-code/tokens.css
+ *
+ * Token untuk tampilan ala Claude Code. Turunan dari dua sumber:
+ *
+ *   1. design-systems/claude/ di repo nexu-io/open-design (Apache-2.0):
+ *      kanvas perkamen, aksen terracotta, netral serba hangat, kedalaman
+ *      memakai cincin bukan bayangan, tanpa gradien.
+ *   2. Palet tema Claude Code yang diambil langsung dari binari yang
+ *      terpasang di mesin ini (@anthropic-ai/claude-code, chunk tema).
+ *      Nilai mentahnya ada di source/evidence.md.
+ *
+ * Aturan yang dipegang di sini:
+ *   - Tidak ada abu-abu biru. Semua netral bernada kuning-coklat.
+ *   - Satu aksen saja (terracotta). Biru hanya untuk fokus papan tulis.
+ *   - Kedalaman memakai cincin 0 0 0 1px, bukan bayangan jatuh.
+ *   - Radius 8/12/16px. Tidak ada sudut tajam.
+ *   - Tinggi baris isi 1.6 (enak dibaca), judul serif 500 saja.
+ * ─────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* ─── Permukaan ───────────────────────────────────────────────────
+   * Dua tema memakai peran yang sama dengan nilai berbeda.
+   * Terang: perkamen → gading → pasir hangat.
+   * Gelap : tanah gelap → arang hangat → pasir gelap.
+   * Tidak pernah #FFFFFF sebagai latar halaman, tidak pernah #000. */
+  --kertas: #FAF9F5;          /* latar halaman, terang */
+  --permukaan: #FFFFFF;       /* kartu, kotak tulis */
+  --permukaan-hangat: #E8E6DC; /* tombol kedua, gelembung pemakai */
+
+  /* ─── Teks ────────────────────────────────────────────────────────
+   * Setiap abu-abu bernada kuning-coklat. Terukur pada kertas #FAF9F5:
+   * 17.5 / 10.34 / 6.26 / 4.85. */
+  --tinta: #141413;
+  --tinta-2: #3D3D3A;
+  --tinta-lembut: #5E5D59;
+  --tinta-meta: #6F6E68;
+
+  /* ─── Garis ───────────────────────────────────────────────────────
+   * --garis untuk pemisah halus, --garis-kuat untuk batas kontrol
+   * (3.2:1 pada kertas, jadi batas kotak isian terlihat). */
+  --garis: #E8E6DC;
+  --garis-kuat: #8E8C84;
+
+  /* ─── Aksen ───────────────────────────────────────────────────────
+   * Terracotta. --aksen untuk latar tombol (teks gading di atasnya 4.63),
+   * --aksen-teks untuk teks di atas kertas (5.45) dan di atas arang gelap
+   * (5.09 pada #30302E). Dua nilai karena satu nilai tidak lulus di
+   * kedua tema. */
+  --aksen: #C96442;
+  --aksen-teks: #A8492F;
+  --aksen-atas: #FAF9F5;
+
+  /* ─── Keadaan ─────────────────────────────────────────────────────
+   * Nilai dipilih yang lulus 4.5:1 di kedua latar tema, bukan nilai
+   * bawaan mana pun. */
+  --selesai: #146C2E;
+  --jalan: #A8492F;
+  --galat: #B53333;
+
+  /* ─── Fokus ───────────────────────────────────────────────────────
+   * Satu-satunya warna dingin, hanya untuk cincin papan tulis. */
+  --fokus: #2563EB;
+
+  /* ─── Tipografi ───────────────────────────────────────────────────
+   * Serif untuk judul (satu bobot, 500), sans untuk UI, mono untuk
+   * angka, waktu, kode, dan isi berkas. */
+  --font-judul: Fraunces, Georgia, "Times New Roman", serif;
+  --font-teks: Inter, "Helvetica Neue", Arial, system-ui, sans-serif;
+  --font-mesin: "JetBrains Mono", ui-monospace, Menlo, monospace;
+
+  --ukuran-1: 11px;   /* label mesin terkecil */
+  --ukuran-2: 12px;   /* label, metadata */
+  --ukuran-3: 13px;   /* teks kecil */
+  --ukuran-4: 15px;   /* isi percakapan */
+  --ukuran-5: 17px;   /* isi besar */
+  --ukuran-6: 22px;   /* judul bagian */
+  --ukuran-7: 28px;   /* judul halaman */
+
+  --baris-isi: 1.6;
+  --baris-judul: 1.2;
+
+  /* ─── Bentuk ──────────────────────────────────────────────────────
+   * Tanpa sudut tajam. 8px standar, 12px kontrol, 16px wadah besar. */
+  --radius-1: 8px;
+  --radius-2: 12px;
+  --radius-3: 16px;
+  --radius-pil: 9999px;
+
+  /* ─── Kedalaman ───────────────────────────────────────────────────
+   * Cincin, bukan bayangan. */
+  --cincin: 0 0 0 1px var(--garis);
+  --cincin-kuat: 0 0 0 1px var(--garis-kuat);
+  --naik: 0 4px 24px rgba(0, 0, 0, 0.05);
+
+  /* ─── Jarak ───────────────────────────────────────────────────────
+   * Satuan 4px, langkah utama 8px. */
+  --r-1: 4px;  --r-2: 8px;  --r-3: 12px; --r-4: 16px;
+  --r-5: 20px; --r-6: 24px; --r-8: 32px;
+
+  /* ─── Gerak ───────────────────────────────────────────────────────
+   * Pendek dan tenang. Hanya menandai pekerjaan yang sedang berjalan. */
+  --gerak-cepat: 150ms;
+  --gerak-sedang: 200ms;
+  --luncur: cubic-bezier(0.2, 0, 0, 1);
+
+  --lebar-rail: 264px;
+  --lebar-aktivitas: 380px;
+  --tinggi-target: 44px;
+
+  color-scheme: light;
+}
+
+[data-tema="gelap"] {
+  /* Nilai gelap diambil dari tema gelap Claude Code: latar #262624
+     (tanah hangat, bukan hitam), permukaan #30302E, aksen #D97757.
+     Abu-abu tetap bernada hangat: #F5F4ED / #B0AEA5 / #9C9A92. */
+  --kertas: #262624;
+  --permukaan: #30302E;
+  --permukaan-hangat: #3E332E;
+
+  --tinta: #F5F4ED;
+  --tinta-2: #D8D6CF;
+  --tinta-lembut: #B0AEA5;
+  --tinta-meta: #9C9A92;
+
+  --garis: #3E3E3B;
+  --garis-kuat: #7C7A73;
+
+  --aksen: #D97757;
+  --aksen-teks: #E08B6E;
+  --aksen-atas: #262624;
+
+  --selesai: #69DB7C;
+  --jalan: #FFC107;
+  --galat: #FF6B80;
+
+  --fokus: #3898EC;
+
+  --cincin: 0 0 0 1px var(--garis);
+  --cincin-kuat: 0 0 0 1px var(--garis-kuat);
+  --naik: 0 4px 24px rgba(0, 0, 0, 0.35);
+
+  color-scheme: dark;
+}
