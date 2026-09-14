@@ -53,6 +53,8 @@ DEFAULTS: dict[str, Any] = {
         "discussion": True,
         "review": True,
         "test_command": "",
+        "stall_seconds": 240,
+        "escalate_tries": 2,
         "fix_on_fail": True,
         "fix_rounds": 1,
         "fix_review_rounds": 1,

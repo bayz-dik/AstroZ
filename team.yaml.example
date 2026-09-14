@@ -35,6 +35,7 @@ workflow:
   discussion: true
   review: true
   test_command: ''
+  stall_seconds: 240
   fix_on_fail: true
   fix_rounds: 1
   fix_review_rounds: 1

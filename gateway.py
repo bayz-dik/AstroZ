@@ -490,7 +490,15 @@ class Gateway:
             if st == 200:
                 d = _first_json(raw)
                 try:
-                    text = d["choices"][0]["message"]["content"]
+                    msg = d["choices"][0]["message"]
+                    # Reasoning models answer with an empty `content` while the
+                    # text sits in `reasoning` / `reasoning_content`. Treating
+                    # that as a failure breaks planning and review on models that
+                    # work perfectly well.
+                    text = msg.get("content") or msg.get("reasoning") or msg.get("reasoning_content") or ""
+                    if not str(text).strip():
+                        last = f"empty reply: {(raw or '')[:200]}"
+                        raise ValueError(last)
                     return {"ok": True, "text": text, "usage": d.get("usage", {}), "attempts": attempt + 1}
                 except Exception as e:
                     last = f"parse: {e}: {(raw or '')[:200]}"

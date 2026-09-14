@@ -263,6 +263,14 @@ def run_worker(worker: str, prompt: str, task_id: str, cwd: str, model: str, tim
         deadline = t0 + timeout
         buf: list[str] = []
         timed_out = False
+        # A worker CLI can wedge while still printing progress chatter (observed:
+        # omp emits "Working..." forever, opencode sits in state D printing
+        # nothing). The guard therefore measures the last MEANINGFUL line, not
+        # the last byte: noise-only output does not count as progress, and a
+        # worker that streams real output is never cut off.
+        stall = int(config.load()["workflow"].get("stall_seconds") or 240)
+        last_useful = t0
+        stalled = False
         while True:
             try:
                 item = q.get(timeout=1.0)
@@ -272,6 +280,12 @@ def run_worker(worker: str, prompt: str, task_id: str, cwd: str, model: str, tim
                     timed_out = True
                     hub.emit("worker", f"[{worker}] melebihi batas waktu {timeout}s", task=task_id, worker=worker, ok=False)
                     break
+                if stall and time.time() - last_useful > stall:
+                    p.kill()
+                    timed_out = True
+                    stalled = True
+                    hub.emit("worker", f"[{worker}] macet tanpa kemajuan selama {stall}s, dihentikan", task=task_id, worker=worker, ok=False)
+                    break
                 continue
             if item is None:
                 break
@@ -279,6 +293,7 @@ def run_worker(worker: str, prompt: str, task_id: str, cwd: str, model: str, tim
             buf.append(line)
             clean_line = clean_output(line)
             if clean_line:
+                last_useful = time.time()
                 hub.emit("worker", f"[{worker}] {clean_line[:500]}", task=task_id, worker=worker, phase="out")
             if time.time() > deadline:
                 p.kill()
@@ -294,6 +309,7 @@ def run_worker(worker: str, prompt: str, task_id: str, cwd: str, model: str, tim
         ok = p.returncode == 0 and not timed_out
         last = {"worker": worker, "ok": ok, "rc": p.returncode, "duration": dur,
                 "text": parsed.get("text") or raw[-6000:], "attempt": attempt,
+                "stalled": stalled,
                 **{k: v for k, v in parsed.items() if k not in ("text",)}}
         hub.emit(
             "worker",
@@ -309,6 +325,12 @@ def run_worker(worker: str, prompt: str, task_id: str, cwd: str, model: str, tim
         )
         if ok:
             return last
+        if stalled:
+            # The CLI itself is wedged, not the route: repeating the same worker
+            # on another model just burns another stall window. Let the caller
+            # escalate to a different worker instead.
+            hub.emit("worker", f"[{worker}] macet, tidak diulang di worker yang sama", task=task_id, worker=worker, phase="stall")
+            break
         if attempt >= retries or not _is_retryable(f"{parsed.get('text','')}\n{raw[-3000:]}"):
             break
         wait = 5 * attempt
@@ -465,18 +487,26 @@ class Orchestrator:
             t["results"] = results
 
             # --- escalation -------------------------------------------------
-            # Every worker failed? Try one different worker before giving up:
-            # the gateway routes models per provider, so a second worker often
-            # succeeds when the first one's route is busy.
+            # Every worker failed? Try other workers before giving up: the
+            # gateway routes models per provider, so a second worker often
+            # succeeds when the first one's route is busy. More than one
+            # alternative is worth trying, because a wedged CLI (observed with
+            # omp and opencode in this container) fails regardless of model,
+            # while the next worker in the order can finish the job.
             if results and not any(r.get("ok") for r in results):
-                alt = [w for w in chosen if w not in {r["worker"] for r in results}]
-                if alt:
-                    hub.emit("worker", f"Semua pekerja gagal, dicoba ke {alt[0]}", task=tid, phase="escalate")
+                tried = {r["worker"] for r in results}
+                tries = int(cfg["workflow"].get("escalate_tries", 2))
+                alts = [w for w in chosen if w not in tried][:max(0, tries)]
+                for alt_w in alts:
+                    hub.emit("worker", f"Semua pekerja gagal, dicoba ke {alt_w}", task=tid, phase="escalate")
                     st = subtasks[0] if subtasks else {"detail": prompt}
-                    if alt[0] not in t["workers"]:
-                        t["workers"].append(alt[0])
-                    results.append(self._worker_prompt(alt[0], st.get("detail") or prompt, tid, str(d), model))
+                    if alt_w not in t["workers"]:
+                        t["workers"].append(alt_w)
+                    res = self._worker_prompt(alt_w, st.get("detail") or prompt, tid, str(d), model)
+                    results.append(res)
                     t["results"] = results
+                    if res.get("ok"):
+                        break
 
             # --- discussion ----------------------------------------------
             if cfg["workflow"].get("discussion", True) and len(results) > 1:
@@ -576,6 +606,10 @@ class Orchestrator:
             res = run_worker(worker, prompt, tid, cwd, m)
             if res.get("ok"):
                 return res
+            if res.get("stalled"):
+                # The worker wedged, not the model: another model will wedge the
+                # same way, so stop and let the caller try a different worker.
+                break
         return res
 
     # ------------------------------------------------------------ fix pass
@@ -669,12 +703,26 @@ class Orchestrator:
             "VERDICT: PASS|FAIL\nISSUES: bullet list (or 'none')\nNEXT: the single next action"
         )
         out = self.gw.chat(model, [{"role": "user", "content": msg}], timeout=200, max_tokens=900)
-        text = out.get("text") if out.get("ok") else f"(review unavailable: {out.get('error','')[:200]})"
+        text = (out.get("text") or "") if out.get("ok") else f"(penilaian tidak tersedia: {out.get('error','')[:200]})"
+        if not str(text).strip():
+            text = "(penilaian tidak tersedia: balasan kosong dari model)"
+        text = str(text)
         verdict = "UNKNOWN"
         for line in text.splitlines():
             if line.strip().upper().startswith("VERDICT"):
                 verdict = line.split(":", 1)[-1].strip().upper()[:20]
                 break
+        # Some models echo the template back ("PASS|FAIL") instead of choosing,
+        # and others add a word after the verdict. Neither is a real decision, so
+        # normalise to PASS / FAIL / UNKNOWN and let the UI say so.
+        if "PASS" in verdict and "FAIL" in verdict:
+            verdict = "UNKNOWN"
+        elif verdict.startswith("PASS"):
+            verdict = "PASS"
+        elif verdict.startswith("FAIL"):
+            verdict = "FAIL"
+        elif verdict not in ("UNKNOWN",):
+            verdict = "UNKNOWN"
         hub.emit("review", f"penilaian: {verdict}", task=tid, phase="end", verdict=verdict, text=text[:4000])
         return {"verdict": verdict, "text": text}
 
@@ -705,6 +753,16 @@ class Orchestrator:
         )
         out = self.gw.chat(model, [{"role": "user", "content": msg}], timeout=180, max_tokens=700)
         text = clean_output(out.get("text") or "") if out.get("ok") else ""
+        if not any(r.get("ok") for r in (results or [])):
+            # Nothing succeeded: an answer would be a guess built on failed runs.
+            reason = ""
+            for r in reversed(results or []):
+                cleaned = clean_output(r.get("text") or "") or (r.get("error") or "")
+                if cleaned:
+                    reason = " ".join(cleaned.split())[:300]
+                    break
+            base = "Belum ada pekerja yang berhasil menyelesaikan tugas ini."
+            return (base + (" Percobaan terakhir: " + reason if reason else ""))[:4000]
         if not text:
             text = best_answer_text(results)
         if not text:

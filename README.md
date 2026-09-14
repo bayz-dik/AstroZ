@@ -81,6 +81,17 @@ menandai mana yang menjawab.
 - **Besar**: tugas dipecah, dikerjakan paralel, pekerja saling menilai, tes,
   lalu penilaian akhir.
 
+Kalau satu pekerja macet, tugas tidak ikut macet. Dua pengaman menjaganya:
+
+- **Batas macet**: pekerja yang tidak menghasilkan kemajuan berarti selama
+  `workflow.stall_seconds` (bawaan 240 detik) dihentikan. Baris progres seperti
+  "Working..." tidak dihitung sebagai kemajuan, dan worker yang benar-benar
+  mengalir keluarannya tidak pernah dipotong.
+- **Eskalasi**: kalau semua percobaan gagal, tugas dicoba ke pekerja lain di
+  daftar prioritas, sampai `workflow.escalate_tries` pekerja (bawaan 2). CLI
+  yang macet gagal di model apa pun, jadi pindah pekerja lebih berguna daripada
+  mengulang model.
+
 Dua putaran perbaikan, keduanya bukan status akhir:
 
 - tes merah, keluaran tes dikirim ke pekerja lain untuk diperbaiki (`fix_rounds`);
@@ -166,12 +177,23 @@ Beberapa hal yang perlu diketahui sebelum mengubah isi repo ini:
 - Claude menambahkan suffix `[1m]` pada model dari settings.json, jadi model
   selalu dikirim lewat `--model` eksplisit.
 - Penilaian otomatis dari 9Router tidak semua hidup. Pakai Tes mana yang hidup.
+- Sebagian provider bisa mati sewaktu-waktu: `oc-prod/*` pernah menjawab 404
+  "No active credentials for provider" untuk semua modelnya, dan `cavoti-ai`
+  menjawab 503. Model yang sedang dipakai harus yang benar-benar menjawab, kalau
+  tidak semua pekerja akan menunggu jawaban yang tidak pernah datang. Cek dengan
+  Tes mana yang hidup, lalu pilih model yang lolos.
+- Model penalaran kadang mengisi `reasoning` dan membiarkan `content` kosong.
+  `gateway.chat` menerima keduanya, dan penilai yang hanya mengembalikan template
+  "PASS|FAIL" dicatat sebagai UNKNOWN, bukan ditebak.
 - Jawaban yang kamu baca di chat bukan keluaran mentah pekerja. Keluarannya berisi
   baris progres, jejak berkas, dan kode warna terminal; semuanya dibersihkan dulu,
   lalu model gateway merangkumnya jadi beberapa kalimat yang bisa dibaca. Kalau
   gateway tidak bisa dihubungi, dipakai baris paling informatif dari pekerja.
 - Setiap tugas yang selesai disimpan sebagai commit di folder kerja hanya kalau
   tes dan penilaiannya lulus (`workflow.auto_commit`).
+- Jawaban yang dikirim balik ke chat adalah ringkasan dari model gateway, bukan
+  keluaran mentah pekerja. Kalau tidak ada pekerja yang berhasil, jawabannya
+  mengatakan itu apa adanya, bukan mengarang hasil.
 
 ## Plugin Hermes
 
