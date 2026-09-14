@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import pathlib
 import shlex
+import shutil
 import subprocess
 import time
 from typing import Any
@@ -158,23 +159,35 @@ def detect_test_command() -> str:
         or list(d.glob("test_*.py"))
     )
     if has_python_tests:
-        # Prefer a project-local venv: the system python is PEP-668 managed and
-        # the Hermes venv has no pytest, so a bare `python3 -m pytest` fails.
-        for venv in (d / ".venv", ROOT / ".venv"):
-            if (venv / "bin" / "python").exists():
-                return f"{venv}/bin/python -m pytest -q"
-        return "python3 -m pytest -q"
+        # Prefer a project-local venv: the system python is often PEP-668 managed
+        # and may not have pytest, so a bare `python3 -m pytest` fails.
+        return f"{_python()} -m pytest -q"
     if (d / "Makefile").exists():
         return "make test"
     return ""
 
 
 def _venv_python(d: pathlib.Path) -> str:
-    """Interpreter that actually has the project's test deps installed."""
-    for venv in (d / ".venv", ROOT / ".venv"):
+    """Interpreter yang punya dependensi tes proyek, kalau ada venv-nya."""
+    for venv in (d / ".venv", ROOT / ".venv", d / "venv", ROOT / "venv"):
         if (venv / "bin" / "python").exists():
             return str(venv / "bin" / "python")
     return ""
+
+
+def _python() -> str:
+    """Interpreter yang dipakai untuk menjalankan tes.
+
+    Urutannya: $PY, lalu venv di folder proyek, lalu python3. Dulu ada path venv
+    milik mesin pengembang di sini, jadi skrip ini gagal di mesin orang lain.
+    """
+    env = os.environ.get("PY")
+    if env and pathlib.Path(env).exists():
+        return env
+    for kandidat in (ROOT / ".venv" / "bin" / "python", ROOT / "venv" / "bin" / "python"):
+        if kandidat.exists():
+            return str(kandidat)
+    return shutil.which("python3") or "python3"
 
 
 def run_tests(command: str | None = None, task_id: str = "", timeout: int = 600) -> dict:

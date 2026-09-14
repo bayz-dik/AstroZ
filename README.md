@@ -18,11 +18,45 @@ Jawabanmu muncul sebagai balasan chat. Proses kerjanya tidak dicampur ke dalam
 percakapan: rencana, keluaran tiap pekerja, hasil tes, dan penilaian duduk di
 panel terpisah di sebelahnya.
 
+## Yang perlu ada dulu
+
+AstroZ bukan aplikasi yang bisa langsung dipakai tanpa persiapan. Empat hal ini
+harus ada, dan tiga di antaranya bukan bagian dari repo:
+
+1. **Python 3.10 atau lebih baru**, dengan tiga paket di `requirements.txt`
+   (fastapi, uvicorn, PyYAML). Pasang di venv supaya tidak menabrak python
+   sistem:
+
+   ```bash
+   git clone https://github.com/bayz-dik/AstroZ.git astroz
+   cd astroz
+   python3 -m venv .venv
+   .venv/bin/pip install -r requirements.txt
+   ```
+
+   `run.sh` mencari python berurutan: `$PY`, lalu `.venv`, lalu `python3`. Kalau
+   paketnya belum lengkap, skrip berhenti dengan perintah yang harus dijalankan,
+   bukan gagal di tengah dengan pesan uvicorn yang membingungkan.
+
+2. **9Router** di `:20128`, beserta satu kunci API salah satu penyedia model.
+   Ini gerbang model untuk semua pekerja, dan tidak ada di repo ini. Tanpa ini
+   UI tetap terbuka, tapi setiap tugas akan gagal karena tidak ada model yang
+   bisa dipanggil. Kalau 9Router belum ada, `run.sh` memberi tahu dan tetap
+   menyalakan bagian lain.
+
+3. **Minimal satu CLI pekerja**, salah satu dari Claude Code, Codex, OpenCode,
+   atau OMP. Kalau tidak ada satu pun, tugas tidak bisa dikerjakan. Bagian
+   Model dan pekerja di menu Alat menunjukkan mana yang terpasang.
+
+4. **Kunci API.** Isi lewat UI di menu Alat bagian Model, atau salin
+   `team.yaml.example` menjadi `team.yaml` lalu isi `api_key`. Berkas
+   `team.yaml` tidak ikut ke git.
+
 ## Jalankan
 
 ```bash
-/root/AstroZ/run.sh            # 9Router + penyaring SSE + UI di :8799
-/root/AstroZ/run.sh 8799 --foreground
+./run.sh                 # 9Router + penyaring SSE + UI di :8799
+./run.sh 8799 --foreground
 ```
 
 `run.sh` mencetak dua alamat: satu untuk dibuka dari HP (`http://<ip-lan>:8799/`),
@@ -31,29 +65,32 @@ satu untuk dari mesin sendiri.
 Supaya tidak mati sendiri:
 
 ```bash
-cd /root/AstroZ && /usr/local/lib/hermes-agent/venv/bin/python watchdog.py --loop --interval 30
+python3 watchdog.py --loop --interval 30
 ```
 
 Watchdog memeriksa port dengan koneksi TCP sungguhan, bukan `ss` (di container
 proot ini `ss` tidak melaporkan socket yang listening, jadi pemeriksaan berbasis
 `ss` akan menganggap semua layanan mati).
 
-## Tiga bagian layar
+## Bagian layar
 
 | Bagian | Isi |
 |---|---|
-| Chat | pesanmu dan jawaban AstroZ, satu balon per pesan. Selalu menempel ke pesan terbaru, jadi jawaban tidak pernah perlu dicari dengan menggulir |
-| Proses | satu baris per pekerjaan; ketuk untuk melihat rencana, keluaran tiap pekerja, hasil tes, dan penilaian. Di layar lebar panel ini jadi kolom tetap di kanan, di HP jadi panel geser |
-| Alat | model dan pekerja, berkas proyek, git, tes, dan catatan kejadian |
+| Chat | pesanmu dan jawaban AstroZ. Pesanmu blok berlatar hangat, jawaban AstroZ teks polos dengan satu baris kecil berisi langkah kerja. Selalu menempel ke pesan terbaru |
+| Menu alat | dibuka dari tombol garis tiga di kiri atas: Obrolan, Plugin MCP, Skill dari GitHub, Berkas dan tes, Catatan kejadian, Model dan pekerja |
+| Panel kanan | di layar 1280px ke atas, pekerjaan di percakapan ini tampil sebagai kolom tetap. Di bawah itu pindah jadi lembar geser |
 
-Di layar lebar ketiganya tampil bersamaan: daftar percakapan di kiri, chat di
-tengah, alat di kanan. Di HP chat memakai seluruh layar dan dua panel lain
-terbuka sebagai geseran, supaya percakapan tidak pernah terpotong.
+Di layar lebar 1280px ke atas ketiganya tampil bersamaan: daftar percakapan di
+kiri, chat di tengah, pekerjaan di kanan. Di antara 1000 dan 1279px panel
+pekerjaan jadi lembar geser supaya kolom chat tidak diperas. Di bawah 1000px
+semuanya lembar geser, dan chat memakai seluruh layar.
 
 ## Satu model untuk lima tempat
 
-Tab Alat, bagian Model: pilih satu baris, tekan Terapkan. Sekali tekan, model
-yang sama ditulis ke Hermes dan keempat pekerja.
+Menu Alat, bagian Model: pilih satu baris, tekan pakai model ini. Sekali tekan,
+model yang sama ditulis ke Hermes dan keempat pekerja. Pil nama model di kotak
+tulis ikut berubah sendiri, dan model itu juga yang dipakai kalau kamu menekan
+pilnya untuk memilih dari sana.
 
 | Sasaran | Berkas | Alamat yang ditulis |
 |---|---|---|
@@ -214,8 +251,8 @@ hermes plugins enable astroz
 ## Uji
 
 ```bash
-/root/AstroZ/tests/smoke.sh
-MODEL=oc-prod/gemini-3.7-flash /root/AstroZ/tests/smoke.sh
+./tests/smoke.sh
+MODEL=<id-model> ./tests/smoke.sh
 ```
 
 ## Catatan tampilan

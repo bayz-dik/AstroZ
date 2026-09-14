@@ -1,0 +1,12 @@
+# Dependensi AstroZ. Hanya tiga, semuanya untuk server webnya.
+#
+# Pasang di dalam venv supaya tidak menabrak python sistem:
+#   python3 -m venv .venv
+#   .venv/bin/pip install -r requirements.txt
+#
+# run.sh mencari python dengan urutan: $PY, lalu .venv, lalu python3.
+# Kalau ketiganya tidak punya paket di bawah, run.sh berhenti dengan pesan
+# yang jelas, bukan gagal tanpa keterangan.
+fastapi>=0.110,<1
+uvicorn>=0.27,<1
+PyYAML>=6,<7

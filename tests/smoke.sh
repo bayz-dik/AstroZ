@@ -7,7 +7,13 @@ set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WS="$DIR/workspace"
 UI="http://127.0.0.1:${UI_PORT:-8799}"
-PY="${PY:-/usr/local/lib/hermes-agent/venv/bin/python}"
+PY="${PY:-}"
+if [ -z "$PY" ]; then
+  for kandidat in "$DIR/.venv/bin/python" "$DIR/venv/bin/python"; do
+    [ -x "$kandidat" ] && PY="$kandidat" && break
+  done
+fi
+[ -n "$PY" ] || PY="$(command -v python3)"
 LOG="$DIR/logs/smoke.log"
 mkdir -p "$DIR/logs" "$WS"
 : > "$LOG"
