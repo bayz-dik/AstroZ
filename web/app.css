@@ -224,20 +224,23 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 .strip-dot.istirahat { animation: none; }
 @keyframes denyut { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .strip-judul { font-size: 13px; font-weight: 500; flex: none; }
+/* Warna teks di sini tidak boleh memakai --tinta-meta atau --aksen-teks: di
+   atas latar hangat keduanya hanya 4.40:1 (di bawah 4.5). --tinta-2 dan
+   --tinta-lembut lolos di kedua tema. Aksen tetap dipakai di cincinnya. */
 .strip-pekerja {
-  font-family: var(--font-mesin); font-size: 11px; color: var(--aksen-teks);
+  font-family: var(--font-mesin); font-size: 11px; color: var(--tinta-2);
   display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; overflow: hidden;
 }
 .strip-pekerja .p {
-  border-radius: var(--radius-pil); padding: 1px 8px;
+  border-radius: var(--radius-pil); padding: 1px 8px; color: var(--tinta-2);
   box-shadow: 0 0 0 1px var(--aksen); white-space: nowrap;
 }
-.strip-pekerja .p.selesai { box-shadow: 0 0 0 1px var(--garis-kuat); color: var(--tinta-meta); }
+.strip-pekerja .p.selesai { box-shadow: 0 0 0 1px var(--garis-kuat); color: var(--tinta-lembut); }
 .strip-jam {
   margin-left: auto; font-family: var(--font-mesin); font-size: 11px;
-  color: var(--tinta-meta); flex: none;
+  color: var(--tinta-lembut); flex: none;
 }
-.strip-panah { font-size: 11px; color: var(--tinta-meta); flex: none; }
+.strip-panah { font-size: 11px; color: var(--tinta-lembut); flex: none; }
 .strip-isi {
   max-height: 40vh; overflow-y: auto;
   padding: 4px 14px 10px; border-top: 1px solid var(--garis);
@@ -246,7 +249,9 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 .strip-isi .kejadian::before { content: none; }
 .strip-isi .kejadian .pesan-log { overflow-wrap: anywhere; }
 .strip-isi .kejadian .jenis { font-size: 10px; }
-.strip-kosong { color: var(--tinta-meta); font-size: 12px; padding: 8px 0; }
+/* sama alasannya dengan baris di atas: --tinta-meta tidak lolos di latar hangat */
+.strip-isi .kejadian .waktu, .strip-isi .kejadian .jenis { color: var(--tinta-lembut); }
+.strip-kosong { color: var(--tinta-lembut); font-size: 12px; padding: 8px 0; }
 
 .isi {
   display: grid; grid-template-columns: minmax(0, 1fr);
@@ -639,7 +644,6 @@ pre.isi-berkas {
      di sana: di >=1280px ia disembunyikan supaya tidak jadi kolom kedua */
   #wadah-aktivitas { display: block; }
   .aktivitas { display: flex; }
-  .hanya-sempit { display: inline-flex !important; }
   /* panel kerja ikut pindah ke dalam lembar alat. Tanpa kolom yang bisa
      menyusut, satu baris panjang melebarkan seluruh halaman. */
   #alat-aktivitas { padding: 12px; }

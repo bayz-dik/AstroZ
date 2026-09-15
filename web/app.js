@@ -326,13 +326,6 @@ function gambarPesan(p) {
 /* Baris kecil di bawah jawaban: apa yang dikerjakan tim, diambil dari catatan
    kejadian yang sudah ada. Ini yang membuat percakapan tidak perlu panel
    aktivitas terpisah untuk hal-hal pokok. */
-function potongKata(teks, batas) {
-  const t = (teks || "").replace(/\s+/g, " ").trim();
-  if (t.length <= batas) return t;
-  const potong = t.slice(0, batas);
-  const spasi = potong.lastIndexOf(" ");
-  return (spasi > batas * 0.6 ? potong.slice(0, spasi) : potong) + "…";
-}
 
 function keDasar() {
   const a = el("alur");

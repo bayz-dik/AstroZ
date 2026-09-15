@@ -296,9 +296,12 @@ sungguhan dengan menelusuri setiap simpul teks yang benar-benar tampil
 | garis batas kontrol | 3.20:1 | 3.53:1 |
 
 Hasil audit terakhir di browser: 94 simpul teks diperiksa, 0 gagal, di kedua
-tema. Di lebar 375px tidak ada geseran mendatar dan semua sasaran sentuh
-minimal 44px. Di lebar 1000-1279px panel kerja otomatis pindah jadi lembar
-geser supaya kolom percakapan tidak diperas.
+tema. Strip kerja diaudit ulang terpisah sesudah ditambahkan (26 simpul di
+dalamnya, kedua tema, 0 gagal): teks chip pekerja dan jamnya sengaja memakai
+`--tinta-2` dan `--tinta-lembut`, bukan `--tinta-meta`, karena di atas latar
+hangat `--tinta-meta` hanya 4.40:1. Di lebar 375px tidak ada geseran mendatar
+dan semua sasaran sentuh minimal 44px. Di lebar 1000-1279px panel kerja
+otomatis pindah jadi lembar geser supaya kolom percakapan tidak diperas.
 
 Ikon diambil dari teks, bukan dari pustaka ikon. Animasi hanya dipakai untuk
 menandai hal yang sedang berjalan (garis kilau di bawah bar dan kilau aksen
