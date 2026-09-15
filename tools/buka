@@ -44,6 +44,10 @@ def main() -> int:
     if not url.startswith(("http://", "https://")):
         print("url harus mulai dengan http:// atau https://", file=sys.stderr)
         return 2
+    # Halaman yang dibuka dicatat sebagai sumber di baris terakhir, jadi UI bisa
+    # menampilkan lambang situsnya selagi pekerja membaca. Hanya URL-nya: UI
+    # menurunkan nama merek dari domain, dan tidak ada permintaan ke situs itu.
+    print(f"SUMBER: {_nama(url)} | {url}")
     isi = ""
     cara = ""
     try:
@@ -65,6 +69,11 @@ def main() -> int:
     if len(isi) > a.maks:
         print(f"\n(dipotong, {len(isi) - a.maks} karakter lagi tidak ditampilkan)")
     return 0
+
+
+def _nama(url: str) -> str:
+    host = url.split("//", 1)[-1].split("/", 1)[0].split("?", 1)[0]
+    return host[4:] if host.startswith("www.") else host
 
 
 if __name__ == "__main__":

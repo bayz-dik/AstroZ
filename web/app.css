@@ -91,7 +91,10 @@ html, body { margin: 0; height: 100%; }
 body {
   background: var(--kertas);
   color: var(--tinta);
-  font: 400 15px/1.6 var(--font-teks);
+  /* Satu ukuran huruf yang menyesuaikan sendiri: 15px di HP, 16px di desktop.
+     Sebelumnya 15px tetap di semua layar, jadi di monitor lebar teksnya terlihat
+     kecil dan di HP 320px terasa sesak. */
+  font: 400 clamp(14.6px, 0.55vw + 13px, 16px)/1.6 var(--font-teks);
   -webkit-text-size-adjust: 100%;
   overscroll-behavior-y: none;
   scrollbar-color: var(--garis-kuat) transparent;
@@ -108,9 +111,10 @@ button:focus:not(:focus-visible), [role="tab"]:focus:not(:focus-visible) { outli
 ::selection { background: var(--sorot); }
 
 h1, h2, h3 { margin: 0; font-family: var(--font-judul); font-weight: 500; line-height: 1.2; }
-h1 { font-size: 22px; }
-h2 { font-size: 16px; }
-h3 { font-size: 15px; }
+/* Judul ikut menyesuaikan layar, sama seperti teks isi. */
+h1 { font-size: clamp(20px, 1.1vw + 17px, 26px); }
+h2 { font-size: clamp(15px, 0.35vw + 14px, 17px); }
+h3 { font-size: clamp(14px, 0.3vw + 13px, 15.5px); }
 
 p { margin: 0 0 10px; max-width: 68ch; }
 button, input, select, textarea { font: inherit; color: inherit; }
@@ -133,11 +137,20 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 
 /* ---------------------------------------------------------------- kerangka */
 
-.app { display: grid; grid-template-rows: auto auto minmax(0, 1fr); height: 100%; }
+/* Empat anak: bar, ticker, strip kerja, dan isi. Barisnya harus empat, bukan
+   tiga: grid dengan baris kurang menaruh anak terakhir di baris implisit dan
+   .isi ikut melar, jadi tinggi .app melebihi layar dan strip kerja terlihat
+   setinggi 1px. */
+.app { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); height: 100%; }
+/* Grid item yang disembunyikan lewat atribut `hidden` tetap memakan satu baris
+   track kalau tidak dimatikan display-nya. */
+.app > [hidden] { display: none; }
 
 .bar {
   display: flex; align-items: center; gap: 6px;
-  padding: 8px 10px; min-height: 52px;
+  /* Kiri lebih rapat supaya lambang menu menempel ke tepi, kanan lebih lega
+     supaya deret lambang kanan tidak mepet ke tepi layar. */
+  padding: 8px 16px 8px 4px; min-height: 52px;
   border-bottom: 1px solid var(--garis);
   background: var(--kertas);
   position: relative;
@@ -185,10 +198,12 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 .menu-turun { max-height: min(70vh, 420px); overflow-y: auto; }
 .menu-turun button { white-space: normal; text-align: left; line-height: 1.35; }
 .menu-turun button {
-  display: block; width: 100%; text-align: left;
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   background: transparent; border: 0; cursor: pointer;
   padding: 10px 12px; border-radius: var(--radius-1); font-size: 14px;
 }
+/* Lambang di menu: lebar tetap supaya semua teks baris rata kiri. */
+.menu-turun button > [data-ikon] { display: inline-flex; color: var(--tinta-meta); flex: none; }
 .menu-turun button:hover { background: var(--permukaan-hangat); }
 
 /* garis kilau: satu-satunya tanda pekerjaan berjalan di tingkat atas */
@@ -241,17 +256,6 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
   color: var(--tinta-lembut); flex: none;
 }
 .strip-panah { font-size: 11px; color: var(--tinta-lembut); flex: none; }
-.strip-isi {
-  max-height: 40vh; overflow-y: auto;
-  padding: 4px 14px 10px; border-top: 1px solid var(--garis);
-}
-.strip-isi .kejadian { grid-template-columns: 44px minmax(0, 1fr); gap: 8px; padding: 6px 0; font-size: 12px; }
-.strip-isi .kejadian::before { content: none; }
-.strip-isi .kejadian .pesan-log { overflow-wrap: anywhere; }
-.strip-isi .kejadian .jenis { font-size: 10px; }
-/* sama alasannya dengan baris di atas: --tinta-meta tidak lolos di latar hangat */
-.strip-isi .kejadian .waktu, .strip-isi .kejadian .jenis { color: var(--tinta-lembut); }
-.strip-kosong { color: var(--tinta-lembut); font-size: 12px; padding: 8px 0; }
 
 .isi {
   display: grid; grid-template-columns: minmax(0, 1fr);
@@ -289,37 +293,113 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 .pesan .isi-pesan { max-width: 100%; }
 
 .baris-aksi-pesan {
-  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center;
   margin-top: 10px;
 }
-.aksi-ikon {
-  background: transparent; border: 0; cursor: pointer;
-  width: 34px; height: 34px; border-radius: var(--radius-1);
-  color: var(--tinta-meta); font-size: 14px;
+/* Baris aksi jawaban dipisah dari cap dan waktu: aksi di kiri, sumber di
+   kanan, seperti baris bawah satu kiriman di aplikasi pesan. */
+.aksi-deret { display: flex; gap: 2px; align-items: center; }
+.sumber-baris { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+/* Sumber cuma lambang, berderet rapat. Tidak ada kotak pembungkus: kotak itu
+   yang dulu memakan hampir satu baris di layar HP. Satu lambang satu sumber. */
+.sumber-chip { display: flex; gap: 2px; flex-wrap: wrap; align-items: center; }
+.sumber {
   display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 0; cursor: pointer;
+  border-radius: var(--radius-pil); padding: 1px; min-height: 26px; min-width: 26px;
+  color: var(--tinta-2);
 }
-.aksi-ikon:hover { background: var(--permukaan-hangat); color: var(--tinta); }
-.aksi-ikon.aktif { color: var(--aksen-teks); }
-.cap {
-  font-family: var(--font-mesin); font-size: 11px;
-  border-radius: var(--radius-pil); padding: 2px 10px;
-  background: var(--permukaan-hangat); color: var(--tinta-lembut);
-}
-.cap.jalan { background: transparent; box-shadow: 0 0 0 1px var(--aksen-teks); color: var(--aksen-teks); }
-.cap.selesai { background: transparent; box-shadow: 0 0 0 1px var(--selesai); color: var(--selesai); }
-.cap.gagal { background: transparent; box-shadow: 0 0 0 1px var(--galat); color: var(--galat); }
-.waktu { font-family: var(--font-mesin); font-size: 11px; color: var(--tinta-meta); }
-.lampiran { margin-bottom: 6px; }
-.pesan.astroz .isi-pesan {
-  white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
-}
-.pesan.astroz.menunggu .isi-pesan { color: var(--tinta-meta); }
-.pesan .isi-pesan { max-width: 100%; }
+.sumber:hover { background: var(--permukaan-hangat); }
+/* Jawaban yang masih dikerjakan bisa diketuk: terbuka kotak aktivitas pekerja. */
+.pesan.astroz .isi-pesan.bisa-diketuk { cursor: pointer; border-radius: var(--radius-2); }
+.pesan.astroz .isi-pesan.bisa-diketuk:hover { background: var(--sorot); }
+.ikon-baru { display: block; }
 
-.baris-aksi-pesan {
-  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
-  margin-top: 10px;
+/* ------------------------------------------------- kotak aktivitas pekerja */
+
+/* Kotak yang muncul dari strip "sedang dikerjakan". Sengaja TIDAK memenuhi
+   layar percakapan: lebarnya dibatasi, tingginya mengikuti isi, dan tepinya
+   tidak menempel ke sisi layar, jadi percakapan di belakangnya masih terlihat. */
+.tirai-kerja {
+  position: fixed; inset: 0; z-index: 55;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: clamp(12px, 6vh, 72px) 12px 12px;
+  background: rgba(20, 20, 19, 0.32);
 }
+.tirai-kerja[hidden] { display: none; }
+.lembar-kerja {
+  background: var(--kertas);
+  border-radius: var(--radius-3);
+  box-shadow: 0 0 0 1px var(--garis-kuat), var(--naik);
+  width: min(560px, 100%);
+  max-height: min(72vh, 620px);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.lembar-kerja .kepala {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 12px 12px 16px; border-bottom: 1px solid var(--garis);
+  background: var(--permukaan-hangat);
+}
+.lembar-kerja .kepala h2 { flex: 1; }
+.badan-kotak-kerja { overflow-y: auto; padding: 12px 14px 14px; }
+.badan-kotak-kerja .kotak-kerja { margin-top: 0; margin-bottom: 8px; }
+.badan-kotak-kerja .kejadian { grid-template-columns: 44px minmax(0, 1fr); gap: 8px; padding: 6px 0; font-size: 12px; }
+.badan-kotak-kerja .kejadian::before { content: none; }
+.badan-kotak-kerja .kejadian .pesan-log { overflow-wrap: anywhere; }
+
+/* strip kerja: satu baris, bisa diketuk untuk membuka kotak aktivitas */
+.strip-panah { font-size: 16px; line-height: 1; }
+/* lambang sumber yang muncul selagi pekerja mencari: deret rapat yang sama,
+   sedikit lebih kecil karena tempatnya di bawah baris "sedang dikerjakan" */
+.sumber-jalan { margin-left: 0; }
+.sumber-jalan .sumber { min-height: 22px; min-width: 22px; }
+.sumber-jalan .lambang-sumber { width: 18px; height: 18px; }
+
+/* halaman Pengaturan */
+.pilih-tema { display: flex; gap: 8px; flex-wrap: wrap; }
+.dev-deret { display: flex; gap: 12px; }
+.dev {
+  width: 52px; height: 52px; border-radius: var(--radius-2);
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--permukaan-hangat); color: var(--tinta);
+  box-shadow: var(--cincin); text-decoration: none;
+}
+.dev:hover { background: color-mix(in oklab, var(--permukaan-hangat), var(--tinta) 8%); }
+.dev-lambang { display: inline-flex; }
+
+/* Lambang sumber: jalur ikon merek. Tanpa gambar dari situsnya, supaya
+   membuka percakapan tidak mengirim permintaan ke setiap situs yang dikutip. */
+.lambang-sumber {
+  width: 20px; height: 20px; border-radius: 50%; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--permukaan-hangat); color: var(--tinta-2);
+  box-shadow: inset 0 0 0 1px var(--garis);
+  font-family: var(--font-mesin); font-size: 11px; line-height: 1;
+}
+.lambang-sumber svg { display: block; }
+.lambang-sumber.huruf { background: var(--aksen-isi); color: #FFF7F3; box-shadow: none; }
+.menu-sumber {
+  position: fixed; z-index: 60;
+  background: var(--permukaan); border-radius: var(--radius-2);
+  box-shadow: 0 0 0 1px var(--garis-kuat), var(--naik);
+  padding: 4px; display: flex; flex-direction: column; gap: 2px;
+  max-height: 60vh; overflow-y: auto;
+}
+.menu-sumber a {
+  display: flex; gap: 8px; align-items: flex-start; text-decoration: none;
+  color: var(--tinta); padding: 8px; border-radius: var(--radius-1);
+}
+.menu-sumber a:hover { background: var(--permukaan-hangat); }
+.menu-sumber .teks { display: flex; flex-direction: column; min-width: 0; }
+.menu-sumber .nama { font-size: 13px; }
+.menu-sumber .tautan {
+  font-family: var(--font-mesin); font-size: 11px; color: var(--tinta-meta);
+  overflow-wrap: anywhere;
+}
+/* Menu jawaban: dipakai di dalam baris aksi pesan, jadi posisinya tetap
+   (diatur JS dari posisi tombolnya), bukan menggantung di kepala layar. */
+.menu-jawaban { position: fixed; right: auto; top: auto; max-height: 60vh; min-width: 220px; }
 .aksi-ikon {
   background: transparent; border: 0; cursor: pointer;
   width: 34px; height: 34px; border-radius: var(--radius-1);
@@ -336,12 +416,16 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 .cap.jalan { background: transparent; box-shadow: 0 0 0 1px var(--aksen-teks); color: var(--aksen-teks); }
 .cap.selesai { background: transparent; box-shadow: 0 0 0 1px var(--selesai); color: var(--selesai); }
 .cap.gagal { background: transparent; box-shadow: 0 0 0 1px var(--galat); color: var(--galat); }
+/* Tugas yang dihentikan bukan gagal: warnanya memakai garis netral supaya
+   tidak terbaca sebagai kesalahan pekerja. */
+.cap.batal { background: transparent; box-shadow: 0 0 0 1px var(--garis-kuat); color: var(--tinta-2); }
 .waktu { font-family: var(--font-mesin); font-size: 11px; color: var(--tinta-meta); }
 
 .lampiran {
   font-family: var(--font-mesin); font-size: 12px;
   background: var(--permukaan-hangat); border-radius: var(--radius-1);
   padding: 4px 10px; display: inline-block;
+  margin-bottom: 6px;
 }
 
 .shimmer {
@@ -463,6 +547,63 @@ select, input[type="text"], input[type="search"], input[type="password"], input:
 input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--aksen); margin: 0; }
 .baris-cek { display: flex; gap: 8px; align-items: center; margin: 10px 0; font-size: 13px; color: var(--tinta-lembut); }
 
+/* --------------------------------------------------------- halaman satu layar */
+
+/* Halaman menu: menutup seluruh layar, punya kepalanya sendiri, dan isinya
+   digulir di dalam. Dipakai untuk Skill, Plugin, Pekerja, Berkas, Catatan,
+   Model, dan Pengaturan, jadi daftar menu garis tiga tetap pendek. */
+.halaman {
+  position: fixed; inset: 0; z-index: 58;
+  background: var(--kertas);
+  display: flex; flex-direction: column;
+  animation: masuk-halaman 180ms var(--luncur);
+}
+.halaman[hidden] { display: none; }
+@keyframes masuk-halaman { from { transform: translateX(6%); opacity: 0.4; } to { transform: none; opacity: 1; } }
+.halaman .kepala {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-bottom: 1px solid var(--garis);
+  background: var(--kertas); flex: none;
+}
+.halaman .kepala h2 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.halaman .badan-halaman {
+  flex: 1; overflow-y: auto;
+  /* Batas lebar baca: di desktop, halaman yang isinya formulir tidak melebar
+     sepanjang monitor. */
+  width: 100%; max-width: var(--lebar-baca); margin: 0 auto;
+}
+.halaman .badan-halaman .panel { padding: 16px 16px 40px; }
+/* Panel aktivitas di dalam halaman: kolomnya sudah sempit, jadi jangan ada
+   garis batas kiri dari susunan kolom kanan. */
+.halaman .aktivitas { border-left: 0; }
+.halaman .aktivitas .segmen { padding-left: 0; padding-right: 0; }
+.halaman #alat-aktivitas { padding: 0; }
+.halaman #alat-aktivitas .aktivitas { display: flex; }
+.halaman #alat-aktivitas .badan { overflow: visible; }
+
+/* kaki menu: dua lambang bulat, tidak ada teks, jadi kakinya tetap rendah */
+.kaki { border-top: 1px solid var(--garis); padding: 8px 10px; display: flex; align-items: center; gap: 8px; }
+.kaki[hidden] { display: none; }
+.ikon-kaki {
+  background: transparent; border: 0; cursor: pointer;
+  width: var(--tinggi-target); height: var(--tinggi-target);
+  border-radius: var(--radius-pil);
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--tinta-2); flex: none;
+}
+.ikon-kaki:hover { background: var(--permukaan-hangat); color: var(--tinta); }
+
+/* baris riwayat: penanda sematan, tombol semat, dan tombol hapus */
+.baris-sesi .atas { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.baris-sesi .lambang-semat { display: inline-flex; color: var(--aksen-teks); flex: none; }
+.baris-sesi .semat {
+  border: 0; background: transparent; color: var(--tinta-meta);
+  padding: 0 10px; cursor: pointer; min-width: var(--tinggi-target);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.baris-sesi .semat:hover { color: var(--tinta); }
+.baris-sesi .semat.aktif { color: var(--aksen-teks); }
+
 /* --------------------------------------------------------------- panel alat */
 
 .aktivitas {
@@ -569,7 +710,7 @@ pre.isi-berkas {
 .baris-aksi:hover { background: var(--sorot); }
 .baris-aksi .petunjuk { font-size: 12px; color: var(--tinta-meta); margin-left: auto; }
 
-.nav-alat { padding: 8px; border-bottom: 1px solid var(--garis); }
+.nav-alat { padding: 8px; }
 .nav-alat button {
   display: flex; align-items: center; gap: 12px; width: 100%;
   background: transparent; border: 0; cursor: pointer; text-align: left;
@@ -578,7 +719,7 @@ pre.isi-berkas {
 }
 .nav-alat button:hover { background: var(--permukaan-hangat); }
 .nav-alat button[aria-current="true"] { background: var(--permukaan-hangat); font-weight: 500; }
-.ikon-nav { width: 20px; text-align: center; color: var(--tinta-meta); flex: none; }
+.ikon-nav { width: 20px; display: inline-flex; justify-content: center; color: var(--tinta-meta); flex: none; }
 
 .daftar .baris-sesi { display: flex; align-items: stretch; }
 .daftar .baris-sesi + .baris-sesi { border-top: 1px solid var(--garis); }
@@ -665,7 +806,8 @@ pre.isi-berkas {
 
 @media (max-width: 999px) {
   .tombol.kecil, .segmen button, .pohon button, .baris-aksi, .nav-alat button,
-  .menu-turun button, .aksi-ikon, .strip-kepala { min-height: var(--tinggi-target); }
+  .menu-turun button, .aksi-ikon, .strip-kepala, .sumber,
+  .menu-sumber a { min-height: var(--tinggi-target); }
   .aksi-ikon { width: var(--tinggi-target); height: var(--tinggi-target); }
   /* kotak tulis juga: teks 16px (tidak memicu zum di iOS) dan tinggi 44px */
   .tulis textarea { min-height: var(--tinggi-target); padding: 10px 10px; }
@@ -686,6 +828,27 @@ pre.isi-berkas {
   /* di HP sempit: ukuran tugas pindah ke menu alat supaya satu baris tetap
      muat tanpa memaksa halaman melebar */
   select.ukuran { display: none; }
+  /* Nama pekerja tidak muat di strip satu baris: yang tersisa adalah titik
+     keadaan, judul, dan jam. Nama pekerja tetap ada di kotak aktivitas. */
+  .strip-pekerja { display: none; }
+  .strip-jam { margin-left: auto; }
+  .tirai-kerja { padding: 8px; align-items: flex-start; }
+  .lembar-kerja { max-height: 78vh; }
+  .sumber .nama { max-width: 14ch; }
+  .sumber-baris { margin-left: 0; width: 100%; }
+}
+
+/* Tablet sedang (600-999px): panel tetap lembar, tapi percakapan diberi lebar
+   baca penuh supaya tidak ada sisi kosong. */
+@media (min-width: 600px) and (max-width: 999px) {
+  .alur { padding: 8px 22px 20px; }
+  .tulis { padding-left: 18px; padding-right: 18px; }
+}
+
+/* Desktop lebar: sedikit lebih lega, huruf sudah naik sendiri lewat clamp. */
+@media (min-width: 1600px) {
+  :root { --lebar-baca: 780px; --lebar-aktivitas: 400px; }
+  .alur { padding: 10px 36px 28px; }
 }
 
 /* layar kosong di HP: sedikit lebih naik supaya tidak bertabrakan dengan

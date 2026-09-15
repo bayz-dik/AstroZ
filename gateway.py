@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import urllib.error
 import urllib.request
 from typing import Any
@@ -43,6 +44,48 @@ def _usable_id(mid: str | None) -> bool:
         return False
     tail = mid.split("/")[-1] if "/" in mid else mid
     return bool(tail) and tail not in ("*",)
+
+
+def _buang_jalan_pikir(teks: str) -> str:
+    """Jalan pikir model penalar dipotong sampai kalimat jawabannya saja.
+
+    Model seperti deepseek mengisi `content` dengan null dan menaruh seluruh
+    proses berpikirnya di `reasoning`. Kalau dipakai apa adanya, gelembung
+    jawaban pengguna berisi renungan panjang berbahasa Inggris ("We need answer
+    in Indonesian likely...") alih-alih jawaban.
+
+    Dua bentuk yang benar-benar terlihat di sini:
+    - kalimat pembuka renungan, sisanya baru jawaban;
+    - jawaban ditulis di baris terakhir setelah deretan kalimat renungan.
+    Kalau tidak ada penanda yang cocok, teks dipakai utuh: lebih baik menampilkan
+    sesuatu daripada mengosongkan jawaban.
+    """
+    if not teks:
+        return ""
+    t = re.sub(r"(?s)```.*?```", " ", teks).strip()
+    # Penanda yang paling andal: baris jawaban ditulis setelah kalimat penutup
+    # renungan. Ambil blok terakhir sesudah penanda itu.
+    for penanda in ("\n\nJawaban:", "\nJawaban:", "Final answer:", "\nAnswer:"):
+        if penanda in t:
+            sisa = t.split(penanda)[-1].strip()
+            if sisa:
+                return sisa
+    baris = [b.strip() for b in t.splitlines() if b.strip()]
+    # Baris yang masih berupa renungan dibuang dari depan.
+    renungan = re.compile(
+        r"^(we need|we must|i need|i should|i will|let me|the user|user asks|user wants|"
+        r"task was|first,|first |okay,|alright,|hmm|so,|now,|maybe|perhaps|thinking|"
+        r"current date|as of|note:|wait,|actually,|but )",
+        re.I,
+    )
+    sisa = [b for b in baris if not renungan.match(b)]
+    # Jawaban seringkali baris terakhir saja; kalau sisanya masih panjang dan
+    # tidak ada penanda, pakai baris terakhir yang tidak terlihat seperti renungan.
+    if sisa and len(sisa) >= 1:
+        if len(baris) > 3 and len(sisa) > 2:
+            return sisa[-1]
+        return " ".join(sisa)
+    return t
 
 
 def _first_json(raw: str):
@@ -495,7 +538,19 @@ class Gateway:
                     # text sits in `reasoning` / `reasoning_content`. Treating
                     # that as a failure breaks planning and review on models that
                     # work perfectly well.
-                    text = msg.get("content") or msg.get("reasoning") or msg.get("reasoning_content") or ""
+                    content = msg.get("content")
+                    if isinstance(content, list):
+                        # Some providers send content as parts.
+                        content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
+                    reason = msg.get("reasoning") or msg.get("reasoning_content") or ""
+                    # Isi `reasoning` adalah jalan pikir, bukan jawaban. Dipakai
+                    # hanya kalau `content` benar-benar kosong, dan hasilnya
+                    # dibersihkan supaya jalan pikir mentah tidak pernah tampil
+                    # sebagai jawaban pengguna.
+                    if str(content or "").strip():
+                        text = content
+                    else:
+                        text = _buang_jalan_pikir(str(reason))
                     if not str(text).strip():
                         last = f"empty reply: {(raw or '')[:200]}"
                         raise ValueError(last)

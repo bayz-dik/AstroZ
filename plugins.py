@@ -466,6 +466,31 @@ def _ukuran(p: pathlib.Path) -> str:
     return f"{max(1, total // 1024)} KB"
 
 
+def _folder_tautan() -> dict[str, set[str]]:
+    """Peta nama skill -> label CLI yang memilikinya, dibaca sekali.
+
+    Menanyakan `(t / nama).exists()` untuk tiap skill kali tiap folder berarti
+    ratusan panggilan stat setiap kali halaman dibuka, dan itu membuat halaman
+    Skill terpasang terasa menggantung. Satu kali pemindaian folder jauh lebih
+    cepat dan hasilnya sama.
+    """
+    # Nama folder terakhir semuanya "skills", jadi labelnya diambil dari induk
+    # yang berbeda-beda: .claude, .agents, .codex, .omp. Tanpa ini semua baris
+    # tertulis "skills" dan tidak memberi tahu CLI mana yang memakainya.
+    label = {".claude": "claude", ".agents": "agents", ".codex": "codex", ".omp": "omp"}
+    peta: dict[str, set[str]] = {}
+    for tujuan in skill_folder_cli():
+        if not tujuan.exists():
+            continue
+        nama_cli = next((v for k, v in label.items() if k in tujuan.parts), tujuan.name)
+        try:
+            for e in tujuan.iterdir():
+                peta.setdefault(e.name, set()).add(nama_cli)
+        except Exception:
+            continue
+    return peta
+
+
 def skill_folder_cli() -> list[pathlib.Path]:
     """Folder yang dibaca tiap CLI untuk skill.
 
@@ -578,6 +603,138 @@ def skill_ringkas_untuk_pekerja(limit: int = 40) -> list[str]:
         except Exception:
             continue
     return nama[:limit]
+
+
+def _akar_repo() -> pathlib.Path:
+    return pathlib.Path(__file__).resolve().parent
+
+
+def skill_bawaan_siap() -> list[dict]:
+    """Skill bawaan repo: folder `skills/` yang ikut ter-clone bersama AstroZ.
+
+    Tiap paket ditautkan seperti paket hasil clone, jadi setelah pemasangan
+    pekerja memakai skill yang sama tanpa perintah tambahan. Ini yang membuat
+    clone baru langsung punya skill, tanpa memasangnya satu per satu dari UI.
+    """
+    akar = _akar_repo() / "skills"
+    out: list[dict] = []
+    if not akar.exists():
+        return out
+    peta = _folder_tautan()
+    for paket in sorted(akar.iterdir()):
+        if not paket.is_dir() or paket.name.startswith("."):
+            continue
+        jumlah_md = 0
+        tertaut = 0
+        for md in paket.rglob("SKILL.md"):
+            jumlah_md += 1
+            if md.parent.name in peta:
+                tertaut += 1
+        out.append({
+            "nama": paket.name,
+            "jumlah": jumlah_md,
+            "tertaut": tertaut,
+            "perlu": jumlah_md > 0 and tertaut < jumlah_md,
+            "sumber": str(paket),
+        })
+    return out
+
+
+def skill_pasang_bawaan() -> dict:
+    """Tautkan semua paket skill bawaan ke folder yang dibaca pekerja."""
+    akar = _akar_repo() / "skills"
+    if not akar.exists():
+        return {"ok": False, "pesan": "folder skills/ tidak ada di repo"}
+    SKILL_DIR.mkdir(parents=True, exist_ok=True)
+    paket_dipasang: list[str] = []
+    n_tautan = 0
+    for paket in sorted(akar.iterdir()):
+        if not paket.is_dir() or paket.name.startswith("."):
+            continue
+        jumlah = len(list(paket.rglob("SKILL.md")))
+        if not jumlah:
+            continue
+        tujuan = SKILL_DIR / paket.name
+        # Salinan isinya, bukan tautan ke repo: `~/.astroz/skills` yang dipindai
+        # halaman Skill terpasang, dan tautan ke repo bisa putus kalau repo
+        # dipindah. Isinya kecil (beberapa MB), jadi disalin sekali.
+        try:
+            if tujuan.exists():
+                shutil.rmtree(tujuan, ignore_errors=True)
+            shutil.copytree(paket, tujuan)
+        except Exception as e:
+            hub.emit("system", f"Skill bawaan {paket.name} gagal disalin: {e}", ok=False)
+            continue
+        n_tautan += skill_tautkan(tujuan)
+        paket_dipasang.append(paket.name)
+    hub.emit("system", f"Skill bawaan dipasang: {', '.join(paket_dipasang) or 'tidak ada'} ({n_tautan} tautan)")
+    return {"ok": True, "paket": paket_dipasang, "tautan": n_tautan}
+
+
+def pasang_bawaan_sekali() -> None:
+    """Dipanggil sekali saat server mulai: pasang skill bawaan yang belum ada."""
+    try:
+        for s in skill_bawaan_siap():
+            if s["perlu"]:
+                skill_pasang_bawaan()
+                return
+    except Exception as e:
+        hub.emit("system", f"Pemeriksaan skill bawaan gagal: {e}", ok=False)
+
+
+def _keterangan_skill(md: pathlib.Path) -> str:
+    """Ambil baris `description:` dari frontmatter SKILL.md, kalau ada."""
+    try:
+        # Hanya kepala berkasnya: SKILL.md bisa panjang, dan yang dicari selalu
+        # ada di frontmatter.
+        with open(md, encoding="utf-8", errors="replace") as fh:
+            teks = fh.read(6000)
+    except Exception:
+        return ""
+    m = re.search(r"^description:\s*(.+)$", teks, re.M)
+    if not m:
+        return ""
+    ket = m.group(1).strip().strip("\"'")
+    return ket[:200]
+
+
+# Cache halaman "Skill terpasang": membaca 174 berkas SKILL.md setiap kali
+# halaman dibuka membuatnya terasa menggantung, padahal isinya hanya berubah
+# kalau ada paket dipasang atau dilepas.
+_TERPASANG: dict[str, object] = {"t": 0.0, "isi": []}
+_TERPASANG_DETIK = 30
+
+
+def skill_terpasang(segarkan: bool = False) -> list[dict]:
+    """Daftar datar semua skill yang sudah terpasang, bukan per paket.
+
+    Halaman "Skill terpasang" menampilkan satu baris per skill: nama, paket
+    asalnya, keterangan singkat, dan ke folder CLI mana saja ia tertaut. Daftar
+    per paket tidak cukup di situ karena satu paket bisa berisi puluhan skill.
+    """
+    t_lama = _TERPASANG["t"]
+    if not segarkan and _TERPASANG["isi"] and isinstance(t_lama, float) and time.time() - t_lama < _TERPASANG_DETIK:
+        return _TERPASANG["isi"]  # type: ignore[return-value]
+    out: list[dict] = []
+    if not SKILL_DIR.exists():
+        return out
+    peta = _folder_tautan()
+    for paket in sorted(SKILL_DIR.iterdir()):
+        if not paket.is_dir():
+            continue
+        for md in sorted(paket.rglob("SKILL.md")):
+            f = md.parent
+            out.append({
+                "nama": f.name,
+                "paket": paket.name,
+                "keterangan": _keterangan_skill(md),
+                "tautan": sorted(peta.get(f.name, set())),
+                "path": str(f),
+            })
+    out.sort(key=lambda x: (x["paket"], x["nama"]))
+    _TERPASANG["t"] = time.time()
+    _TERPASANG["isi"] = out
+    return out
 
 
 # ------------------------------------------------------------------ marketplace

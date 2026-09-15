@@ -90,12 +90,18 @@ def recent(limit: int = 300, kind: str | None = None) -> list[dict]:
 
 
 def load_from_disk(limit: int = 2000) -> int:
-    """Rehydrate the in-memory ring from the JSONL feed (survives restarts)."""
+    """Rehydrate the in-memory ring from the JSONL feed (survives restarts).
+
+    Only the tail is read. The feed grows without bound (worker stdout is long),
+    so reading the whole file makes the UI slower every day it runs; the file
+    itself is never truncated because it is the durable log.
+    """
     global _seq
     p = config.EVENTS_FILE
     if not p.exists():
         return 0
-    lines = p.read_text(encoding="utf-8", errors="replace").splitlines()[-limit:]
+    tail = _baca_ekor(p, 3_000_000)
+    lines = tail.splitlines()[-limit:]
     n = 0
     with _lock:
         for line in lines:
@@ -110,6 +116,65 @@ def load_from_disk(limit: int = 2000) -> int:
             _seq = max(_seq, int(ev.get("id", 0)))
             n += 1
     return n
+
+
+def _baca_ekor(p: pathlib.Path, byte_anggaran: int) -> str:
+    """Baca byte terakhir sebuah berkas teks tanpa memuat seluruh isinya."""
+    try:
+        ukuran = p.stat().st_size
+        with open(p, "rb") as fh:
+            if ukuran > byte_anggaran:
+                fh.seek(ukuran - byte_anggaran)
+                fh.readline()  # buang baris pertama yang mungkin terpotong
+            return fh.read().decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+# Hasil pembacaan kejadian satu tugas dari berkas, disimpan supaya panel proses
+# tidak membaca ulang berkas besar tiap 3 detik. Kuncinya id tugas + ukuran
+# berkas: tugas yang sudah selesai tidak berubah, jadi cache-nya kekal.
+_berkas_tugas: dict[str, tuple[int, list[dict]]] = {}
+_BERKAS_TUGAS_BYTE = 4_000_000
+
+
+def untuk_tugas(tid: str, limit: int = 300) -> list[dict]:
+    """Kejadian satu tugas, dibaca dari feed di disk kalau perlu.
+
+    Ring di memori hanya menyimpan 4000 kejadian terakhir, dan aktivitas plugin
+    Hermes bisa memenuhinya dalam beberapa menit. Tanpa membaca berkasnya,
+    panel proses untuk tugas yang agak lama tampil kosong walau catatannya ada.
+    """
+    if not tid:
+        return []
+    with _lock:
+        dari_ring = [e for e in _recent if e.get("task") == tid]
+    if dari_ring:
+        return dari_ring[-limit:]
+    p = config.EVENTS_FILE
+    try:
+        ukuran = p.stat().st_size
+    except Exception:
+        return []
+    simpan = _berkas_tugas.get(tid)
+    if simpan and simpan[0] == ukuran:
+        return simpan[1]
+    out: list[dict] = []
+    for line in _baca_ekor(p, _BERKAS_TUGAS_BYTE).splitlines():
+        line = line.strip()
+        if not line or tid not in line:
+            continue
+        try:
+            ev = json.loads(line)
+        except Exception:
+            continue
+        if ev.get("task") == tid:
+            out.append(ev)
+    out = out[-limit:]
+    if len(_berkas_tugas) > 60:
+        _berkas_tugas.clear()
+    _berkas_tugas[tid] = (ukuran, out)
+    return out
 
 
 def subscribe() -> asyncio.Queue:

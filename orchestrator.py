@@ -10,6 +10,7 @@ import os
 import pathlib
 import queue
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -24,11 +25,72 @@ from gateway import Gateway
 
 TASKS: dict[str, dict] = {}
 TASKS_FILE = config.RUNTIME / "tasks.json"
+# Proses pekerja yang sedang hidup, per id tugas. Dipakai untuk menghentikan
+# tugas dari UI: tanpa daftar ini, tugas yang berjalan hanya bisa ditunggu.
+PROSES: dict[str, list] = {}
+_DIHENTIKAN: set[str] = set()
 _TASK_FIELDS = (
     "id", "prompt", "status", "size", "workers", "model", "plan", "results",
     "test", "review", "summary", "commit", "created", "finished", "answer",
-    "session", "kind",
+    "session", "kind", "sources", "procs",
 )
+
+# Sumber yang dipakai jawaban. Model menuliskannya di baris terakhir sebagai
+# `SUMBER: nama | url`. Baris itu diangkat keluar dari teks jawaban dan
+# disimpan terpisah supaya UI bisa menampilkannya sebagai chip seperti di
+# aplikasi pesan, bukan sebagai teks mentah di tengah jawaban.
+_SUMBER_RX = re.compile(r"^\s*sumber\s*:\s*(.+?)\s*\|\s*(https?://\S+)\s*$", re.I)
+_URL_RX = re.compile(r"https?://[^\s)>\]]+")
+
+
+def _nama_sumber(url: str) -> str:
+    """Nama pendek dari sebuah tautan: domain tanpa www."""
+    host = url.split("//", 1)[-1].split("/", 1)[0].split("?", 1)[0]
+    return host[4:] if host.startswith("www.") else host
+
+
+def pisah_sumber(text: str) -> tuple[str, list[dict]]:
+    """Pisahkan baris SUMBER dari teks jawaban.
+
+    Mengembalikan (teks tanpa baris sumber, daftar sumber). Satu sumber
+    berbentuk {"nama": ..., "url": ...}; duplikat dibuang, urutan dipertahankan.
+    """
+    if not text:
+        return "", []
+    sisa: list[str] = []
+    sumber: list[dict] = []
+    dilihat: set[str] = set()
+    for baris in text.splitlines():
+        m = _SUMBER_RX.match(baris)
+        if not m:
+            sisa.append(baris)
+            continue
+        nama = m.group(1).strip(" -·|")[:60] or _nama_sumber(m.group(2))
+        url = m.group(2).rstrip(".,;")
+        if url in dilihat:
+            continue
+        dilihat.add(url)
+        sumber.append({"nama": nama, "url": url})
+    bersih = re.sub(r"\n{3,}", "\n\n", "\n".join(sisa)).strip()
+    return bersih, sumber[:6]
+
+
+def sumber_dari_catatan(text: str, jawaban: str, maks: int = 3) -> list[dict]:
+    """Cadangan kalau model lupa menulis baris SUMBER.
+
+    Hanya tautan yang domainnya benar-benar disebut di jawaban yang dipakai,
+    jadi tidak ada sumber yang ditempel asal-asalan.
+    """
+    out: list[dict] = []
+    if not text or not jawaban:
+        return out
+    for url in _URL_RX.findall(text):
+        nama = _nama_sumber(url)
+        if nama and nama in jawaban and url not in {s["url"] for s in out}:
+            out.append({"nama": nama, "url": url.rstrip(".,;")})
+        if len(out) >= maks:
+            break
+    return out
 
 # Terminal control sequences and progress noise that worker CLIs emit around
 # their real output. Stripped before anything reaches a human.
@@ -106,8 +168,26 @@ def load_tasks() -> int:
             # any more: report it as interrupted instead of a permanent "running".
             if t.get("status") == "running":
                 t["status"] = "interrupted"
+                _bersihkan_proses(t)
             TASKS[t["id"]] = t
     return len(TASKS)
+
+
+def _bersihkan_proses(t: dict) -> None:
+    """Matikan proses pekerja yang tertinggal dari tugas yang sudah tidak jalan.
+
+    Server yang mati mendadak (atau dihentikan paksa) meninggalkan CLI pekerja
+    yang masih hidup: prosesnya bukan anak siapa-siapa lagi, dan tugasnya tidak
+    akan pernah selesai. Tiap pekerja dijalankan dengan sesi proses sendiri
+    (start_new_session), jadi pgid-nya bisa dimatikan langsung.
+    """
+    for pid in list(t.get("procs") or []):
+        try:
+            os.killpg(os.getpgid(int(pid)), signal.SIGKILL)
+            hub.emit("system", f"Proses pekerja tertinggal dimatikan (pid {pid})", task=t.get("id"), ok=True)
+        except Exception:
+            pass
+    t["procs"] = []
 _TASK_LOCK = threading.Lock()
 
 
@@ -155,6 +235,75 @@ def _dari_pekerja() -> bool:
     dijalankan dengan cwd yang sudah disiapkan, jadi tidak perlu menyiapkan apa pun.
     """
     return bool(os.environ.get("ASTROZ_PEKERJA"))
+
+
+def _daftar_proses(tid: str, p) -> None:
+    with _TASK_LOCK:
+        PROSES.setdefault(tid, []).append(p)
+        # pgid-nya ikut dicatat di tugas supaya proses yang tertinggal dari
+        # server yang mati mendadak bisa dimatikan saat server hidup lagi.
+        t = TASKS.get(tid)
+        if t is not None:
+            t.setdefault("procs", [])
+            if p.pid not in t["procs"]:
+                t["procs"].append(p.pid)
+
+
+def _lepas_proses(tid: str, p) -> None:
+    with _TASK_LOCK:
+        sisa = [x for x in PROSES.get(tid, []) if x is not p]
+        if sisa:
+            PROSES[tid] = sisa
+        else:
+            PROSES.pop(tid, None)
+
+
+def dihentikan(tid: str) -> bool:
+    """True kalau tugas ini sudah diminta berhenti.
+
+    Pekerja CLI bisa memanggil sub-proses sendiri, jadi mematikan proses yang
+    tercatat saja tidak cukup. Tahap berikutnya pada tugas yang sama harus tahu
+    bahwa tugasnya sudah batal, supaya tidak lanjut ke tes dan penilaian.
+    """
+    with _TASK_LOCK:
+        return tid in _DIHENTIKAN
+
+
+def hentikan(tid: str) -> dict:
+    """Hentikan satu tugas: tandai batal, matikan proses pekerja yang hidup.
+
+    Kill per proses, bukan lewat pola nama: pola `pkill -f` juga cocok dengan
+    shell yang menjalankannya, dan di sini pola itu akan mematikan server UI.
+    """
+    t = TASKS.get(tid)
+    if not t:
+        return {"ok": False, "error": "tugas tidak ditemukan"}
+    with _TASK_LOCK:
+        _DIHENTIKAN.add(tid)
+        hidup = list(PROSES.get(tid, []))
+    dimatikan = 0
+    for p in hidup:
+        try:
+            if p.poll() is None:
+                # Prosesnya dijalankan dengan start_new_session, jadi pgid-nya
+                # sendiri: mematikan grupnya ikut membunuh anak proses CLI
+                # (ripgrep, shell bantu) yang kalau tidak akan tertinggal hidup.
+                try:
+                    os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+                except Exception:
+                    p.kill()
+                dimatikan += 1
+        except Exception:
+            pass
+    if t.get("status") == "running":
+        t["status"] = "cancelled"
+        t["finished"] = time.time()
+        t["answer"] = t.get("answer") or "Tugas dihentikan dari UI sebelum selesai."
+        t["summary"] = (t.get("summary") or "") + " · dihentikan pengguna"
+    hub.emit("task", f"Tugas dihentikan dari UI ({dimatikan} proses pekerja dimatikan)",
+             task=tid, phase="cancel", ok=False)
+    _persist_tasks()
+    return {"ok": True, "id": tid, "proses_dimati": dimatikan}
 
 
 def cepatkah(prompt: str) -> bool:
@@ -302,6 +451,8 @@ def _worker_brief(cwd: str, model: str) -> str:
         "    lihat <berkas>       baca isi berkas gambar (PNG, JPEG, WebP, GIF) jadi teks",
         "- Pakai cari dan buka kalau tugas butuh informasi dari luar. Jangan mengarang fakta:",
         "  kalau tidak ketemu, katakan tidak ketemu.",
+        "- Kalau jawabanmu memakai informasi dari halaman web, tutup jawaban dengan satu baris",
+        "  per sumber, persis format ini: SUMBER: nama sumber | https://tautan-persis",
     ]
     if bisa_lihat:
         baris.append(f"- Model yang kamu pakai ({model}) bisa melihat gambar langsung.")
@@ -320,6 +471,15 @@ def _worker_brief(cwd: str, model: str) -> str:
         baris.append("- Skill siap pakai (sudah ada di folder skill kamu, pakai kalau tugasnya cocok):")
         baris.append("    " + ", ".join(skills))
     baris.append("- Jawab dalam bahasa Indonesia. Jangan pakai tanda pisah panjang.")
+    # Gaya bahasa: pekerja menulis ringkasan, komentar kode, dan teks berkas.
+    # Tanpa aturan ini, keluarannya penuh pembukaan basa-basi dan kata pemasaran
+    # yang langsung terbaca sebagai tulisan mesin.
+    baris.append(
+        "- Tulis seperti orang yang menjelaskan pekerjaannya, bukan seperti asisten: "
+        "langsung ke isinya, tanpa pembukaan pujian, tanpa kata seperti 'tentu', "
+        "'sebagai AI', 'solusi menyeluruh', atau 'mudah dan cepat'. "
+        "Kalau ada skill antislop atau no-ai-slop di daftar skill, pakai untuk semua teks yang kamu tulis."
+    )
     return "\n".join(baris) + "\n\n"
 
 
@@ -416,12 +576,19 @@ def run_worker(worker: str, prompt: str, task_id: str, cwd: str, model: str, tim
                 bufsize=1,
                 env=env,
                 stdin=subprocess.DEVNULL,
+                # Sesi proses sendiri: supaya "hentikan" bisa mematikan seluruh
+                # pohon proses CLI (beserta anak prosesnya) sekaligus, dan supaya
+                # Ctrl-C di server tidak ikut menimpa pekerja.
+                start_new_session=True,
             )
         except Exception as e:
             hub.emit("worker", f"[{worker}] gagal dijalankan: {e}", task=task_id, worker=worker, ok=False)
             return {"worker": worker, "ok": False, "error": str(e), "text": ""}
 
         q: queue.Queue = queue.Queue()
+        # Daftarkan prosesnya supaya bisa dimatikan dari UI. Tanpa ini tugas yang
+        # berjalan hanya bisa ditunggu sampai selesai atau macet.
+        _daftar_proses(task_id, p)
 
         def reader() -> None:
             try:
@@ -481,13 +648,17 @@ def run_worker(worker: str, prompt: str, task_id: str, cwd: str, model: str, tim
             p.wait(timeout=10)
         except Exception:
             p.kill()
+        _lepas_proses(task_id, p)
         raw = "\n".join(buf)
         parsed = a.parse(raw)
         dur = round(time.time() - t0, 2)
         ok = p.returncode == 0 and not timed_out
+        dibatalkan = dihentikan(task_id)
+        if dibatalkan:
+            ok = False
         last = {"worker": worker, "ok": ok, "rc": p.returncode, "duration": dur,
                 "text": parsed.get("text") or raw[-6000:], "attempt": attempt,
-                "stalled": stalled,
+                "stalled": stalled, "cancelled": dibatalkan,
                 **{k: v for k, v in parsed.items() if k not in ("text",)}}
         hub.emit(
             "worker",
@@ -639,6 +810,11 @@ class Orchestrator:
             d = project.ensure_repo()
             before = project.git_status()
 
+            # Tugas yang dihentikan sebelum sempat mulai tidak boleh lanjut.
+            if dihentikan(tid):
+                hub.emit("task", "Tugas dihentikan sebelum mulai", task=tid, phase="cancel", ok=False)
+                return
+
             # --- plan -----------------------------------------------------
             if workflow in ("auto", "medium", "large"):
                 hub.emit("plan", "Menyusun rencana kerja", task=tid, phase="start")
@@ -697,6 +873,15 @@ class Orchestrator:
                     results.extend(box)
             t["results"] = results
 
+            # Berhenti di sini kalau pengguna sudah menekan hentikan: tes dan
+            # penilaian setelahnya cuma membakar waktu untuk tugas yang batal.
+            if dihentikan(tid):
+                t["status"] = "cancelled"
+                t["answer"] = t.get("answer") or "Tugas dihentikan dari UI sebelum selesai."
+                t["summary"] = "dihentikan pengguna"
+                hub.emit("task", "Tugas dihentikan, sisa tahap dilewati", task=tid, phase="cancel", ok=False)
+                return
+
             # --- escalation -------------------------------------------------
             # Every worker failed? Try other workers before giving up: the
             # gateway routes models per provider, so a second worker often
@@ -753,7 +938,19 @@ class Orchestrator:
             changed = project.change_summary(2000)
             hub.emit("git", "Perubahan berkas setelah tugas:\n" + (changed[:2000] or "tidak ada perubahan"), task=tid, diffstat=after.get("diffstat"))
             t["summary"] = self._summarize(prompt, results, test_res, review, changed)
-            t["answer"] = self._answer(prompt, results, review, model)
+            jawaban = self._answer(prompt, results, review, model)
+            # Baris `SUMBER: nama | url` keluar dari teks jawaban dan disimpan
+            # terpisah: chip sumber di UI tidak boleh tercampur jadi kalimat.
+            t["answer"], t["sources"] = pisah_sumber(jawaban)
+            if not t["sources"]:
+                # Model lupa menuliskan sumbernya. Kalau dia menyebut sebuah
+                # domain dan catatan kerja memuat tautannya, itu dipakai.
+                t["sources"] = sumber_dari_catatan(
+                    "\n".join((r.get("text") or "") for r in (results or [])), t["answer"]
+                )
+            if t["sources"]:
+                hub.emit("task", "Sumber jawaban: " + ", ".join(s["nama"] for s in t["sources"]),
+                         task=tid, phase="sources", sources=t["sources"])
             hub.emit("task", "Jawaban siap", task=tid, phase="answer", answer=t["answer"][:4000])
             # Commit only work the task's own verification passed, see
             # _task_is_green. Default off; enable with workflow.auto_commit.
@@ -817,6 +1014,10 @@ class Orchestrator:
             res = run_worker(worker, prompt, tid, cwd, m)
             if res.get("ok"):
                 return res
+            if res.get("cancelled"):
+                # Pengguna menekan hentikan: mencoba model cadangan berikutnya
+                # berarti tugas yang sudah dibatalkan tetap makan waktu.
+                break
             if res.get("stalled"):
                 # The worker wedged, not the model: another model will wedge the
                 # same way, so stop and let the caller try a different worker.
@@ -966,7 +1167,13 @@ class Orchestrator:
             "Kalau pengguna bertanya, jawab pertanyaannya. Kalau pengguna meminta pekerjaan, "
             "sebutkan apa yang sudah dikerjakan dan di file mana. "
             "Jangan menyebut nama tool, nama worker, path panjang, atau langkah internal. "
-            "Jangan pakai tanda pisah panjang. Jangan mengarang."
+            "Jangan pakai tanda pisah panjang. Jangan mengarang. "
+            "Tulis seperti orang, bukan seperti asisten: tanpa pembukaan basa-basi, "
+            "tanpa pujian ke pertanyaannya, dan tanpa kata pemasaran seperti "
+            "'tentu', 'hebat', 'solusi lengkap', atau 'mudah dan cepat'. "
+            "Kalau jawaban ini memakai informasi dari halaman web, tutup dengan satu baris "
+            "per sumber, persis format ini: SUMBER: nama sumber | https://tautan-persis. "
+            "Kalau tidak ada, jangan menulis baris SUMBER sama sekali."
         )
         out = self.gw.chat(model, [{"role": "user", "content": msg}], timeout=180, max_tokens=700)
         text = clean_output(out.get("text") or "") if out.get("ok") else ""

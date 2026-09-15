@@ -14,6 +14,13 @@ import hub
 
 ROOT = pathlib.Path(__file__).resolve().parent
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".next", "dist", "build", ".mypy_cache"}
+# Berkas yang isinya bukan hasil kerja siapa pun dan selalu ada di repo: ikut
+# dihitung, panel berkas penuh sampah setiap tugas selesai.
+SKIP_FILES = {".DS_Store", "Thumbs.db", ".gitkeep"}
+# Batas jumlah berkas saat menelusuri folder kerja. Foldernya milik pengguna,
+# bisa berisi ribuan berkas (node_modules yang tidak terdeteksi, hasil build):
+# penelusuran tanpa batas membuat satu permintaan UI berjalan detik-detikan.
+BATAS_BERKAS = 20000
 
 
 def project_dir() -> pathlib.Path:
@@ -147,6 +154,43 @@ def git_commit_all(message: str) -> dict:
     rc, out = _git(["commit", "-qm", message], d, timeout=40)
     hub.emit("git", f"Commit: {message}", rc=rc, out=out[:500])
     return {"rc": rc, "out": out}
+
+
+def berkas_sejak(mulai: float, maks: int = 80) -> dict:
+    """Berkas yang berubah sesudah `mulai`, di folder kerja.
+
+    Dipakai panel samping untuk memperlihatkan hasil satu tugas tanpa membaca
+    seluruh folder kerja. Batasnya: berhenti setelah BATAS_BERKAS berkas atau
+    setelah cukup banyak berkas cocok, mana yang lebih dulu. Tanpa batas itu,
+    folder kerja besar membuat permintaan ini berjalan detik-detikan dan UI
+    tampak menggantung.
+    """
+    d = project_dir()
+    out: list[dict] = []
+    jumlah = 0
+    if not d.exists() or not mulai:
+        return {"dir": str(d), "berkas": [], "jumlah": 0, "terpotong": False}
+    for p in d.rglob("*"):
+        jumlah += 1
+        if jumlah > BATAS_BERKAS:
+            break
+        if p.is_dir() or p.name in SKIP_FILES:
+            continue
+        if any(b in p.parts for b in SKIP_DIRS):
+            continue
+        try:
+            st = p.stat()
+        except Exception:
+            continue
+        if st.st_mtime >= mulai - 1:
+            out.append({"path": str(p.relative_to(d)), "size": st.st_size, "mtime": st.st_mtime})
+    out.sort(key=lambda x: -x["mtime"])
+    return {
+        "dir": str(d),
+        "berkas": out[:maks],
+        "jumlah": len(out),
+        "terpotong": jumlah > BATAS_BERKAS or len(out) > maks,
+    }
 
 
 def detect_test_command() -> str:

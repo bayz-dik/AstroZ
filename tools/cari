@@ -225,7 +225,17 @@ def main() -> int:
         if h.get("ringkas"):
             print(f"   {h['ringkas']}")
     print("\nRingkasan di atas kutipan mentah dari mesin pencari. Buka halamannya dengan `buka <url>` sebelum memakai angka atau tanggalnya.")
+    # Sumber yang benar-benar dipakai ditulis dengan format yang sama seperti
+    # jawaban pekerja: UI membacanya dari baris ini dan menampilkan lambang
+    # situsnya di chat, jadi pengguna melihat sumber yang sedang dibaca.
+    for h in hasil[:3]:
+        print(f"SUMBER: {_nama(h['url'])} | {h['url']}")
     return 0
+
+
+def _nama(url: str) -> str:
+    host = url.split("//", 1)[-1].split("/", 1)[0].split("?", 1)[0]
+    return host[4:] if host.startswith("www.") else host
 
 
 if __name__ == "__main__":

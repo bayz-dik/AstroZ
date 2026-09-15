@@ -50,6 +50,10 @@ async def _startup() -> None:
     for rel, tag in (("runtime/hermes_plugin.jsonl", "astroz"), ("runtime/live_activity.jsonl", "live-activity")):
         threading.Thread(target=hub.follow_file, args=(home / rel,), kwargs={"kind": "hermes", "tag": tag}, daemon=True).start()
     threading.Thread(target=_refresh_workers, daemon=True).start()
+    # Skill bawaan repo dipasang sekali di sini, jadi clone baru langsung punya
+    # skill tanpa memasangnya satu per satu dari UI. Jalan di thread sendiri:
+    # menautkan ratusan folder bisa makan beberapa detik.
+    threading.Thread(target=plugins.pasang_bawaan_sekali, daemon=True).start()
 
 
 async def _sync_awal() -> None:
@@ -365,11 +369,16 @@ async def tasks_running():
     jadi isinya dijaga kecil.
     """
     evs = hub.recent(800)
-    out = []
+    out: list[dict] = []
     for t in orchestrator.list_tasks(50):
         if t.get("status") != "running":
             continue
         milik = [e for e in evs if e.get("task") == t["id"]]
+        if not milik:
+            # Ring di memori bisa sudah terisi kejadian lain (aktivitas plugin
+            # Hermes deras). Ambil dari feed di disk supaya strip kerja tetap
+            # tahu pekerja mana yang sedang aktif.
+            milik = await asyncio.to_thread(hub.untuk_tugas, t["id"], 40)
         # keadaan tiap pekerja: yang kejadian terakhirnya bukan "end" masih
         # bekerja. Daftar penugasan saja tidak cukup: ia tidak tahu siapa yang
         # sudah selesai dan siapa yang masih jalan.
@@ -416,12 +425,27 @@ async def tasks_running():
     return {"ok": True, "running": out}
 
 
+@app.post("/api/tasks/{tid}/hentikan")
+async def task_hentikan(tid: str):
+    """Hentikan tugas yang sedang berjalan dari UI.
+
+    Pekerja CLI yang sedang bekerja dimatikan prosesnya, tahap berikutnya pada
+    tugas itu dilewati, dan statusnya jadi `cancelled` supaya chat tidak terus
+    menampilkan "sedang jalan" untuk pekerjaan yang sudah dibatalkan.
+    """
+    hasil = orchestrator.hentikan(tid)
+    if not hasil.get("ok"):
+        return JSONResponse(hasil, status_code=404)
+    return hasil
+
+
 @app.get("/api/tasks/{tid}")
 async def task_detail(tid: str):
     t = orchestrator.get_task(tid)
     if not t:
         return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
-    return {"ok": True, "task": t, "events": [e for e in hub.recent(2000) if e.get("task") == tid][-300:]}
+    evs = await asyncio.to_thread(hub.untuk_tugas, tid, 300)
+    return {"ok": True, "task": t, "events": evs}
 
 
 @app.get("/api/tasks/{tid}/berkas")
@@ -436,21 +460,8 @@ async def task_berkas(tid: str):
         return JSONResponse({"ok": False, "error": "tidak ditemukan"}, status_code=404)
     mulai = float(t.get("created") or 0)
     d = pathlib.Path(t.get("workspace") or project.project_dir())
-    out: list[dict] = []
-    if d.exists() and mulai:
-        for p in sorted(d.rglob("*")):
-            if not p.is_file():
-                continue
-            if any(b in p.parts for b in (".git", "node_modules", "__pycache__", ".venv")):
-                continue
-            try:
-                st = p.stat()
-            except Exception:
-                continue
-            if st.st_mtime >= mulai - 1:
-                out.append({"path": str(p.relative_to(d)), "size": st.st_size, "mtime": st.st_mtime})
-    out.sort(key=lambda x: -x["mtime"])
-    return {"ok": True, "dir": str(d), "berkas": out[:80], "jumlah": len(out)}
+    out = await asyncio.to_thread(project.berkas_sejak, mulai)
+    return {"ok": True, **out}
 
 
 @app.get("/api/project/tree")
@@ -535,6 +546,9 @@ def _task_messages(tid: str) -> list[dict]:
         "review": (t.get("review") or {}).get("verdict") or "",
         "tests": (t.get("test") or {}).get("ok"),
         "tests_skipped": bool((t.get("test") or {}).get("skipped")),
+        # Sumber dipisah dari teks jawaban: UI menampilkannya sebagai chip di
+        # baris aksi, seperti sitasi di aplikasi pesan.
+        "sources": t.get("sources") or [],
     })
     return out
 
@@ -551,7 +565,8 @@ async def sessions_list():
         s["status"] = "running" if running else "idle"
     # Urutkan di server: UI menampilkan daftar apa adanya, jadi percakapan yang
     # baru dipakai harus ada di atas tanpa bergantung pada urutan penyimpanan.
-    items.sort(key=lambda s: s.get("updated") or s.get("created") or 0, reverse=True)
+    # Yang disematkan selalu di atas, apa pun waktu pakainya.
+    items.sort(key=lambda s: (bool(s.get("pinned")), s.get("updated") or s.get("created") or 0), reverse=True)
     return {"sessions": items}
 
 
@@ -591,11 +606,10 @@ async def sessions_get(sid: str, events: int = 120):
         messages.extend(_task_messages(tid))
     activity: dict[str, list[dict]] = {}
     if events:
-        recent = hub.recent(4000)
         for tid in ids:
-            evs = [e for e in recent if e.get("task") == tid]
+            evs = await asyncio.to_thread(hub.untuk_tugas, tid, events)
             if evs:
-                activity[tid] = evs[-events:]
+                activity[tid] = evs
     return {"ok": True, "session": {**s, "tasks": ids}, "messages": messages, "activity": activity}
 
 
@@ -612,6 +626,21 @@ async def sessions_update(sid: str, payload: dict):
 async def sessions_delete(sid: str):
     ok = sessions.delete(sid)
     return {"ok": ok}
+
+
+@app.post("/api/sessions/{sid}/sematkan")
+async def sessions_sematkan(sid: str, payload: dict | None = None):
+    """Sematkan atau lepas sematan percakapan ini.
+
+    Yang disematkan naik ke atas daftar riwayat, jadi percakapan yang sering
+    dibuka tidak tenggelam oleh percakapan baru.
+    """
+    isi = payload or {}
+    nilai = isi.get("pinned")
+    s = sessions.toggle_pin(sid, None if nilai is None else bool(nilai))
+    if not s:
+        return JSONResponse({"ok": False, "error": "percakapan tidak ditemukan"}, status_code=404)
+    return {"ok": True, "session": s, "pinned": bool(s.get("pinned"))}
 
 
 @app.post("/api/chat")
@@ -752,9 +781,39 @@ async def mcp_remove(nama: str):
 
 
 # ------------------------------------------------------------------ skill
+# Hasil pemindaian skill disimpan sebentar: halaman Skill terpasang memanggil
+# endpoint ini setiap kali dibuka, dan menghitung ukuran 93 paket setiap kali
+# membuat halaman terasa menggantung. Isinya hanya berubah kalau ada paket baru.
+_SKILL_CACHE: dict[str, object] = {"t": 0.0, "isi": None}
+_SKILL_CACHE_DETIK = 30
+
+
 @app.get("/api/skills")
 async def skills_list():
-    return {"ok": True, "paket": plugins.skill_daftar(), "siap": plugins.skill_ringkas_untuk_pekerja()}
+    sekarang = time.time()
+    t_lama = _SKILL_CACHE["t"]
+    if _SKILL_CACHE["isi"] is not None and isinstance(t_lama, float) and sekarang - t_lama < _SKILL_CACHE_DETIK:
+        return _SKILL_CACHE["isi"]
+    daftar = await asyncio.to_thread(plugins.skill_terpasang)
+    isi = {
+        "ok": True,
+        "paket": await asyncio.to_thread(plugins.skill_daftar),
+        "siap": plugins.skill_ringkas_untuk_pekerja(),
+        "daftar": daftar,
+        "bawaan": plugins.skill_bawaan_siap(),
+    }
+    _SKILL_CACHE["t"] = sekarang
+    _SKILL_CACHE["isi"] = isi
+    return isi
+
+
+@app.post("/api/skills/bawaan")
+async def skills_bawaan():
+    """Tautkan semua skill bawaan repo ke folder yang dibaca pekerja."""
+    res = await asyncio.to_thread(plugins.skill_pasang_bawaan)
+    _SKILL_CACHE["isi"] = None
+    await asyncio.to_thread(plugins.skill_terpasang, True)
+    return JSONResponse(res, status_code=200 if res.get("ok") else 400)
 
 
 @app.post("/api/skills")

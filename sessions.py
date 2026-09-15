@@ -52,7 +52,7 @@ def _title_from(text: str) -> str:
 def create(title: str = "") -> dict:
     now = time.time()
     s = {"id": uuid.uuid4().hex[:10], "title": title.strip() or "Percakapan baru",
-         "created": now, "updated": now, "tasks": []}
+         "created": now, "updated": now, "tasks": [], "pinned": False}
     with _lock:
         _S[s["id"]] = s
     _persist()
@@ -103,14 +103,31 @@ def delete(sid: str) -> bool:
     return bool(gone)
 
 
+def toggle_pin(sid: str, pinned: bool | None = None) -> dict | None:
+    """Sematkan atau lepas sematan percakapan.
+
+    Tanpa nilai yang dikirim, keadaannya dibalik. Sematan tidak mengubah
+    `updated`, kalau ikut berubah urutannya bergeser sendiri setiap kali
+    disematkan.
+    """
+    s = get(sid)
+    if not s:
+        return None
+    s["pinned"] = (not s.get("pinned")) if pinned is None else bool(pinned)
+    _persist()
+    return s
+
+
 def list_sessions() -> list[dict]:
-    items = sorted(_S.values(), key=lambda s: s.get("updated", 0), reverse=True)
+    # Yang disematkan selalu di atas, sisanya urut dari yang terakhir dipakai.
+    items = sorted(_S.values(), key=lambda s: (bool(s.get("pinned")), s.get("updated", 0)), reverse=True)
     return [
         {
             "id": s["id"],
             "title": s["title"],
             "created": s.get("created"),
             "updated": s.get("updated"),
+            "pinned": bool(s.get("pinned")),
             "task_count": len(s.get("tasks", [])),
             "tasks": list(s.get("tasks", []))[:40],
         }
