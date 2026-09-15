@@ -353,6 +353,69 @@ async def tasks():
     return {"tasks": orchestrator.list_tasks(50)}
 
 
+# Rute tetap harus didaftarkan sebelum /api/tasks/{tid}: rute dinamis itu
+# menelan "running" sebagai id tugas dan menjawab 404.
+@app.get("/api/tasks/running")
+async def tasks_running():
+    """Tugas yang sedang berjalan, ringkas, untuk strip kerja di UI.
+
+    Satu permintaan saja: daftar tugas berjalan, pekerja yang sedang aktif
+    (dihitung dari kejadian terakhir tiap pekerja, bukan dari daftar penugasan),
+    dan beberapa langkah terakhir. UI memanggil ini berkala selama ada pekerjaan,
+    jadi isinya dijaga kecil.
+    """
+    evs = hub.recent(800)
+    out = []
+    for t in orchestrator.list_tasks(50):
+        if t.get("status") != "running":
+            continue
+        milik = [e for e in evs if e.get("task") == t["id"]]
+        # keadaan tiap pekerja: yang kejadian terakhirnya bukan "end" masih
+        # bekerja. Daftar penugasan saja tidak cukup: ia tidak tahu siapa yang
+        # sudah selesai dan siapa yang masih jalan.
+        per: dict[str, dict] = {}
+        for e in milik:
+            w = e.get("worker")
+            if w:
+                per[w] = e
+        pekerja = []
+        for w, e in per.items():
+            a = adapters.ADAPTERS.get(w)
+            pekerja.append({
+                "key": w,
+                "label": (a.label if a else w),
+                "aktif": e.get("phase") not in ("end", "stall", "error"),
+                "text": (e.get("text") or "")[:160],
+            })
+        # pekerja yang sudah ditugaskan tapi belum mengeluarkan kejadian apa pun
+        for w in t.get("workers") or []:
+            if w not in per:
+                a = adapters.ADAPTERS.get(w)
+                pekerja.append({"key": w, "label": (a.label if a else w), "aktif": True, "text": ""})
+        terakhir = milik[-1] if milik else {}
+        out.append({
+            "id": t["id"],
+            "prompt": (t.get("prompt") or "")[:200],
+            "size": t.get("size") or "",
+            "model": t.get("model") or "",
+            "created": t.get("created"),
+            "session": t.get("session") or "",
+            "tahap": terakhir.get("kind") or "",
+            "pekerja": pekerja,
+            "langkah": [
+                {
+                    "kind": e.get("kind") or "",
+                    "phase": e.get("phase") or "",
+                    "worker": e.get("worker") or "",
+                    "text": orchestrator.clean_output(e.get("text") or "")[:200],
+                    "ts": e.get("ts"),
+                }
+                for e in milik[-8:]
+            ],
+        })
+    return {"ok": True, "running": out}
+
+
 @app.get("/api/tasks/{tid}")
 async def task_detail(tid: str):
     t = orchestrator.get_task(tid)
@@ -390,7 +453,6 @@ async def task_berkas(tid: str):
     return {"ok": True, "dir": str(d), "berkas": out[:80], "jumlah": len(out)}
 
 
-# ----------------------------------------------------------------- project
 @app.get("/api/project/tree")
 async def project_tree():
     return {"dir": str(project.project_dir()), "entries": project.tree()}

@@ -201,6 +201,53 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 }
 @keyframes geser { from { background-position: -40% 0; } to { background-position: 140% 0; } }
 
+/* --------------------------------------------------------------- strip kerja */
+
+/* Kotak kecil di bawah bar: muncul sendiri selama ada tugas berjalan. Satu
+   baris selalu terlihat (pekerja mana yang sedang bekerja), sisanya dibuka
+   dengan satu ketukan di tempat, tanpa masuk menu alat. */
+.strip-kerja {
+  border-bottom: 1px solid var(--garis);
+  background: var(--permukaan-hangat);
+}
+.strip-kepala {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; border: 0; background: transparent; cursor: pointer;
+  padding: 7px 14px; text-align: left; color: var(--tinta-2);
+  min-height: 40px;
+}
+.strip-kepala:hover { background: var(--sorot); }
+.strip-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: var(--aksen); animation: denyut 1.4s ease-in-out infinite;
+}
+.strip-dot.istirahat { animation: none; }
+@keyframes denyut { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.strip-judul { font-size: 13px; font-weight: 500; flex: none; }
+.strip-pekerja {
+  font-family: var(--font-mesin); font-size: 11px; color: var(--aksen-teks);
+  display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; overflow: hidden;
+}
+.strip-pekerja .p {
+  border-radius: var(--radius-pil); padding: 1px 8px;
+  box-shadow: 0 0 0 1px var(--aksen); white-space: nowrap;
+}
+.strip-pekerja .p.selesai { box-shadow: 0 0 0 1px var(--garis-kuat); color: var(--tinta-meta); }
+.strip-jam {
+  margin-left: auto; font-family: var(--font-mesin); font-size: 11px;
+  color: var(--tinta-meta); flex: none;
+}
+.strip-panah { font-size: 11px; color: var(--tinta-meta); flex: none; }
+.strip-isi {
+  max-height: 40vh; overflow-y: auto;
+  padding: 4px 14px 10px; border-top: 1px solid var(--garis);
+}
+.strip-isi .kejadian { grid-template-columns: 44px minmax(0, 1fr); gap: 8px; padding: 6px 0; font-size: 12px; }
+.strip-isi .kejadian::before { content: none; }
+.strip-isi .kejadian .pesan-log { overflow-wrap: anywhere; }
+.strip-isi .kejadian .jenis { font-size: 10px; }
+.strip-kosong { color: var(--tinta-meta); font-size: 12px; padding: 8px 0; }
+
 .isi {
   display: grid; grid-template-columns: minmax(0, 1fr);
   min-height: 0;
@@ -614,7 +661,7 @@ pre.isi-berkas {
 
 @media (max-width: 999px) {
   .tombol.kecil, .segmen button, .pohon button, .baris-aksi, .nav-alat button,
-  .menu-turun button, .aksi-ikon { min-height: var(--tinggi-target); }
+  .menu-turun button, .aksi-ikon, .strip-kepala { min-height: var(--tinggi-target); }
   .aksi-ikon { width: var(--tinggi-target); height: var(--tinggi-target); }
   /* kotak tulis juga: teks 16px (tidak memicu zum di iOS) dan tinggi 44px */
   .tulis textarea { min-height: var(--tinggi-target); padding: 10px 10px; }

@@ -80,6 +80,7 @@ proot ini `ss` tidak melaporkan socket yang listening, jadi pemeriksaan berbasis
 | Chat | pesanmu dan jawaban AstroZ. Pesanmu blok berlatar hangat, jawaban AstroZ teks polos. Progres kerja tidak ditulis di sini, hanya satu tombol kecil untuk membukanya |
 | Menu alat | dibuka dari tombol garis tiga di kiri atas: Obrolan, Proses kerja, Plugin MCP, Skill dari GitHub, Pekerja, Berkas dan tes, Catatan kejadian, Model |
 | Menu titik tiga | aksi untuk percakapan yang sedang dibuka: lihat proses kerja, ganti nama, salin percakapan, tema |
+| Strip kerja | kotak kecil di bawah bar yang muncul sendiri selama ada tugas berjalan: pekerja mana yang sedang mengerjakan, sudah berapa lama, dan langkah terakhirnya kalau diketuk |
 | Panel kerja | keadaan tugas terakhir, berkas yang berubah, dan langkah-langkahnya. Kolom tetap di 1280px ke atas, lembar geser di bawahnya |
 
 Di layar 1280px ke atas keduanya tampil bersamaan: chat dan panel kerja. Di

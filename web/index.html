@@ -39,6 +39,19 @@
   </header>
   <div class="ticker" id="ticker" aria-hidden="true"></div>
 
+  <!-- Strip kerja: muncul sendiri selama ada tugas berjalan, jadi terlihat
+       bahwa pekerja sedang mengerjakan tanpa perlu membuka menu apa pun. -->
+  <div class="strip-kerja" id="strip-kerja" hidden>
+    <button type="button" class="strip-kepala" id="strip-kepala" aria-expanded="false" aria-controls="strip-isi">
+      <span class="strip-dot" id="strip-dot" aria-hidden="true"></span>
+      <span class="strip-judul" id="strip-judul">sedang bekerja</span>
+      <span class="strip-pekerja" id="strip-pekerja"></span>
+      <span class="strip-jam" id="strip-jam"></span>
+      <span class="strip-panah" id="strip-panah" aria-hidden="true">▾</span>
+    </button>
+    <div class="strip-isi" id="strip-isi" hidden></div>
+  </div>
+
   <div class="isi">
     <main class="chat">
       <div class="alur" id="alur" aria-live="polite" aria-label="Percakapan"><div class="kolom" id="kolom-chat"></div></div>

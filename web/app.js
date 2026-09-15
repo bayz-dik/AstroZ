@@ -662,6 +662,116 @@ async function gambarKerja() {
   }
 }
 
+/* ------------------------------------------------------------ strip kerja */
+
+/* Kotak kecil di bawah bar yang muncul sendiri selama ada tugas berjalan.
+   Sebelumnya satu-satunya cara melihat progres adalah membuka menu alat lalu
+   memilih Proses kerja, jadi pekerja yang sedang bekerja tidak terlihat sama
+   sekali. Strip ini menanyakannya sendiri ke server dan bisa dibuka di tempat. */
+let stripJam = null;
+let stripData = [];
+let stripBuka = false;
+let stripTanyaTerakhir = 0;
+
+function stripMulai() {
+  if (stripJam) return;
+  stripJam = setInterval(async () => {
+    // jam berjalan tiap detik; isinya ditanya berkala saja
+    if (stripData.length) {
+      const t = stripData[0];
+      const jam = el("strip-jam");
+      if (jam) jam.textContent = `${lamaDetik(Math.max(0, Date.now() / 1000 - (t.created || Date.now() / 1000)))} · ${t.id}`;
+    }
+    const jeda = stripData.length ? 2500 : 6000;
+    if (Date.now() - stripTanyaTerakhir < jeda) return;
+    stripTanyaTerakhir = Date.now();
+    await muatStrip();
+  }, 1000);
+  muatStrip();
+}
+
+async function muatStrip() {
+  let d;
+  try {
+    d = await ambil("/api/tasks/running");
+  } catch {
+    return; // jaringan sedang putus: biarkan tampilan terakhir
+  }
+  stripData = d.running || [];
+  gambarStrip();
+}
+
+function lamaDetik(detik) {
+  const m = Math.floor(detik / 60);
+  const s = Math.round(detik % 60);
+  return m ? `${m}m ${String(s).padStart(2, "0")}s` : `${s}s`;
+}
+
+function gambarStrip() {
+  const kotak = el("strip-kerja");
+  if (!kotak) return;
+  const ada = stripData.length > 0;
+  kotak.hidden = !ada;
+  if (!ada) {
+    if (stripBuka) pindahStrip(false);
+    return;
+  }
+  const t = stripData[0];
+  el("strip-judul").textContent = stripData.length > 1 ? `${stripData.length} tugas berjalan` : "sedang bekerja";
+
+  // Pekerja mana yang sedang mengerjakan: ini yang tadi tidak terlihat.
+  const wadah = el("strip-pekerja");
+  wadah.replaceChildren();
+  for (const p of t.pekerja) {
+    const b = buat("span", "p" + (p.aktif ? "" : " selesai"), p.label);
+    if (p.text) b.title = p.text;
+    wadah.appendChild(b);
+  }
+  if (!t.pekerja.length) wadah.appendChild(buat("span", "p selesai", "menyiapkan"));
+
+  const mulai = t.created || Date.now() / 1000;
+  el("strip-jam").textContent = `${lamaDetik(Math.max(0, Date.now() / 1000 - mulai))} · ${t.id}`;
+  el("strip-dot").classList.toggle("istirahat", !t.pekerja.some((p) => p.aktif));
+
+  const isi = el("strip-isi");
+  if (!stripBuka) { isi.hidden = true; return; }
+  isi.hidden = false;
+  isi.replaceChildren();
+  for (const tugas of stripData) {
+    if (stripData.length > 1) {
+      isi.appendChild(buat("div", "catatan", (tugas.prompt || tugas.id).slice(0, 90)));
+    }
+    const langkah = tugas.langkah || [];
+    if (!langkah.length) {
+      isi.appendChild(buat("p", "strip-kosong", "Menunggu langkah pertama."));
+    }
+    for (const e of langkah.slice(-6)) {
+      const baris = buat("div", "kejadian");
+      baris.dataset.jenis = e.kind || "";
+      baris.appendChild(buat("div", "waktu", waktu(e.ts)));
+      const tengah = buat("div");
+      tengah.appendChild(buat("div", "jenis", [e.kind, e.phase].filter(Boolean).join(" · ")));
+      tengah.appendChild(buat("div", "pesan-log", e.text || ""));
+      baris.appendChild(tengah);
+      isi.appendChild(baris);
+    }
+    const b = buat("button", "tombol kecil garis", "buka panel kerja");
+    b.type = "button";
+    b.style.marginTop = "6px";
+    b.addEventListener("click", () => { pindahStrip(false); tampilkanKerja(tugas.id); });
+    isi.appendChild(b);
+  }
+}
+
+function pindahStrip(buka) {
+  stripBuka = buka;
+  el("strip-kepala").setAttribute("aria-expanded", String(buka));
+  el("strip-panah").textContent = buka ? "▴" : "▾";
+  gambarStrip();
+}
+
+el("strip-kepala").addEventListener("click", () => pindahStrip(!stripBuka));
+
 /* ------------------------------------------------------------------ pantau */
 
 let jamPantau = null;
@@ -1323,6 +1433,8 @@ async function mulai() {
   await kirim("/api/sessions/kosong", {}, "DELETE").catch(() => null);
   await muatSesi();
   sambungKejadian();
+  // Strip kerja: muncul sendiri selama ada tugas berjalan, tanpa membuka menu.
+  stripMulai();
   const d = await ambil("/api/state").catch(() => null);
   if (d) gambarAlatBantu(d.gateway || {});
   const daftar = await ambil("/api/sessions").catch(() => ({ sessions: [] }));
