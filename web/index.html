@@ -325,6 +325,18 @@
   <div class="isi-lembar">
     <button type="button" class="baris-aksi" id="aksi-gambar"><span data-ikon="gambar" data-ukuran="20" aria-hidden="true"></span> Gambar<span class="petunjuk">PNG, JPEG, WebP, GIF</span></button>
     <button type="button" class="baris-aksi" id="aksi-berkas"><span data-ikon="file" data-ukuran="20" aria-hidden="true"></span> File<span class="petunjuk">teks, kode, PDF</span></button>
+    <!-- Ukuran tugas. Di layar sempit pemilihnya di baris kotak tulis
+         disembunyikan supaya barisnya muat, jadi pilihannya disediakan di
+         sini. Keduanya mengubah pilihan yang sama, tidak ada nilai kembar. -->
+    <div class="pilih-ukuran" role="group" aria-label="Ukuran tugas">
+      <span class="judul-ukuran">Ukuran tugas</span>
+      <div class="deret-ukuran" id="deret-ukuran">
+        <button type="button" class="tombol kecil garis" data-ukuran-tugas="auto">otomatis</button>
+        <button type="button" class="tombol kecil garis" data-ukuran-tugas="small">cepat</button>
+        <button type="button" class="tombol kecil garis" data-ukuran-tugas="medium">sedang</button>
+        <button type="button" class="tombol kecil garis" data-ukuran-tugas="large">besar</button>
+      </div>
+    </div>
     <input type="file" id="berkas-gambar" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
     <input type="file" id="berkas-apa" hidden>
   </div>

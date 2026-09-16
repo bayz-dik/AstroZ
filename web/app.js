@@ -37,8 +37,11 @@ function pesanSingkat(teks, galat) {
   kotak.textContent = teks;
   kotak.style.color = galat ? "#FFD9D6" : "";
   kotak.style.background = galat ? "var(--galat)" : "var(--tinta)";
+  // Kelas ini yang menampilkannya. Tanpa itu pesannya tidak punya gaya dan
+  // tidak terlihat sama sekali, karena aturan tampilnya menuntut kelas ini.
+  kotak.classList.toggle("tampil", Boolean(teks));
   clearTimeout(kotak._jam);
-  kotak._jam = setTimeout(() => { kotak.textContent = ""; }, 4200);
+  kotak._jam = setTimeout(() => { kotak.textContent = ""; kotak.classList.remove("tampil"); }, 4200);
 }
 
 function waktu(ts) {
@@ -250,6 +253,24 @@ el("tombol-plus").addEventListener("click", () => bukaLembar("lembar-plus"));
 el("pil-model").addEventListener("click", () => { bukaLembar("lembar-model"); muatModelLembar(); });
 el("aksi-gambar").addEventListener("click", () => el("berkas-gambar").click());
 el("aksi-berkas").addEventListener("click", () => el("berkas-apa").click());
+
+/* Ukuran tugas punya dua kontrol: select di baris kotak tulis (layar lebar)
+   dan tombol di lembar "+" (layar sempit). Keduanya menulis ke select yang
+   sama, jadi tidak ada dua nilai yang bisa berbeda. */
+function gambarPilihUkuran() {
+  const nilai = el("ukuran").value;
+  for (const b of document.querySelectorAll("[data-ukuran-tugas]")) {
+    b.setAttribute("aria-pressed", String(b.dataset.ukuranTugas === nilai));
+  }
+}
+for (const b of document.querySelectorAll("[data-ukuran-tugas]")) {
+  b.addEventListener("click", () => {
+    el("ukuran").value = b.dataset.ukuranTugas;
+    gambarPilihUkuran();
+  });
+}
+el("ukuran").addEventListener("change", gambarPilihUkuran);
+gambarPilihUkuran();
 el("buka-pasang-plugin").addEventListener("click", () => bukaLembar("lembar-plugin"));
 
 /* Menu titik tiga: hal-hal yang tidak punya tempat lain. Menu garis tiga
@@ -1029,16 +1050,32 @@ el("berkas-apa").addEventListener("change", async (ev) => {
 
 function tumbuh() {
   const t = el("tulis");
+  // Batasnya dibaca dari CSS, bukan angka mati di sini. Kalau keduanya
+  // berbeda, tinggi yang dipasang JS menang dan batas CSS tidak berlaku.
+  const batas = parseFloat(getComputedStyle(t).maxHeight) || 200;
   t.style.height = "auto";
-  t.style.height = Math.min(200, t.scrollHeight) + "px";
+  t.style.height = Math.min(batas, t.scrollHeight) + "px";
 }
 el("tulis").addEventListener("input", tumbuh);
+// Layar berputar atau tinggi berubah (papan ketik terbuka): batasnya berubah,
+// jadi tingginya dihitung ulang. Tanpa ini, kotak bisa tertinggal terlalu
+// tinggi setelah papan ketik ditutup.
+addEventListener("resize", () => { tumbuh(); });
+if (window.visualViewport) visualViewport.addEventListener("resize", () => { tumbuh(); });
+
+/* Satu kiriman pada satu waktu. Tombol kirim dinonaktifkan selama pengiriman,
+   tapi itu tidak menahan Enter: requestSubmit tetap memicu submit walau
+   tombolnya disabled. Tanpa penjaga ini, menekan Enter dua kali cepat
+   mengirim dua tugas untuk satu pesan. */
+let sedangKirim = false;
 
 el("form-tulis").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const kotak = el("tulis");
   const teks = kotak.value.trim();
   if (!teks) { pesanSingkat("Tulis dulu isi pesannya."); kotak.focus(); return; }
+  if (sedangKirim) return;
+  sedangKirim = true;
   const lampiran = keadaan.lampiran;
   let penuh = teks;
   if (lampiran) penuh += `\n\nBerkas terlampir: ${lampiran}\nBaca dulu berkas itu sebelum menjawab.`;
@@ -1068,15 +1105,26 @@ el("form-tulis").addEventListener("submit", async (ev) => {
     pantauTugas(d.task_id);
     muatSesi();
   } catch (err) {
+    // Pesannya tidak sampai ke server, jadi teksnya dikembalikan ke kotak
+    // tulis. Sebelumnya kotaknya sudah dikosongkan dan teksnya hilang, jadi
+    // pengguna harus menulis ulang dari nol.
+    kotak.value = teks;
+    tumbuh();
+    if (lampiran) pasangLampiran(String(lampiran).split("/").pop(), lampiran);
     tambahPesan({ peran: "astroz", teks: "Pesan tidak terkirim: " + err.message, status: "gagal", ts: Date.now() / 1000 });
     pesanSingkat("Pesan tidak terkirim: " + err.message, true);
   } finally {
+    sedangKirim = false;
     el("kirim").disabled = false;
     kotak.focus();
   }
 });
 
 el("tulis").addEventListener("keydown", (ev) => {
+  // Enter saat memilih huruf di IME (masukan bahasa Asia) hanya menutup daftar
+  // pilihan, bukan mengirim pesan. Tanpa penjaga ini, pesan terkirim separuh
+  // jalan di tengah kata.
+  if (ev.isComposing || ev.keyCode === 229) return;
   if (ev.key === "Enter" && !ev.shiftKey) {
     ev.preventDefault();
     el("form-tulis").requestSubmit();

@@ -87,6 +87,11 @@
 * { box-sizing: border-box; }
 
 html, body { margin: 0; height: 100%; }
+/* Di HP, 100% mengikuti tinggi layar penuh, termasuk bagian yang ditutup papan
+   ketik. Akibatnya kotak ketik tenggelam di balik papan ketik begitu pengguna
+   mengetuknya. dvh mengikuti tinggi yang benar-benar terlihat, dan baris kedua
+   di bawah ini jadi cadangan untuk peramban lama yang belum mengenalnya. */
+html, body { height: 100dvh; }
 
 body {
   background: var(--kertas);
@@ -141,7 +146,7 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
    tiga: grid dengan baris kurang menaruh anak terakhir di baris implisit dan
    .isi ikut melar, jadi tinggi .app melebihi layar dan strip kerja terlihat
    setinggi 1px. */
-.app { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); height: 100%; }
+.app { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); height: 100dvh; }
 /* Grid item yang disembunyikan lewat atribut `hidden` tetap memakan satu baris
    track kalau tidak dimatikan display-nya. */
 .app > [hidden] { display: none; }
@@ -172,6 +177,11 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 }
 .ikon:hover { background: var(--permukaan-hangat); }
 .ikon[aria-expanded="true"] { background: var(--permukaan-hangat); }
+/* Atribut hidden harus benar-benar menyembunyikan, apa pun display yang
+   diminta kelasnya. `.ikon` memakai display:inline-flex, dan itu mengalahkan
+   display:none bawaan atribut hidden, jadi tanpa aturan ini tombol kembali
+   tetap terlihat di kepala menu walau sedang disembunyikan. */
+.ikon[hidden] { display: none; }
 
 .garis-tiga { display: inline-flex; flex-direction: column; gap: 4px; width: 18px; }
 .garis-tiga i { display: block; height: 2px; background: currentColor; border-radius: 2px; }
@@ -463,7 +473,11 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
   padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
   width: 100%; max-width: var(--lebar-baca); margin: 0 auto;
 }
+/* Baris lampiran: hanya tampil kalau ada lampirannya. Atribut hidden harus
+   mengalahkan display:flex, kalau tidak barisnya tetap hidup dan marginnya
+   menyisakan celah kosong di atas kotak ketik. */
 .tulis .lampir { margin-bottom: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.tulis .lampir[hidden] { display: none; }
 
 .kotak-isian {
   border: 1px solid var(--garis-kuat); border-radius: var(--radius-4);
@@ -471,7 +485,11 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
   display: flex; flex-direction: column; gap: 6px;
 }
 .tulis textarea {
-  width: 100%; min-height: 26px; max-height: 200px; resize: none;
+  width: 100%; min-height: 26px; resize: none;
+  /* Tinggi maksimal mengikuti layar, bukan angka mati 200px. Di layar pendek
+     angka mati itu membuat kotak ketik memakan separuh layar dan menyisakan
+     sedikit sekali ruang percakapan. */
+  max-height: min(200px, 34dvh);
   background: transparent; border: 0; outline: none;
   padding: 6px 8px; border-radius: var(--radius-2);
   font-size: 16px; line-height: 1.5;
@@ -759,12 +777,40 @@ pre.isi-berkas {
 }
 .cip.ada { background: transparent; box-shadow: 0 0 0 1px var(--selesai); color: var(--selesai); }
 
-.pesan-singkat {
-  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+/* Pesan singkat dan galat. Ditulis lewat id, bukan kelas: elemennya di HTML
+   tidak pernah memakai kelas apa pun, dan aturan berbasis kelas membuat semua
+   pesan galat tampil tanpa gaya sama sekali, yaitu kotak gelap tanpa teks di
+   luar layar.
+
+   Tempatnya di atas, bukan di bawah. Di bawah, pesannya jatuh tepat di atas
+   kotak ketik, dan begitu papan ketik HP terbuka ia ikut tenggelam di baliknya.
+   Di atas ia selalu terbaca dan tidak pernah menutupi yang sedang ditulis.
+   Tanpa teks, kotaknya disembunyikan supaya tidak ada kotak hitam kosong. */
+#pesan-singkat {
+  position: fixed; left: 50%; top: calc(12px + env(safe-area-inset-top, 0px));
+  transform: translateX(-50%);
   background: var(--tinta); color: var(--kertas); padding: 11px 18px;
   border-radius: var(--radius-2); box-shadow: var(--naik);
-  z-index: 70; max-width: 90vw; font-size: 14px;
+  z-index: 70; max-width: min(92vw, 46ch); font-size: 14px; line-height: 1.4;
+  text-align: center; display: none;
+  /* Tembus ketukan: pesannya hanya pemberitahuan, dan di layar pendek ia bisa
+     menutupi tombol menu. Tanpa ini, tombol yang tertutup tidak bisa ditekan
+     selama empat detik pesannya tampil. */
+  pointer-events: none;
 }
+#pesan-singkat.tampil { display: block; }
+
+/* pemilih ukuran tugas di lembar "+": dipakai di layar sempit, tempat pemilih
+   di baris kotak tulis disembunyikan supaya barisnya muat */
+.pilih-ukuran { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--garis); }
+.judul-ukuran { display: block; font-size: 13px; color: var(--tinta-lembut); margin-bottom: 8px; }
+.deret-ukuran { display: flex; gap: 8px; flex-wrap: wrap; }
+.deret-ukuran button[aria-pressed="true"] {
+  background: var(--aksen-isi); color: var(--aksen-atas); box-shadow: none;
+}
+/* Di layar lebar pemilihnya sudah ada di baris kotak tulis, jadi yang ini
+   disembunyikan supaya tidak ada dua kontrol untuk hal yang sama. */
+@media (min-width: 561px) { .pilih-ukuran { display: none; } }
 
 /* panel kanan berkedip sebentar waktu dibuka dari menu alat */
 .aktivitas.sorot { box-shadow: inset 0 0 0 2px var(--aksen); }
