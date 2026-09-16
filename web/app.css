@@ -92,6 +92,9 @@ html, body { margin: 0; height: 100%; }
    mengetuknya. dvh mengikuti tinggi yang benar-benar terlihat, dan baris kedua
    di bawah ini jadi cadangan untuk peramban lama yang belum mengenalnya. */
 html, body { height: 100dvh; }
+/* Huruf dihaluskan di seluruh aplikasi. Tanpa ini, teks kecil di panel dan
+   daftar terlihat lebih tebal dan bergetar di layar beresolusi tinggi. */
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 
 body {
   background: var(--kertas);
@@ -142,13 +145,20 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 
 /* ---------------------------------------------------------------- kerangka */
 
-/* Empat anak: bar, ticker, strip kerja, dan isi. Barisnya harus empat, bukan
-   tiga: grid dengan baris kurang menaruh anak terakhir di baris implisit dan
-   .isi ikut melar, jadi tinggi .app melebihi layar dan strip kerja terlihat
-   setinggi 1px. */
-.app { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); height: 100dvh; }
-/* Grid item yang disembunyikan lewat atribut `hidden` tetap memakan satu baris
-   track kalau tidak dimatikan display-nya. */
+/* Kolom, bukan grid berbaris tetap.
+   Sebelumnya di sini ada grid dengan empat track tetap (bar, ticker, strip
+   kerja, isi). Masalahnya: strip kerja disembunyikan lewat atribut `hidden`,
+   dan anak yang disembunyikan tidak menempati track. Yang tersisa cuma tiga
+   anak, jadi .isi masuk track KETIGA (auto, setinggi isinya) sementara track
+   keempat (minmax(0,1fr)) tinggal kosong di bawahnya. Akibat terukur: kotak
+   ketik tidak menempel ke bawah, melainkan mengambang di tengah layar dengan
+   sisa 131px kosong di desktop dan 594px di HP. Gejalanya persis yang dilaporkan:
+   kotak ketik kadang di atas, kadang di bawah, tergantung strip kerja muncul
+   atau tidak.
+   Flexbox tidak punya masalah itu: anak yang `hidden` hilang dari aliran, dan
+   .isi selalu mengambil sisa tinggi berapa pun jumlah anak di atasnya. */
+.app { display: flex; flex-direction: column; height: 100dvh; min-height: 0; }
+.app > .isi { flex: 1; min-height: 0; }
 .app > [hidden] { display: none; }
 
 .bar {
@@ -160,12 +170,24 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
   background: var(--kertas);
   position: relative;
 }
+/* Bar tidak ikut menyusut di dalam kolom flex: tanpa ini, satu isi yang panjang
+   bisa memerasnya sampai tingginya tinggal beberapa piksel. */
+.bar, .ticker, .strip-kerja, .kaki { flex: none; }
 .bar .sisa { flex: 1; }
+/* Judul bar: nama aplikasi, jadi ditulis dengan huruf judul. Lebarnya dibatasi
+   supaya deret lambang di kanan tidak pernah terdesak keluar layar. */
 .judul-bar {
   font-family: var(--font-judul); font-size: 17px; font-weight: 500;
   margin-left: 4px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 42vw;
 }
+/* Lambang aplikasi di kepala bar. Bentuknya sama dengan lambang di kepala menu
+   dan di layar kosong: satu berkas, tiga ukuran, tidak ada gambar kembar. */
+.lambang-bar {
+  width: 28px; height: 26px; flex: none; margin-left: 2px;
+  background: url("/logo.png") center / contain no-repeat;
+}
+[data-tema="gelap"] .lambang-bar { background-image: url("/logo-gelap.png"); }
 
 /* ikon: selalu kotak 44px, tanpa pustaka ikon */
 .ikon {
@@ -264,12 +286,25 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 .strip-jam {
   margin-left: auto; font-family: var(--font-mesin); font-size: 11px;
   color: var(--tinta-lembut); flex: none;
+  /* Angka yang berubah tiap detik tidak boleh menggeser tetangganya. */
+  font-variant-numeric: tabular-nums;
 }
 .strip-panah { font-size: 11px; color: var(--tinta-lembut); flex: none; }
 
 .isi {
   display: grid; grid-template-columns: minmax(0, 1fr);
+  /* minmax(0, 1fr) untuk baris, bukan 1fr: track 1fr tidak boleh menyusut di
+     bawah tinggi isinya, jadi satu panel yang panjang membuat .isi tumbuh
+     melewati layar dan seluruh halaman ikut bisa digulir. */
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
+  /* Luberan isi di dalam kolom tidak boleh menular ke halaman: tanpa ini,
+     panel berkas yang berisi ratusan berkas membuat halaman setinggi 5000px
+     dan kotak ketik ikut tergeser saat halaman digulir. */
+  overflow: hidden;
+  /* Halaman tidak pernah punya urusan gulir sendiri: yang menggulir selalu
+     bagian di dalamnya (.alur untuk percakapan, .badan untuk panel). */
+  height: 100%;
 }
 
 /* ------------------------------------------------------------------- chat */
@@ -611,24 +646,36 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--aksen); 
 }
 .ikon-kaki:hover { background: var(--permukaan-hangat); color: var(--tinta); }
 
-/* baris riwayat: penanda sematan, tombol semat, dan tombol hapus */
-.baris-sesi .atas { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.baris-sesi .lambang-semat { display: inline-flex; color: var(--aksen-teks); flex: none; }
-.baris-sesi .semat {
-  border: 0; background: transparent; color: var(--tinta-meta);
-  padding: 0 10px; cursor: pointer; min-width: var(--tinggi-target);
-  display: inline-flex; align-items: center; justify-content: center;
-}
-.baris-sesi .semat:hover { color: var(--tinta); }
-.baris-sesi .semat.aktif { color: var(--aksen-teks); }
+/* baris riwayat: satu tombol penuh per baris, aksinya di menu titik tiga.
+   Aturan lamanya dihapus seluruhnya: `.daftar .baris-sesi > button:first-child`
+   berspesifisitas lebih tinggi daripada aturan baris yang baru, jadi kalau
+   dibiarkan ia tetap menang dan tata letaknya kembali menumpuk. */
 
 /* --------------------------------------------------------------- panel alat */
 
 .aktivitas {
   display: none; border-left: 1px solid var(--garis);
-  min-height: 0; flex-direction: column;
+  /* min-height:0 dan overflow:hidden keduanya wajib. Kolom flex tidak boleh
+     menyusut di bawah tinggi isinya, jadi tanpa keduanya panel berkas yang
+     berisi ratusan berkas menggelembungkan .aktivitas, .isi, dan seluruh
+     halaman: halaman jadi setinggi 5000px dan kotak ketik ikut tergeser saat
+     halaman digulir. Gejalanya persis "kotak ketik tidak konsisten". */
+  min-height: 0; overflow: hidden;
+  flex-direction: column;
 }
-.aktivitas .badan { flex: 1; overflow-y: auto; }
+.aktivitas .badan {
+  flex: 1 1 0; overflow-y: auto; min-height: 0;
+  /* contain: layout paint WAJIB di sini, bukan sekadar kerapian.
+     Kolom grid tidak boleh menyusut di bawah tinggi isinya, dan itu berlaku
+     untuk isi yang sedang dipotong oleh overflow:auto di dalamnya. Akibat
+     terukurnya: folder kerja dengan 108 berkas membuat panel berkas setinggi
+     5023px, dan tinggi itu naik lewat .aktivitas sampai ke <html>, sehingga
+     halaman setinggi 4975px. Kotak ketik yang seharusnya menempel di bawah
+     ikut tergeser jauh ke bawah saat halaman digulir. contain memutus
+     perambatan ukuran itu: panel tetap bisa digulir sendiri, halaman tetap
+     setinggi layar. Terukur: 4975px -> 900px, gulir internal tetap jalan. */
+  contain: layout paint;
+}
 
 .segmen { display: flex; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--garis); }
 .segmen button {
@@ -703,8 +750,97 @@ pre.isi-berkas {
   box-shadow: var(--naik);
 }
 .lembar.tampil { transform: translateX(0); }
-.lembar.kiri { left: 0; right: auto; width: min(232px, 68vw); border-radius: 0 var(--radius-3) var(--radius-3) 0; transform: translateX(-102%); }
+.lembar.kiri { left: 0; right: auto; width: min(280px, 84vw); border-radius: 0 var(--radius-3) var(--radius-3) 0; transform: translateX(-102%); }
 .lembar.kiri.tampil { transform: translateX(0); }
+
+/* Kepala menu: lambang aplikasi, judul, tombol tutup. Tingginya 56px mengikuti
+   contoh (kepala menu di foto 1080px setara 56px di sini), dan lambangnya
+   memakai berkas yang sama dengan kepala bar supaya tidak ada dua bentuk. */
+.lembar.kiri .kepala { padding: 6px 8px 6px 12px; gap: 10px; min-height: 56px; }
+/* Di halaman isi (judul berubah, tombol kembali muncul) lambangnya
+   disembunyikan: dua lambang aplikasi berdampingan dengan tombol kembali
+   membuat kepala terlihat sesak dan judulnya bergeser-geser antar halaman. */
+.lembar.kiri.mode-isi .kepala .lambang-menu { display: none; }
+.lembar .kepala .lambang-menu {
+  width: 30px; height: 28px; flex: none;
+  background: url("/logo.png") center / contain no-repeat;
+}
+[data-tema="gelap"] .lembar .kepala .lambang-menu { background-image: url("/logo-gelap.png"); }
+.lembar.kiri .kepala h2 { font-size: 20px; font-weight: 500; }
+.lembar.kiri .kepala .ikon { width: 40px; height: 40px; }
+
+/* Daftar menu: tinggi baris 48px seperti contoh, jarak antar baris rapat.
+   Ikonnya dibatasi 22px supaya semua judul baris rata kiri, tidak bergeser
+   mengikuti lebar lambangnya. */
+.nav-alat { padding: 4px 6px 10px; }
+.nav-alat button {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  background: transparent; border: 0; cursor: pointer; text-align: left;
+  padding: 10px 12px; border-radius: var(--radius-2); font-size: 15px;
+  min-height: 48px;
+}
+.nav-alat button:hover { background: var(--permukaan-hangat); }
+.nav-alat button[aria-current="true"] { background: var(--permukaan-hangat); font-weight: 500; }
+.ikon-nav { width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; color: var(--tinta-meta); flex: none; }
+
+/* Riwayat percakapan.
+   Aturan lama memasang .daftar .baris-sesi sebagai flex berisi tiga tombol:
+   judul, semat, dan hapus. Di lembar selebar 232px, dua tombol ikon 44px
+   memakan hampir separuh lebar, judulnya terpotong jadi satu kata, dan
+   barisnya terasa menumpuk. Sekarang barisnya satu tombol penuh: judul di atas,
+   waktu di bawah. Aksi semat dan hapus pindah ke SATU tombol titik tiga di
+   kanan baris, jadi lebarnya tetap dan judulnya dapat ruang. */
+.daftar { display: flex; flex-direction: column; padding: 0 6px 12px; }
+.baris-sesi {
+  position: relative; display: flex; align-items: center;
+  border-radius: var(--radius-2); min-height: 48px;
+}
+.baris-sesi + .baris-sesi { border-top: 0; }
+.baris-sesi > button.buka {
+  flex: 1; min-width: 0; text-align: left; background: transparent; border: 0;
+  padding: 11px 40px 11px 12px; cursor: pointer; border-radius: var(--radius-2);
+  min-height: 44px;
+  display: flex; align-items: center;
+}
+.baris-sesi > button.buka:hover { background: var(--sorot); }
+.baris-sesi > button.buka[aria-current="true"] { background: var(--sorot); }
+.baris-sesi .atas { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.baris-sesi .lambang-semat { display: inline-flex; color: var(--aksen-teks); flex: none; }
+.baris-sesi .judul {
+  font-weight: 500; font-size: 14px; line-height: 1.35; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Judul pendek dibungkus seimbang supaya tidak menyisakan satu kata menggantung
+   di baris kedua. Yang panjang tetap satu baris dengan elipsis: daftar riwayat
+   harus bisa dipindai cepat, dan dua baris judul membuat barisnya tidak rata. */
+.baris-sesi .judul.pendek { white-space: normal; text-wrap: balance; }
+.baris-sesi .waktu {
+  font-family: var(--font-mesin); font-size: 11px; color: var(--tinta-meta);
+  margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Tombol titik tiga di kanan baris: menunya berisi semat dan hapus, jadi satu
+   baris hanya punya satu kontrol tambahan. */
+.baris-sesi .aksi-sesi {
+  position: absolute; right: 2px; top: 50%; transform: translateY(-50%);
+  border: 0; background: transparent; color: var(--tinta-meta);
+  width: 36px; height: 36px; border-radius: var(--radius-1); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.baris-sesi .aksi-sesi:hover { background: var(--permukaan-hangat); color: var(--tinta); }
+.baris-sesi .menu-sesi {
+  position: absolute; right: 4px; top: calc(50% + 20px); z-index: 5;
+  background: var(--permukaan); border-radius: var(--radius-2);
+  box-shadow: 0 0 0 1px var(--garis-kuat), var(--naik);
+  padding: 4px; min-width: 190px; display: flex; flex-direction: column; gap: 2px;
+}
+.baris-sesi .menu-sesi[hidden] { display: none; }
+.baris-sesi .menu-sesi button {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: transparent; border: 0; cursor: pointer; padding: 10px 12px;
+  border-radius: var(--radius-1); font-size: 14px; min-height: var(--tinggi-target);
+}
+.baris-sesi .menu-sesi button:hover { background: var(--permukaan-hangat); }
+.baris-sesi .menu-sesi button.bahaya { color: var(--galat); }
 .lembar.bawah {
   top: auto; left: 0; right: 0; width: 100%; bottom: 0; max-height: 84vh;
   border-radius: var(--radius-3) var(--radius-3) 0 0;
@@ -728,33 +864,10 @@ pre.isi-berkas {
 .baris-aksi:hover { background: var(--sorot); }
 .baris-aksi .petunjuk { font-size: 12px; color: var(--tinta-meta); margin-left: auto; }
 
-.nav-alat { padding: 8px; }
-.nav-alat button {
-  display: flex; align-items: center; gap: 12px; width: 100%;
-  background: transparent; border: 0; cursor: pointer; text-align: left;
-  padding: 11px 12px; border-radius: var(--radius-2); font-size: 15px;
-  min-height: var(--tinggi-target);
-}
-.nav-alat button:hover { background: var(--permukaan-hangat); }
-.nav-alat button[aria-current="true"] { background: var(--permukaan-hangat); font-weight: 500; }
-.ikon-nav { width: 20px; display: inline-flex; justify-content: center; color: var(--tinta-meta); flex: none; }
-
-.daftar .baris-sesi { display: flex; align-items: stretch; }
-.daftar .baris-sesi + .baris-sesi { border-top: 1px solid var(--garis); }
-.daftar .baris-sesi > button:first-child {
-  flex: 1; text-align: left; background: transparent; border: 0;
-  padding: 12px 16px; cursor: pointer; min-height: var(--tinggi-target);
-}
-.daftar .baris-sesi > button:first-child:hover { background: var(--sorot); }
-.daftar .baris-sesi > button[aria-current="true"] { background: var(--sorot); box-shadow: inset 2px 0 0 var(--aksen); }
-/* baris riwayat: hanya judul percakapan, tanpa cuplikan jawaban */
-.baris-sesi .judul { font-weight: 500; font-size: 14px; line-height: 1.35; }
-.baris-sesi .waktu { font-family: var(--font-mesin); font-size: 11px; color: var(--tinta-meta); margin-top: 3px; }
-.baris-sesi .hapus {
-  border: 0; background: transparent; color: var(--tinta-meta);
-  padding: 0 14px; cursor: pointer; font-size: 13px; min-width: var(--tinggi-target);
-}
-.baris-sesi .hapus:hover { color: var(--galat); }
+/* Daftar menu dan ikonnya sudah diatur di bagian "lembar kiri" di atas.
+   Aturan lama di sini dihapus: ditulis SESUDAH aturan baru dengan
+   spesifisitas yang sama, jadi ia yang menang dan daftar menu kembali ke
+   tinggi 46px dengan ikon 20px. */
 
 /* panel kerja: baris kejadian yang lebih ringkas di kolom sempit.
    minmax(0, 1fr) wajib: 1fr saja tidak boleh menyusut di bawah lebar isinya,
@@ -827,9 +940,11 @@ pre.isi-berkas {
      menyisakan kolomnya membuat chat terjepit di kolom pertama selebar 292px
      dan sisi kanannya kosong. */
   .isi { grid-template-columns: minmax(0, 1fr); }
-  /* panel kerja pindah ke lembar alat lewat wadahnya, jadi harus bisa tampil
-     di sana: di >=1280px ia disembunyikan supaya tidak jadi kolom kedua */
-  #wadah-aktivitas { display: block; }
+  /* Panel aktivitas pindah ke dalam lembar alat, jadi tempat parkirnya tidak
+     boleh ikut mengambil tempat di grid: kalau ikut, ia jadi baris kedua dan
+     .chat diperas jadi setinggi isinya, menyisakan celah di bawah kotak ketik
+     (terukur: 51px). */
+  #wadah-aktivitas { display: none; }
   .aktivitas { display: flex; }
   /* panel kerja ikut pindah ke dalam lembar alat. Tanpa kolom yang bisa
      menyusut, satu baris panjang melebarkan seluruh halaman. */
@@ -846,6 +961,10 @@ pre.isi-berkas {
   .aktivitas { display: flex; }
   .alur { padding: 8px 28px 24px; }
   .segmen button, .tombol.kecil { min-height: 36px; }
+  /* Di desktop baris menu justru dipadatkan: 48px di daftar setinggi layar
+     membuat tujuh baris terlihat jarang, dan di sini tingginya tidak dibatasi
+     jari. 44px masih di atas ambang target sentuh. */
+  .nav-alat button { min-height: 44px; padding: 9px 12px; }
 }
 
 /* ------------------------------------------------------------ layar sempit */

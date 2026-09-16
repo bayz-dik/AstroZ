@@ -13,6 +13,7 @@ const keadaan = {
   modelTersaring: { q: "", hanyaHidup: false },
   modelLembar: { q: "", hanyaHidup: false },
   pindah: new Set(),        // id tugas yang sudah dipindah dari aktivitas ke chat
+  berkas: [],               // daftar berkas folder kerja, untuk disaring tanpa memuat ulang
 };
 
 /* ------------------------------------------------------------------ bantuan */
@@ -97,6 +98,7 @@ const JALUR_IKON = {
   catatan: "M4 6.5h16M4 12h16M4 17.5h10",
   model: "M8.5 8.5h7v7h-7zM12 3.5V8.5M12 15.5v5M3.5 12h5M15.5 12h5M5.6 5.6 8.5 8.5M15.5 15.5l2.9 2.9M18.4 5.6 15.5 8.5M8.5 15.5l-2.9 2.9",
   "titik-tiga": "M12 6.4h.01M12 12h.01M12 17.6h.01",
+  hapus: "M5 7h14M9.5 7V5.2h5V7M7 7l.9 12.1h8.2L17 7M10.4 10.6v5.6M13.6 10.6v5.6",
   lain: "M12 6.4h.01M12 12h.01M12 17.6h.01",
 };
 
@@ -195,11 +197,30 @@ el("tirai").addEventListener("click", tutupSemuaLembar);
 for (const b of document.querySelectorAll("[data-tutup]")) b.addEventListener("click", tutupSemuaLembar);
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  // Urutan tutup: halaman dulu, lalu lembar, lalu menu titik tiga. Halaman
-  // menumpuk di atas lembar, jadi menutupnya lebih dulu sesuai yang terlihat.
+  // Urutan tutup: halaman dulu, lalu lembar, lalu menu titik tiga, lalu menu
+  // aksi baris riwayat. Halaman menumpuk di atas lembar, jadi menutupnya lebih
+  // dulu sesuai yang terlihat.
   if (el("halaman") && !el("halaman").hidden) { tutupHalaman(); return; }
+  if (tutupMenuSesi()) return;
   tutupSemuaLembar();
   tutupMenuTitik();
+});
+
+/* Menu aksi satu baris riwayat (semat, hapus). Satu yang terbuka pada satu
+   waktu: menu yang tertinggal terbuka di baris lain membuat daftar terlihat
+   penuh dan pengguna tidak tahu mana yang sedang aktif. */
+function tutupMenuSesi() {
+  let ada = false;
+  for (const m of document.querySelectorAll(".menu-sesi")) {
+    if (!m.hidden) ada = true;
+    m.hidden = true;
+    const a = m.parentElement && m.parentElement.querySelector(".aksi-sesi");
+    if (a) a.setAttribute("aria-expanded", "false");
+  }
+  return ada;
+}
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".menu-sesi") && !e.target.closest(".aksi-sesi")) tutupMenuSesi();
 });
 
 function tutupMenuTitik() {
@@ -355,6 +376,10 @@ function bukaMenu(nama) {
   el("alat-obrolan").hidden = nama !== "obrolan";
   el("judul-alat").textContent = nama === "obrolan" ? "Riwayat percakapan" : "Menu";
   el("kembali-alat").hidden = nama !== "obrolan";
+  // Lambang aplikasi hanya di halaman daftar menu. Di halaman riwayat, tombol
+  // kembali sudah ada di posisi yang sama, dan dua hal di satu tempat membuat
+  // judulnya bergeser saat berpindah halaman.
+  el("lembar-alat").classList.toggle("mode-isi", nama === "obrolan");
   if (!diLembar) { bukaHalaman(nama); return; }
   bukaLembar("lembar-alat");
   if (nama === "obrolan") muatSesi();
@@ -832,10 +857,14 @@ function tanyaUlang(p) {
    kejadian yang sudah ada. Ini yang membuat percakapan tidak perlu panel
    aktivitas terpisah untuk hal-hal pokok. */
 
-function keDasar() {
+function keDasar(paksa = false) {
   const a = el("alur");
+  // Paksa: saat percakapan baru dibuka atau digambar ulang. Tanpa paksa, satu
+  // catatan lama yang posisi gulirnya tidak di dasar membuat percakapan yang
+  // baru dibuka tampil di tengah, dan pengguna harus menggulir sendiri untuk
+  // melihat pesan terakhir.
   const dekat = a.scrollHeight - a.scrollTop - a.clientHeight < 140;
-  if (dekat || !a._pernah) a.scrollTop = a.scrollHeight;
+  if (paksa || dekat || !a._pernah) a.scrollTop = a.scrollHeight;
   a._pernah = true;
 }
 
@@ -876,6 +905,13 @@ el("sesi-baru").addEventListener("click", sesiBaru);
 
 /* ----------------------------------------------------------- riwayat sesi */
 
+/* Riwayat percakapan.
+   Satu baris = satu tombol penuh (judul di atas, waktu di bawah) plus satu
+   tombol titik tiga. Sebelumnya tiap baris punya DUA tombol ikon tetap, semat
+   dan hapus: di lembar selebar 232px keduanya memakan hampir separuh lebar,
+   judulnya terpotong jadi satu kata, dan barisnya terlihat menumpuk. Aksi yang
+   jarang dipakai sekarang ada di dalam menu, jadi lebar baris tetap dan judul
+   dapat ruang. */
 function gambarDaftarSesi(daftar) {
   const wadah = el("daftar-sesi");
   wadah.replaceChildren();
@@ -885,11 +921,9 @@ function gambarDaftarSesi(daftar) {
   }
   for (const s of daftar) {
     const baris = buat("div", "baris-sesi" + (s.pinned ? " disematkan" : ""));
-    const b = buat("button");
+    const b = buat("button", "buka");
     b.type = "button";
     if (s.id === keadaan.sesi) b.setAttribute("aria-current", "true");
-    // Hanya judul percakapan. Cuplikan jawaban tidak ditampilkan supaya daftar
-    // tetap ringkas dan mudah dipindai.
     const atas = buat("div", "atas");
     if (s.pinned) {
       const l = buat("span", "lambang-semat");
@@ -897,35 +931,65 @@ function gambarDaftarSesi(daftar) {
       l.appendChild(ikon("sematkan", 14));
       atas.appendChild(l);
     }
-    atas.appendChild(buat("div", "judul", s.title || "Percakapan baru"));
+    atas.appendChild(buat("div", "judul" + ((s.title || "").length <= 28 ? " pendek" : ""), s.title || "Percakapan baru"));
     b.appendChild(atas);
-    b.appendChild(buat("div", "waktu", `${tanggalPendek(s.updated || s.created)}  ${(s.tasks || []).length} tugas`));
+    // Waktu dan jumlah tugas tidak ditulis sebagai baris kedua. Dua baris per
+    // percakapan membuat daftar terlihat menumpuk, dan itu yang dikeluhkan.
+    // Informasinya tetap ada sebagai judul ketukan (tooltip), jadi tidak ada
+    // yang hilang, hanya tidak lagi memakan tinggi.
+    b.title = `${s.title || "Percakapan baru"} · ${tanggalPendek(s.updated || s.created)} · ${(s.tasks || []).length} tugas`;
     b.addEventListener("click", () => { bukaSesi(s.id); tutupSemuaLembar(); });
-    // Sematkan di baris riwayat: menaikkan percakapan ke atas daftar.
-    const semat = buat("button", "semat" + (s.pinned ? " aktif" : ""));
-    semat.type = "button";
-    semat.title = s.pinned ? "Lepas sematan" : "Sematkan percakapan";
-    semat.setAttribute("aria-label", (s.pinned ? "Lepas sematan " : "Sematkan ") + (s.title || ""));
-    semat.setAttribute("aria-pressed", String(!!s.pinned));
-    semat.appendChild(ikon("sematkan", 16));
-    semat.addEventListener("click", async (ev) => {
-      ev.stopPropagation();
+
+    const aksi = buat("button", "aksi-sesi");
+    aksi.type = "button";
+    aksi.setAttribute("aria-label", "Aksi untuk percakapan " + (s.title || ""));
+    aksi.setAttribute("aria-haspopup", "menu");
+    aksi.setAttribute("aria-expanded", "false");
+    aksi.appendChild(ikon("titik-tiga", 18));
+    const menu = buat("div", "menu-sesi");
+    menu.setAttribute("role", "menu");
+    menu.hidden = true;
+
+    const tombolSemat = buat("button");
+    tombolSemat.type = "button";
+    tombolSemat.setAttribute("role", "menuitem");
+    tombolSemat.appendChild(ikon("sematkan", 16));
+    tombolSemat.appendChild(buat("span", "", s.pinned ? "Lepas sematan" : "Sematkan"));
+    tombolSemat.addEventListener("click", async () => {
+      menu.hidden = true;
+      aksi.setAttribute("aria-expanded", "false");
       await kirim(`/api/sessions/${s.id}/sematkan`, { pinned: !s.pinned });
       await muatSesi();
       pesanSingkat(s.pinned ? "Sematan dilepas." : "Percakapan disematkan di atas.");
     });
-    const hapus = buat("button", "hapus", "hapus");
-    hapus.type = "button";
-    hapus.setAttribute("aria-label", "hapus percakapan " + (s.title || ""));
-    hapus.addEventListener("click", async (ev) => {
-      ev.stopPropagation();
+
+    const tombolHapus = buat("button", "bahaya");
+    tombolHapus.type = "button";
+    tombolHapus.setAttribute("role", "menuitem");
+    tombolHapus.appendChild(ikon("hapus", 16));
+    tombolHapus.appendChild(buat("span", "", "Hapus"));
+    tombolHapus.addEventListener("click", async () => {
+      menu.hidden = true;
+      aksi.setAttribute("aria-expanded", "false");
       if (!confirm("Hapus percakapan ini dari daftar? Tugas dan berkasnya tetap ada.")) return;
       await minta(`/api/sessions/${s.id}`, { method: "DELETE" });
       if (s.id === keadaan.sesi) sesiBaru();
       await muatSesi();
       pesanSingkat("Percakapan dihapus dari daftar.");
     });
-    baris.append(b, semat, hapus);
+
+    menu.append(tombolSemat, tombolHapus);
+    aksi.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const buka = menu.hidden;
+      // Hanya satu menu riwayat yang boleh terbuka: menu yang tertinggal
+      // terbuka di baris lain membuat daftar terlihat penuh dan tidak rapi.
+      for (const lain of wadah.querySelectorAll(".menu-sesi")) lain.hidden = true;
+      for (const lain of wadah.querySelectorAll(".aksi-sesi")) lain.setAttribute("aria-expanded", "false");
+      menu.hidden = !buka;
+      aksi.setAttribute("aria-expanded", String(buka));
+    });
+    baris.append(b, aksi, menu);
     wadah.appendChild(baris);
   }
 }
@@ -985,6 +1049,11 @@ async function bukaSesi(id) {
     }
     const jalan = pesan.filter((m) => m.role !== "user" && m.status === "running").map((m) => m.task);
     keadaan.tugasJalan = jalan.length ? jalan[jalan.length - 1] : null;
+    // Percakapan yang baru dibuka selalu tampil dari pesan terakhir. Posisi
+    // gulir .alur dipakai bersama semua percakapan, jadi tanpa paksa, membuka
+    // percakapan panjang setelah menggulir di percakapan lain menampilkan
+    // bagian tengah percakapan.
+    keDasar(true);
     // Panel kerja menampilkan tugas terakhir di percakapan ini.
     const semua = s.tasks || [];
     kerjaTugas = keadaan.tugasJalan || (semua.length ? semua[semua.length - 1] : null);
@@ -1713,25 +1782,54 @@ async function muatPekerjaPasang() {
 
 /* -------------------------------------------------------- panel: berkas */
 
+/* Daftar berkas dipotong, bukan ditampilkan seluruhnya.
+   Terukur di mesin ini: folder kerja berisi 108 berkas, dan daftar penuh
+   setinggi 4320px di dalam panel yang hanya 784px. Gulirannya tetap ada, tapi
+   menelusuri 108 baris untuk mencari satu berkas tidak masuk akal di layar HP.
+   Yang ditampilkan 60 baris pertama plus satu baris keterangan berapa yang
+   disembunyikan; pencarian berkas dilakukan lewat kotak cari di bawahnya. */
+const BATAS_BARIS_BERKAS = 60;
+
+let saringBerkas = "";
+
+function gambarPohonBerkas(entries) {
+  const wadah = el("pohon-berkas");
+  wadah.replaceChildren();
+  const kata = saringBerkas.trim().toLowerCase();
+  const cocok = kata ? entries.filter((b) => b.path.toLowerCase().includes(kata)) : entries;
+  if (!cocok.length) {
+    wadah.appendChild(buat("p", "kosong", kata ? "Tidak ada berkas yang cocok." : "Folder kerja masih kosong."));
+    return;
+  }
+  const tampil = cocok.slice(0, BATAS_BARIS_BERKAS);
+  for (const b of tampil) {
+    const tombol = buat("button", null, `${b.type === "dir" ? "[folder] " : ""}${b.path}${b.size ? "  " + b.size + " b" : ""}`);
+    tombol.type = "button";
+    if (b.type === "dir") tombol.disabled = true;
+    else tombol.addEventListener("click", () => bukaBerkas(b.path));
+    wadah.appendChild(tombol);
+  }
+  if (cocok.length > tampil.length) {
+    wadah.appendChild(buat("p", "kosong",
+      `Menampilkan ${tampil.length} dari ${cocok.length} berkas. Pakai kotak cari untuk menyaring.`));
+  }
+}
+
 async function muatBerkas() {
   try {
     const d = await ambil("/api/project/tree");
     el("dir-kerja").textContent = "Folder kerja: " + d.dir;
-    const wadah = el("pohon-berkas");
-    wadah.replaceChildren();
-    const entries = d.entries || [];
-    if (!entries.length) wadah.appendChild(buat("p", "kosong", "Folder kerja masih kosong."));
-    for (const b of entries) {
-      const tombol = buat("button", null, `${b.type === "dir" ? "[folder] " : ""}${b.path}${b.size ? "  " + b.size + " b" : ""}`);
-      tombol.type = "button";
-      if (b.type === "dir") tombol.disabled = true;
-      else tombol.addEventListener("click", () => bukaBerkas(b.path));
-      wadah.appendChild(tombol);
-    }
+    keadaan.berkas = d.entries || [];
+    gambarPohonBerkas(keadaan.berkas);
   } catch (e) {
     el("pohon-berkas").replaceChildren(buat("p", "kosong", "Daftar berkas tidak bisa dimuat: " + e.message));
   }
 }
+
+el("cari-berkas").addEventListener("input", (ev) => {
+  saringBerkas = ev.target.value;
+  gambarPohonBerkas(keadaan.berkas || []);
+});
 
 async function bukaBerkas(path) {
   el("nama-berkas").textContent = path;

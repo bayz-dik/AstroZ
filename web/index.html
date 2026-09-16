@@ -23,6 +23,7 @@
     <button type="button" class="ikon" id="buka-alat" aria-label="Menu" title="Menu" aria-haspopup="dialog">
       <span class="garis-tiga" aria-hidden="true"><i></i><i></i><i></i></span>
     </button>
+    <span class="lambang-bar" id="lambang-bar" aria-hidden="true"></span>
     <span class="judul-bar" id="judul-bar">AstroZ</span>
     <span class="sisa"></span>
     <button type="button" class="ikon" id="buka-sesi" aria-label="Riwayat percakapan" title="Riwayat percakapan" aria-haspopup="dialog">
@@ -104,6 +105,8 @@
         <section class="panel" id="panel-berkas">
           <h2>Berkas kerja</h2>
           <p class="catatan" id="dir-kerja"></p>
+          <label class="sr" for="cari-berkas">Cari berkas</label>
+          <input id="cari-berkas" type="search" placeholder="cari nama berkas atau folder">
           <div class="kelompok"><button type="button" class="tombol kecil garis" id="muat-berkas">Muat ulang</button></div>
           <div class="pohon" id="pohon-berkas"></div>
           <h2 style="margin-top:16px" id="nama-berkas">Isi berkas</h2>
@@ -198,6 +201,9 @@
     <button type="button" class="ikon" id="kembali-alat" aria-label="Kembali ke daftar menu" title="Kembali ke daftar menu" hidden>
       <span data-ikon="kembali" data-ukuran="20" aria-hidden="true"></span>
     </button>
+    <!-- Lambang aplikasi di kepala menu: sama bentuknya dengan lambang di
+         kepala bar dan di layar kosong, hanya ukurannya yang beda. -->
+    <span class="lambang-menu" id="lambang-menu" aria-hidden="true"></span>
     <h2 id="judul-alat">Menu</h2>
     <button type="button" class="ikon" data-tutup aria-label="Tutup">✕</button>
   </div>
