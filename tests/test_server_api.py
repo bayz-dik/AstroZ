@@ -33,24 +33,96 @@ def test_rute_tetap_sebelum_rute_dinamis():
     assert jalur.index("/api/tasks/running") < jalur.index("/api/tasks/{tid}")
 
 
+def _req(token: str = ""):
+    """Request palsu untuk memanggil endpoint langsung di dalam tes.
+
+    Sejak ada autentikasi, endpoint menerima `request` dan membacanya untuk tahu
+    siapa yang meminta. Tes yang memanggil fungsinya langsung harus menyediakan
+    satu, dan di sini sengaja dibuat lewat jalur yang sama dengan server:
+    token di header Authorization.
+    """
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "headers": [(b"authorization", f"Bearer {token}".encode())] if token else [],
+        "query_string": b"",
+    }
+    r = server.Request(scope)
+    r.state.pengguna = None
+    return r
+
+
+def _token_admin() -> str:
+    """Token admin yang sah untuk tes.
+
+    Token asli tidak bisa dibaca lagi (hanya sidik jarinya yang disimpan), jadi
+    akun khusus tes dibuat sekali. Dipanggil berulang: kalau akunnya sudah ada,
+    tokennya diterbitkan ulang supaya tes tidak gagal karena "nama sudah dipakai".
+    """
+    import users
+    users.load()
+    if not users.admin_pertama():
+        a = users.siapkan_pertama()
+        return (a or {}).get("token", "")
+    for nama in ("uji-admin", "uji-biasa"):
+        if users.ambil(nama):
+            return users.setel_ulang_token(nama)["token"]
+    return users.buat("uji-admin", "admin")["token"]
+
+
 def test_api_state_tidak_membocorkan_kunci_gateway(cfg_sementara):
     """UI bind 0.0.0.0: apa pun di /api/state terbaca semua host di jaringan."""
-    hasil = asyncio.run(server.state())
+    hasil = asyncio.run(server.state(_req(_token_admin())))
     teks = json.dumps(hasil)
     assert "kunci-uji" not in teks
     assert hasil["gateway"].get("api_key") in (None, "")
     assert "has_key" in hasil["gateway"]
 
 
-def test_endpoint_running_menjawab_lewat_fungsi():
-    hasil = asyncio.run(server.tasks_running())
+def test_state_menyembunyikan_daftar_model_dari_pengguna_biasa(cfg_sementara):
+    """Daftar model menyangkut kunci dan kuota pemilik mesin."""
+    import users
+    users.load()
+    if users.ambil("uji-biasa"):
+        token = users.setel_ulang_token("uji-biasa")["token"]
+    else:
+        token = users.buat("uji-biasa", "user")["token"]
+    hasil = asyncio.run(server.state(_req(token)))
+    assert hasil["peran"] == "user"
+    assert "models" not in hasil["gateway"]
+    assert "model_meta" not in hasil["gateway"]
+    assert hasil["worker_cfg"] == {}
+
+
+def test_endpoint_running_menjawab_lewat_fungsi(cfg_sementara):
+    hasil = asyncio.run(server.tasks_running(_req(_token_admin())))
     assert hasil["ok"] is True
     assert isinstance(hasil["running"], list)
 
 
-def _http_get(jalur: str, port: int, timeout: float = 8.0) -> tuple[int, str]:
-    with urllib.request.urlopen(f"http://127.0.0.1:{port}{jalur}", timeout=timeout) as r:
+def _http_get(jalur: str, port: int, timeout: float = 8.0, token: str = "") -> tuple[int, str]:
+    req = urllib.request.Request(f"http://127.0.0.1:{port}{jalur}")
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.status, r.read().decode("utf-8", "replace")
+
+
+def _token_dari_runtime() -> str:
+    """Token admin dari runtime server yang sedang jalan.
+
+    Server menyimpan hanya sidik jarinya, jadi token aslinya dibaca dari berkas
+    yang ditulis sekali saat akun pertama dibuat.
+    """
+    import re
+    import pathlib
+    import config
+    f = pathlib.Path(config.RUNTIME) / "admin_token.txt"
+    if not f.exists():
+        return ""
+    m = re.search(r"^([A-Za-z0-9_-]{20,})$", f.read_text(), re.M)
+    return m.group(1) if m else ""
 
 
 def test_api_lewat_http_sungguhan():
@@ -59,6 +131,10 @@ def test_api_lewat_http_sungguhan():
     Diukur: `/api/tasks/running` benar saat diimpor langsung, tetapi 404 lewat
     HTTP karena `/api/tasks/{tid}` didaftarkan lebih dulu. Hanya panggilan HTTP
     yang bisa menangkap itu, jadi tes ini memanggil server yang sedang jalan.
+
+    Sejak ada autentikasi, tes ini juga memeriksa gerbangnya: tanpa token harus
+    401, dan halaman UI sendiri harus tetap terbuka supaya layar masuk bisa
+    dimuat.
     """
     port = int(os.environ.get("UI_PORT") or 8799)
     try:
@@ -67,17 +143,31 @@ def test_api_lewat_http_sungguhan():
     except OSError:
         pytest.skip(f"UI belum jalan di :{port} (jalankan ./run.sh)")
 
-    status, body = _http_get("/api/tasks/running", port)
+    # Tanpa token: API tertutup, halaman UI terbuka.
+    try:
+        _http_get("/api/state", port)
+        raise AssertionError("/api/state tanpa token seharusnya 401")
+    except urllib.error.HTTPError as e:
+        assert e.code == 401
+    status, body = _http_get("/", port)
+    assert status == 200
+    assert "<html" in body.lower()
+
+    token = _token_dari_runtime()
+    if not token:
+        pytest.skip("token admin belum ada di runtime; buka UI sekali dulu")
+
+    status, body = _http_get("/api/tasks/running", port, token=token)
     assert status == 200
     assert json.loads(body)["ok"] is True
 
-    status, body = _http_get("/api/state", port)
+    status, body = _http_get("/api/state", port, token=token)
     assert status == 200
     state = json.loads(body)
     assert state["gateway"].get("api_key") in (None, "")
 
     try:
-        _http_get("/api/tasks/tidak-ada-tugas-ini", port)
+        _http_get("/api/tasks/tidak-ada-tugas-ini", port, token=token)
         raise AssertionError("id tugas palsu seharusnya 404")
     except urllib.error.HTTPError as e:
         assert e.code == 404

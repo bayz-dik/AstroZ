@@ -15,6 +15,20 @@
 <body>
 <a class="lewati" href="#tulis">Lewati ke kotak pesan</a>
 
+<!-- Layar masuk. Halaman UI sendiri terbuka tanpa token supaya layar ini bisa
+     dimuat, tetapi seluruh datanya baru mengalir setelah token diterima. -->
+<div class="gerbang" id="gerbang" hidden>
+  <form class="kartu-masuk" id="form-masuk">
+    <span class="lambang-masuk" id="lambang-masuk" aria-hidden="true"></span>
+    <h1>Masuk AstroZ</h1>
+    <p class="catatan">Tempel token yang diberikan admin. Token disimpan sebagai cookie di peramban ini.</p>
+    <label class="sr" for="token-masuk">Token</label>
+    <input id="token-masuk" type="password" autocomplete="current-password" placeholder="token" required>
+    <button type="submit" class="tombol penuh" id="tombol-masuk">Masuk</button>
+    <p class="pesan-masuk" id="pesan-masuk" role="alert"></p>
+  </form>
+</div>
+
 <div class="app">
   <header class="bar">
     <!-- Menu di paling kiri, lalu judul. Riwayat dan menu percakapan di kanan

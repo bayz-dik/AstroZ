@@ -10,11 +10,91 @@ const keadaan = {
   lampiran: null,
   modelSekarang: "",
   pekerja: [],
+  peran: "user",            // dari /api/saya; menentukan apa yang boleh tampil
+  saya: "",
   modelTersaring: { q: "", hanyaHidup: false },
   modelLembar: { q: "", hanyaHidup: false },
   pindah: new Set(),        // id tugas yang sudah dipindah dari aktivitas ke chat
   berkas: [],               // daftar berkas folder kerja, untuk disaring tanpa memuat ulang
 };
+
+/* ------------------------------------------------------------------ masuk */
+
+/* Gerbang masuk. Halaman terbuka tanpa token supaya form ini bisa dimuat, dan
+   seluruh data baru mengalir setelah /api/masuk menerima tokennya. */
+function tampilkanGerbang(tampil) {
+  const g = el("gerbang");
+  if (!g) return;
+  g.hidden = !tampil;
+  el("app")?.setAttribute("aria-hidden", tampil ? "true" : "false");
+  if (tampil) {
+    // Isi halaman disembunyikan, bukan dihapus: setelah masuk, semuanya kembali
+    // seperti semula tanpa perlu memuat ulang.
+    const app = document.querySelector(".app");
+    if (app) app.style.display = "none";
+    setTimeout(() => el("token-masuk")?.focus(), 60);
+  } else {
+    const app = document.querySelector(".app");
+    if (app) app.style.display = "";
+  }
+}
+
+async function kirimToken(token) {
+  const d = await minta("/api/masuk", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  return d.pengguna || {};
+}
+
+function pasangFormMasuk() {
+  const f = el("form-masuk");
+  if (!f) return;
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const token = el("token-masuk").value.trim();
+    const pesan = el("pesan-masuk");
+    const tombol = el("tombol-masuk");
+    if (!token) { pesan.textContent = "Isi tokennya dulu."; return; }
+    tombol.disabled = true;
+    tombol.textContent = "memeriksa";
+    pesan.textContent = "";
+    try {
+      const u = await kirimToken(token);
+      el("token-masuk").value = "";
+      tampilkanGerbang(false);
+      keadaan.peran = u.peran || "user";
+      keadaan.saya = u.nama || "";
+      sembunyikanKhususAdmin();
+      await mulai();
+    } catch (err) {
+      // Token yang salah tidak dibiarkan mengendap di kolom isian.
+      el("token-masuk").value = "";
+      pesan.textContent = err.message || "tidak bisa masuk";
+    } finally {
+      tombol.disabled = false;
+      tombol.textContent = "Masuk";
+    }
+  });
+}
+
+/* Menu yang menyangkut mesin pemilik (kunci API, pekerja, setelan) tidak
+   ditampilkan ke pengguna biasa: menampilkannya hanya menghasilkan pesan
+   "hanya admin" saat ditekan. Pengaturan ada di kaki menu, bukan di daftar nav,
+   jadi keduanya harus ditangani. */
+function sembunyikanKhususAdmin() {
+  const admin = keadaan.peran === "admin";
+  const kaki = el("kaki-pengaturan");
+  if (kaki) kaki.hidden = !admin;
+  // Pil model hanya berguna kalau daftar model boleh dibaca.
+  const pil = el("pil-model");
+  if (pil) pil.hidden = !admin;
+  if (keadaan.saya) {
+    const j = el("judul-bar");
+    if (j) j.textContent = "AstroZ · " + keadaan.saya;
+  }
+}
 
 /* ------------------------------------------------------------------ bantuan */
 
@@ -23,6 +103,12 @@ async function minta(jalan, opsi) {
   const teks = await r.text();
   let data = {};
   try { data = teks ? JSON.parse(teks) : {}; } catch { data = { teks }; }
+  if (r.status === 401) {
+    // Sesi habis atau token belum ada: tampilkan layar masuk, bukan pesan galat
+    // yang membingungkan di tengah halaman.
+    tampilkanGerbang(true);
+    throw new Error(data.error || "belum masuk");
+  }
   if (!r.ok) throw new Error(data.error || `permintaan gagal (${r.status})`);
   return data;
 }
@@ -1659,17 +1745,21 @@ function gambarPekerja(daftar) {
     baris.appendChild(buat("div", "teks-kecil", w.version || w.error || "versi belum diperiksa"));
     if (w.model) baris.appendChild(buat("div", "teks-kecil", "model: " + w.model));
     const deret = buat("div", "baris-aksi-pesan");
-    const label = buat("label", "teks-kecil");
-    label.style.display = "flex"; label.style.gap = "8px"; label.style.alignItems = "center";
-    const cek = document.createElement("input");
-    cek.type = "checkbox";
-    cek.checked = w.enabled !== false;
-    cek.addEventListener("change", async () => {
-      await kirim(`/api/workers/${w.key}`, { enabled: cek.checked });
-      pesanSingkat(`${w.label || w.key} ${cek.checked ? "dipakai" : "dimatikan"}.`);
-    });
-    label.append(cek, document.createTextNode("pakai pekerja ini"));
-    deret.appendChild(label);
+    // Pengguna biasa tidak boleh mengubah setelan pekerja; barisnya tetap
+    // menampilkan status supaya tahu CLI mana yang siap.
+    if (keadaan.peran === "admin") {
+      const label = buat("label", "teks-kecil");
+      label.style.display = "flex"; label.style.gap = "8px"; label.style.alignItems = "center";
+      const cek = document.createElement("input");
+      cek.type = "checkbox";
+      cek.checked = w.enabled !== false;
+      cek.addEventListener("change", async () => {
+        await kirim(`/api/workers/${w.key}`, { enabled: cek.checked });
+        pesanSingkat(`${w.label || w.key} ${cek.checked ? "dipakai" : "dimatikan"}.`);
+      });
+      label.append(cek, document.createTextNode("pakai pekerja ini"));
+      deret.appendChild(label);
+    }
     const b = buat("button", "tombol kecil garis", "periksa");
     b.type = "button";
     b.addEventListener("click", async () => {
@@ -1690,7 +1780,9 @@ async function muatPekerja() {
     // /api/workers memisahkan status (versi, terpasang) dari setelan
     // (model, dipakai). Tanpa digabung, baris model tidak pernah muncul dan
     // centang "pakai pekerja ini" selalu terlihat aktif walau dimatikan.
+    // Setelannya hanya dikirim ke admin; pengguna biasa melihat statusnya saja.
     const cfg = d.cfg || {};
+    const admin = keadaan.peran === "admin";
     const daftar = (d.workers || []).map((w) => ({
       ...w,
       model: (cfg[w.key] || {}).model || "",
@@ -2484,6 +2576,17 @@ function sambungKejadian() {
 async function mulai() {
   pasangLambangMerek();
   pasangIkon();
+  // Periksa dulu apakah sudah masuk. Tanpa ini, halaman langsung memanggil
+  // belasan endpoint, semuanya dijawab 401, dan yang terlihat hanya pesan galat
+  // bertumpuk alih-alih layar masuk.
+  const akun = await ambil("/api/saya").catch(() => null);
+  if (!akun || !akun.pengguna) {
+    tampilkanGerbang(true);
+    return;
+  }
+  keadaan.peran = akun.pengguna.peran || "user";
+  keadaan.saya = akun.pengguna.nama || "";
+  sembunyikanKhususAdmin();
   // Yang menahan tampilan awal hanya dua hal: daftar percakapan dan model.
   // Sisanya (berkas, catatan, plugin, skill) dimuat di latar belakang, jadi
   // halaman skill yang lambat tidak menahan percakapan muncul.
@@ -2506,4 +2609,5 @@ async function mulai() {
   }
 }
 
+pasangFormMasuk();
 mulai();

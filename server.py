@@ -22,6 +22,7 @@ import orchestrator
 import plugins
 import project
 import sessions
+import users
 from gateway import Gateway
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -30,14 +31,166 @@ WEB = ROOT / "web"
 app = FastAPI(title="AstroZ")
 _started = time.time()
 
+# ------------------------------------------------------------------ masuk
+
+# Nama cookie yang menyimpan token. Cookie dipakai supaya UI tidak perlu
+# menyimpan token di localStorage, dan tokennya tidak ikut terlihat di URL.
+COOKIE = "astroz_token"
+# Jalur yang boleh dibuka tanpa masuk. Hanya halaman UI dan berkasnya: tanpa ini
+# halaman masuk sendiri tidak bisa dimuat.
+TERBUKA = {"/", "/app.css", "/app.js", "/manifest.webmanifest", "/favicon.ico"}
+TERBUKA_AWALAN = ("/api/masuk",)
+
+
+def _token_dari(request: Request) -> str:
+    """Token dari cookie, atau dari header Authorization untuk pemakaian skrip."""
+    t = request.cookies.get(COOKIE) or ""
+    if not t:
+        h = request.headers.get("authorization") or ""
+        if h.lower().startswith("bearer "):
+            t = h[7:].strip()
+    return t.strip()
+
+
+def _pengguna(request: Request) -> dict | None:
+    """Pengguna yang sedang meminta, disimpan di request.state supaya middleware
+    dan endpoint tidak perlu memverifikasi token dua kali."""
+    ada = getattr(request.state, "pengguna", None)
+    if ada is not None:
+        return ada
+    u = users.verifikasi(_token_dari(request))
+    request.state.pengguna = u
+    return u
+
+
+def _admin_saja(request: Request) -> bool:
+    u = _pengguna(request)
+    return bool(u and u.get("peran") == "admin")
+
+
+def _tolak(msg: str, kode: int = 401) -> JSONResponse:
+    return JSONResponse({"ok": False, "error": msg}, status_code=kode)
+
+
+@app.middleware("http")
+async def gerbang_masuk(request: Request, call_next):
+    """Semua permintaan API wajib membawa token yang sah.
+
+    Halaman UI sendiri dibiarkan terbuka supaya bisa memuat dan menampilkan
+    layar masuk; yang dilindungi adalah datanya. Tanpa gerbang ini, siapa pun
+    yang bisa menjangkau portnya dapat membaca percakapan dan folder kerja.
+    """
+    jalan = request.url.path
+    if jalan in TERBUKA or jalan.startswith(TERBUKA_AWALAN):
+        return await call_next(request)
+    if jalan.startswith("/api/"):
+        u = _pengguna(request)
+        if not u:
+            return _tolak("belum masuk, kirim token lewat cookie atau header Authorization")
+        request.state.pengguna = u
+    return await call_next(request)
+
+
+@app.post("/api/masuk")
+async def masuk(payload: dict):
+    """Tukar token dengan cookie. Token tidak dikembalikan lagi setelah ini."""
+    token = ((payload or {}).get("token") or "").strip()
+    u = users.verifikasi(token)
+    if not u:
+        # Pesan sengaja tidak membedakan token salah dan akun mati.
+        return _tolak("token tidak dikenali", 403)
+    r = JSONResponse({"ok": True, "pengguna": u})
+    r.set_cookie(COOKIE, token, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 30)
+    return r
+
+
+@app.post("/api/keluar")
+async def keluar():
+    r = JSONResponse({"ok": True})
+    r.delete_cookie(COOKIE)
+    return r
+
+
+@app.get("/api/saya")
+async def saya(request: Request):
+    u = _pengguna(request)
+    if not u:
+        return _tolak("belum masuk")
+    return {"ok": True, "pengguna": u}
+
+
+# ------------------------------------------------------------------ akun
+# Hanya admin yang mengelola akun: kalau pengguna biasa bisa membuat akun
+# sendiri, batas antar pengguna tidak berarti apa-apa.
+@app.get("/api/akun")
+async def akun_daftar(request: Request):
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh mengelola akun", 403)
+    return {"ok": True, "akun": users.daftar()}
+
+
+@app.post("/api/akun")
+async def akun_buat(payload: dict, request: Request):
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh mengelola akun", 403)
+    try:
+        u = users.buat((payload or {}).get("nama") or "", (payload or {}).get("peran") or "user")
+    except ValueError as e:
+        return _tolak(str(e), 400)
+    # Token hanya muncul di balasan ini, dan tidak masuk feed kejadian.
+    hub.emit("system", f"Akun baru dibuat: {u['nama']} ({u['peran']})")
+    return {"ok": True, "akun": u, "catatan": "token hanya ditampilkan sekali, simpan sekarang"}
+
+
+@app.post("/api/akun/{nama}/token")
+async def akun_token_baru(nama: str, request: Request):
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh mengelola akun", 403)
+    try:
+        u = users.setel_ulang_token(nama)
+    except ValueError as e:
+        return _tolak(str(e), 404)
+    hub.emit("system", f"Token akun {nama} diterbitkan ulang")
+    return {"ok": True, "akun": u, "catatan": "token lama langsung tidak berlaku"}
+
+
+@app.post("/api/akun/{nama}/aktif")
+async def akun_aktif(nama: str, payload: dict, request: Request):
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh mengelola akun", 403)
+    try:
+        u = users.setel_aktif(nama, bool((payload or {}).get("aktif", True)))
+    except ValueError as e:
+        return _tolak(str(e), 400)
+    return {"ok": True, "akun": u}
+
+
+@app.delete("/api/akun/{nama}")
+async def akun_hapus(nama: str, request: Request):
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh mengelola akun", 403)
+    try:
+        r = users.hapus(nama)
+    except ValueError as e:
+        return _tolak(str(e), 400)
+    hub.emit("system", f"Akun dihapus: {nama}")
+    return {"ok": True, **r}
+
 
 @app.on_event("startup")
 async def _startup() -> None:
     hub.bind_loop(asyncio.get_running_loop())
     n = hub.load_from_disk(1500)
+    nu = users.load()
+    # Akun admin pertama dibuat di sini kalau belum ada akun sama sekali.
+    # Tokennya ditulis ke runtime/admin_token.txt (hanya bisa dibaca pemilik
+    # mesin), BUKAN ke feed kejadian yang tampil di UI.
+    baru = users.siapkan_pertama()
+    if baru:
+        hub.emit("system", "Akun admin dibuat. Token masuk ada di runtime/admin_token.txt", phase="boot")
     nt = orchestrator.load_tasks()
     ns = sessions.load()
-    hub.emit("system", f"UI AstroZ siap ({n} kejadian, {nt} tugas, {ns} percakapan tersimpan)", phase="boot")
+    hub.emit("system", f"UI AstroZ siap ({n} kejadian, {nt} tugas, {ns} percakapan, {nu or 1} akun)", phase="boot")
     asyncio.create_task(_bg_health())
     # Sinkron sekali saat start. Tanpa ini, orang yang baru mengkloning repo
     # membuka UI dan melihat daftar model kosong walau 9Router-nya hidup, karena
@@ -125,42 +278,84 @@ async def manifest():
 
 # ------------------------------------------------------------------- state
 @app.get("/api/state")
-async def state():
+async def state(request: Request):
+    u = _pengguna(request) or {}
+    saya = u.get("nama") or "admin"
+    admin = u.get("peran") == "admin"
     cfg = config.load()
     gw = Gateway(cfg)
     gwcfg = dict(cfg["gateway"])
     gwcfg["has_key"] = bool(gw.api_key)
-    # Kunci API tidak pernah dikirim ke peramban: server ini mendengarkan di
-    # seluruh antarmuka jaringan (0.0.0.0), jadi apa pun yang ada di jawaban ini
-    # bisa dibaca siapa saja di jaringan yang sama. UI hanya butuh tahu ada
-    # atau tidak kuncinya.
+    # Kunci API tidak pernah dikirim ke peramban: server ini bisa mendengarkan di
+    # seluruh antarmuka jaringan, jadi apa pun yang ada di jawaban ini bisa
+    # dibaca siapa saja di jaringan yang sama. UI hanya butuh tahu ada atau
+    # tidak kuncinya.
     gwcfg.pop("api_key", None)
+    # Daftar model dan catatan kesehatannya menyangkut kunci dan kuota pemilik
+    # mesin, jadi pengguna biasa tidak menerimanya.
+    if not admin:
+        for k in ("models", "healthy", "model_meta", "fallback_models", "model_rejected",
+                  "provider_names", "provider_name", "upstream_base_url", "hermes_api_base"):
+            gwcfg.pop(k, None)
     return {
         "gateway": gwcfg,
+        "saya": saya,
+        "peran": u.get("peran") or "user",
         "workers": adapters.status_all(),
-        "worker_cfg": cfg["workers"],
-        "tasks": orchestrator.list_tasks(30),
-        "project": {"dir": str(project.project_dir()), "test_command": project.detect_test_command()},
+        "worker_cfg": cfg["workers"] if admin else {},
+        "tasks": orchestrator.list_tasks(30, owner=None if admin else saya),
+        "project": {"dir": str(users.ruang_kerja(saya)),
+                    "test_command": project.detect_test_command() if admin else ""},
         "workflow": cfg["workflow"],
         "uptime": round(time.time() - _started, 1),
         "subscribers": hub.subscribers(),
     }
 
 
+def _boleh_lihat(ev: dict, u: dict) -> bool:
+    """Boleh tidaknya satu kejadian dilihat pengguna ini.
+
+    Diperiksa per kejadian, bukan dari daftar yang dihitung sekali saat koneksi
+    dibuat. Daftar beku itu salah: tugas dan percakapan yang dibuat SETELAH
+    koneksi terbuka tidak ada di dalamnya, sehingga umpan aktivitas tidak pernah
+    menampilkan apa pun yang baru.
+    """
+    if u.get("peran") == "admin":
+        return True
+    t = ev.get("task")
+    s = ev.get("session")
+    # Kejadian sistem (boot, pemasangan paket) tidak menyangkut percakapan siapa pun.
+    if not t and not s:
+        return True
+    saya = u.get("nama") or "admin"
+    if s and sessions.get_milik(s, saya):
+        return True
+    if t:
+        tugas = orchestrator.get_task(t)
+        if tugas and (tugas.get("owner") or "admin") == saya:
+            return True
+    return False
+
+
 @app.get("/api/events")
 async def events(request: Request, replay: int = 80):
+    # Feed kejadian memuat potongan prompt dan jawaban, jadi hanya admin yang
+    # menerima semuanya. Pengguna biasa menerima kejadian miliknya sendiri.
+    u = _pengguna(request) or {}
     q = hub.subscribe()
 
     async def gen():
         try:
             for ev in hub.recent(replay):
-                yield f"data: {json.dumps(ev)}\n\n"
+                if _boleh_lihat(ev, u):
+                    yield f"data: {json.dumps(ev)}\n\n"
             while True:
                 if await request.is_disconnected():
                     break
                 try:
                     ev = await asyncio.wait_for(q.get(), timeout=15)
-                    yield f"data: {json.dumps(ev)}\n\n"
+                    if _boleh_lihat(ev, u):
+                        yield f"data: {json.dumps(ev)}\n\n"
                 except asyncio.TimeoutError:
                     yield ": ping\n\n"
         finally:
@@ -174,20 +369,26 @@ async def events(request: Request, replay: int = 80):
 
 
 @app.get("/api/events/recent")
-async def events_recent(limit: int = 300, kind: str = ""):
-    return {"events": hub.recent(limit, kind or None)}
+async def events_recent(request: Request, limit: int = 300, kind: str = ""):
+    u = _pengguna(request) or {}
+    return {"events": [e for e in hub.recent(limit, kind or None) if _boleh_lihat(e, u)]}
 
 
 # ----------------------------------------------------------------- gateway
 @app.post("/api/gateway/sync")
-async def gateway_sync(apply: int = 0):
+async def gateway_sync(request: Request, apply: int = 0):
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh menyinkronkan gateway", 403)
     gw = Gateway()
     res = await asyncio.to_thread(gw.sync, bool(apply))
     return {"ok": True, **res}
 
 
 @app.get("/api/gateway/models")
-async def gateway_models(q: str = "", limit: int = 300, only_healthy: int = 0, provider: str = "", callable_only: int = 0):
+async def gateway_models(request: Request, q: str = "", limit: int = 300, only_healthy: int = 0,
+                         provider: str = "", callable_only: int = 0):
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh melihat daftar model", 403)
     cfg = config.load()
     gw = cfg["gateway"]
     meta = gw.get("model_meta", {})
@@ -247,7 +448,10 @@ async def gateway_set_model(payload: dict):
 
 
 @app.post("/api/gateway/key")
-async def gateway_set_key(payload: dict):
+async def gateway_set_key(payload: dict, request: Request):
+    # Kunci API gateway milik pemilik mesin. Hanya admin yang boleh menggantinya.
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh mengubah kunci API", 403)
     key = (payload or {}).get("api_key", "").strip()
     cfg = config.load()
     cfg["gateway"]["api_key"] = key
@@ -295,8 +499,10 @@ async def gateway_probe(payload: dict | None = None):
 
 
 @app.post("/api/apply")
-async def apply_everything(payload: dict | None = None):
+async def apply_everything(request: Request, payload: dict | None = None):
     """Re-apply the current model to every worker + Hermes in one call."""
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh mengubah setelan pekerja", 403)
     cfg = config.load()
     model = (payload or {}).get("model") or cfg["gateway"].get("model")
     gw = Gateway()
@@ -309,11 +515,16 @@ async def apply_everything(payload: dict | None = None):
 async def workers(refresh: int = 0):
     if refresh:
         await asyncio.to_thread(adapters.status_all, True)
-    return {"workers": adapters.status_all(), "cfg": config.load()["workers"]}
+    # Konfigurasi pekerja bisa memuat jalur dan nama model yang khusus mesin ini,
+    # jadi hanya admin yang melihatnya. Pengguna biasa tetap tahu pekerja mana
+    # yang hidup lewat daftar statusnya.
+    return {"workers": adapters.status_all()}
 
 
 @app.post("/api/workers/{key}")
-async def worker_update(key: str, payload: dict):
+async def worker_update(key: str, payload: dict, request: Request):
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh mengubah setelan pekerja", 403)
     if key not in adapters.ADAPTERS:
         return JSONResponse({"ok": False, "error": "unknown worker"}, status_code=404)
     cfg = config.load()
@@ -354,14 +565,16 @@ async def submit_task(payload: dict):
 
 
 @app.get("/api/tasks")
-async def tasks():
-    return {"tasks": orchestrator.list_tasks(50)}
+async def tasks(request: Request):
+    u = _pengguna(request) or {}
+    owner = None if u.get("peran") == "admin" else (u.get("nama") or "admin")
+    return {"tasks": orchestrator.list_tasks(50, owner=owner)}
 
 
 # Rute tetap harus didaftarkan sebelum /api/tasks/{tid}: rute dinamis itu
 # menelan "running" sebagai id tugas dan menjawab 404.
 @app.get("/api/tasks/running")
-async def tasks_running():
+async def tasks_running(request: Request):
     """Tugas yang sedang berjalan, ringkas, untuk strip kerja di UI.
 
     Satu permintaan saja: daftar tugas berjalan, pekerja yang sedang aktif
@@ -369,9 +582,11 @@ async def tasks_running():
     dan beberapa langkah terakhir. UI memanggil ini berkala selama ada pekerjaan,
     jadi isinya dijaga kecil.
     """
+    u = _pengguna(request) or {}
+    owner = None if u.get("peran") == "admin" else (u.get("nama") or "admin")
     evs = hub.recent(800)
     out: list[dict] = []
-    for t in orchestrator.list_tasks(50):
+    for t in orchestrator.list_tasks(50, owner=owner):
         if t.get("status") != "running":
             continue
         milik = [e for e in evs if e.get("task") == t["id"]]
@@ -441,57 +656,80 @@ async def task_hentikan(tid: str):
 
 
 @app.get("/api/tasks/{tid}")
-async def task_detail(tid: str):
+async def task_detail(tid: str, request: Request):
+    u = _pengguna(request) or {}
+    owner = None if u.get("peran") == "admin" else (u.get("nama") or "admin")
     t = orchestrator.get_task(tid)
-    if not t:
+    if not t or (owner is not None and (t.get("owner") or "admin") != owner):
         return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
     evs = await asyncio.to_thread(hub.untuk_tugas, tid, 300)
     return {"ok": True, "task": t, "events": evs}
 
 
 @app.get("/api/tasks/{tid}/berkas")
-async def task_berkas(tid: str):
+async def task_berkas(tid: str, request: Request):
     """Berkas yang diubah satu tugas, dihitung dari mtime sesudah tugas mulai.
 
     Dipakai panel samping untuk menampilkan perubahan tanpa perlu git diff
     seluruh folder kerja.
     """
+    u = _pengguna(request) or {}
+    owner = None if u.get("peran") == "admin" else (u.get("nama") or "admin")
     t = orchestrator.get_task(tid)
-    if not t:
+    if not t or (owner is not None and (t.get("owner") or "admin") != owner):
         return JSONResponse({"ok": False, "error": "tidak ditemukan"}, status_code=404)
     mulai = float(t.get("created") or 0)
     d = pathlib.Path(t.get("workspace") or project.project_dir())
-    out = await asyncio.to_thread(project.berkas_sejak, mulai)
+    # Dibaca di folder kerja tugas itu, bukan folder milik orang yang meminta.
+    out = await asyncio.to_thread(project.dengan_workspace, d, project.berkas_sejak, mulai)
     return {"ok": True, **out}
 
 
+def _ruang_saya(request: Request) -> pathlib.Path:
+    """Folder kerja milik pengguna yang meminta.
+
+    Endpoint yang membaca folder kerja harus memakai ini, bukan folder global:
+    tanpa itu pengguna biasa bisa membaca berkas milik orang lain lewat panel
+    Berkas.
+    """
+    u = _pengguna(request) or {}
+    return users.ruang_kerja(u.get("nama") or "admin")
+
+
 @app.get("/api/project/tree")
-async def project_tree():
-    return {"dir": str(project.project_dir()), "entries": project.tree()}
+async def project_tree(request: Request):
+    ruang = _ruang_saya(request)
+    out = await asyncio.to_thread(project.dengan_workspace, ruang, project.tree)
+    return {"dir": str(ruang), "entries": out}
 
 
 @app.get("/api/project/file")
-async def project_file(path: str):
-    return project.read_file(path)
+async def project_file(path: str, request: Request):
+    ruang = _ruang_saya(request)
+    return await asyncio.to_thread(project.dengan_workspace, ruang, project.read_file, path)
 
 
 @app.get("/api/git")
-async def git_status():
-    return project.git_status()
+async def git_status(request: Request):
+    ruang = _ruang_saya(request)
+    return await asyncio.to_thread(project.dengan_workspace, ruang, project.git_status)
 
 
 @app.get("/api/git/diff")
-async def git_diff(path: str = ""):
-    return {"diff": project.git_diff(path)}
+async def git_diff(request: Request, path: str = ""):
+    ruang = _ruang_saya(request)
+    out = await asyncio.to_thread(project.dengan_workspace, ruang, project.git_diff, path)
+    return {"diff": out}
 
 
 @app.post("/api/git/commit")
-async def git_commit(payload: dict | None = None):
+async def git_commit(request: Request, payload: dict | None = None):
     """Commit the workspace so a finished task is a commit, not a dirty tree."""
     msg = ((payload or {}).get("message") or "").strip()
     if not msg:
         return JSONResponse({"ok": False, "error": "message required"}, status_code=400)
-    res = await asyncio.to_thread(project.git_commit_all, msg)
+    ruang = _ruang_saya(request)
+    res = await asyncio.to_thread(project.dengan_workspace, ruang, project.git_commit_all, msg)
     ok = res.get("rc") == 0
     if not ok and "nothing to commit" in (res.get("out") or ""):
         return {"ok": True, "noop": True, **res}
@@ -499,14 +737,20 @@ async def git_commit(payload: dict | None = None):
 
 
 @app.post("/api/test")
-async def run_test(payload: dict | None = None):
+async def run_test(request: Request, payload: dict | None = None):
     cmd = (payload or {}).get("command") or None
-    res = await asyncio.to_thread(project.run_tests, cmd)
+    ruang = _ruang_saya(request)
+    res = await asyncio.to_thread(project.dengan_workspace, ruang, project.run_tests, cmd)
     return {"ok": True, "result": res}
 
 
 @app.post("/api/config")
-async def set_config(payload: dict):
+async def set_config(payload: dict, request: Request):
+    # Mengubah folder kerja global dan alur kerja menyangkut semua orang, jadi
+    # hanya admin. Pengguna biasa tetap punya setelannya sendiri lewat folder
+    # kerja miliknya.
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh mengubah setelan", 403)
     allowed = {"project_dir", "workflow"}
     patch = {k: v for k, v in (payload or {}).items() if k in allowed}
     if not patch:
@@ -555,9 +799,13 @@ def _task_messages(tid: str) -> list[dict]:
 
 
 @app.get("/api/sessions")
-async def sessions_list():
-    items = sessions.list_sessions()
-    tasks = {t["id"]: t for t in orchestrator.list_tasks(200)}
+async def sessions_list(request: Request):
+    u = _pengguna(request) or {}
+    saya = u.get("nama") or "admin"
+    # Admin melihat semua percakapan; pengguna biasa hanya miliknya sendiri.
+    owner = None if u.get("peran") == "admin" else saya
+    items = sessions.list_sessions(owner)
+    tasks = {t["id"]: t for t in orchestrator.list_tasks(200, owner=owner)}
     for s in items:
         ids = s.get("tasks") or []
         s["last"] = (tasks.get(ids[-1], {}).get("answer") or tasks.get(ids[-1], {}).get("prompt") or "")[:140]
@@ -568,28 +816,31 @@ async def sessions_list():
     # baru dipakai harus ada di atas tanpa bergantung pada urutan penyimpanan.
     # Yang disematkan selalu di atas, apa pun waktu pakainya.
     items.sort(key=lambda s: (bool(s.get("pinned")), s.get("updated") or s.get("created") or 0), reverse=True)
-    return {"sessions": items}
+    return {"sessions": items, "saya": saya, "peran": u.get("peran") or "user"}
 
 
 @app.post("/api/sessions")
-async def sessions_create(payload: dict | None = None):
+async def sessions_create(request: Request, payload: dict | None = None):
     """Percakapan baru yang kosong.
 
     Sampai ada pesan pertama, judulnya masih kosong. UI menampilkannya sebagai
     "Percakapan baru" dan hanya menyimpan yang benar-benar dipakai, jadi daftar
     tidak penuh percakapan kosong setiap kali tombolnya ditekan.
     """
-    s = sessions.create(((payload or {}).get("title") or "").strip())
+    saya = (_pengguna(request) or {}).get("nama") or "admin"
+    s = sessions.create(((payload or {}).get("title") or "").strip(), owner=saya)
     return {"ok": True, "session": s}
 
 
 @app.delete("/api/sessions/kosong")
-async def sessions_hapus_kosong():
+async def sessions_hapus_kosong(request: Request):
     """Buang percakapan yang belum pernah dipakai (tanpa satu pun tugas)."""
+    u = _pengguna(request) or {}
+    owner = None if u.get("peran") == "admin" else (u.get("nama") or "admin")
     dihapus = 0
-    for s in sessions.list_sessions():
+    for s in sessions.list_sessions(owner):
         if not (s.get("tasks") or []):
-            if sessions.delete(s["id"]):
+            if sessions.delete(s["id"], owner=None if owner is None else owner):
                 dihapus += 1
     if dihapus:
         hub.emit("system", f"{dihapus} percakapan kosong dibuang dari daftar")
@@ -597,9 +848,13 @@ async def sessions_hapus_kosong():
 
 
 @app.get("/api/sessions/{sid}")
-async def sessions_get(sid: str, events: int = 120):
-    s = sessions.get(sid)
+async def sessions_get(sid: str, request: Request, events: int = 120):
+    u = _pengguna(request) or {}
+    owner = None if u.get("peran") == "admin" else (u.get("nama") or "admin")
+    s = sessions.get_milik(sid, owner) if owner is not None else sessions.get(sid)
     if not s:
+        # Percakapan milik orang lain dijawab "tidak ditemukan", bukan "terlarang":
+        # membedakannya berarti memberi tahu bahwa id itu ada.
         return JSONResponse({"ok": False, "error": "percakapan tidak ditemukan"}, status_code=404)
     ids = list(s.get("tasks") or [])
     messages: list[dict] = []
@@ -616,37 +871,45 @@ async def sessions_get(sid: str, events: int = 120):
 
 @app.post("/api/sessions/{sid}")
 @app.patch("/api/sessions/{sid}")
-async def sessions_update(sid: str, payload: dict):
-    s = sessions.rename(sid, (payload or {}).get("title") or "")
+async def sessions_update(sid: str, payload: dict, request: Request):
+    u = _pengguna(request) or {}
+    owner = None if u.get("peran") == "admin" else (u.get("nama") or "admin")
+    s = sessions.rename(sid, (payload or {}).get("title") or "", owner=owner)
     if not s:
         return JSONResponse({"ok": False, "error": "percakapan tidak ditemukan"}, status_code=404)
     return {"ok": True, "session": s}
 
 
 @app.delete("/api/sessions/{sid}")
-async def sessions_delete(sid: str):
-    ok = sessions.delete(sid)
+async def sessions_delete(sid: str, request: Request):
+    u = _pengguna(request) or {}
+    owner = None if u.get("peran") == "admin" else (u.get("nama") or "admin")
+    ok = sessions.delete(sid, owner=owner)
     return {"ok": ok}
 
 
 @app.post("/api/sessions/{sid}/sematkan")
-async def sessions_sematkan(sid: str, payload: dict | None = None):
+async def sessions_sematkan(sid: str, request: Request, payload: dict | None = None):
     """Sematkan atau lepas sematan percakapan ini.
 
     Yang disematkan naik ke atas daftar riwayat, jadi percakapan yang sering
     dibuka tidak tenggelam oleh percakapan baru.
     """
+    u = _pengguna(request) or {}
+    owner = None if u.get("peran") == "admin" else (u.get("nama") or "admin")
     isi = payload or {}
     nilai = isi.get("pinned")
-    s = sessions.toggle_pin(sid, None if nilai is None else bool(nilai))
+    s = sessions.toggle_pin(sid, None if nilai is None else bool(nilai), owner=owner)
     if not s:
         return JSONResponse({"ok": False, "error": "percakapan tidak ditemukan"}, status_code=404)
     return {"ok": True, "session": s, "pinned": bool(s.get("pinned"))}
 
 
 @app.post("/api/chat")
-async def chat_send(payload: dict):
+async def chat_send(payload: dict, request: Request):
     """One user message: it becomes a task, and its answer lands in this thread."""
+    u = _pengguna(request) or {}
+    saya = u.get("nama") or "admin"
     text = ((payload or {}).get("text") or "").strip()
     if not text:
         return JSONResponse({"ok": False, "error": "tulis dulu pesannya"}, status_code=400)
@@ -654,8 +917,8 @@ async def chat_send(payload: dict):
     # semua pesan masuk ke percakapan pertama dan daftarnya menumpuk jadi satu.
     sid = (payload or {}).get("session") or None
     if not sid and (payload or {}).get("baru"):
-        sid = sessions.create("")["id"]
-    s = sessions.ensure(sid, text)
+        sid = sessions.create("", owner=saya)["id"]
+    s = sessions.ensure(sid, text, owner=saya)
     orch = orchestrator.Orchestrator()
     tid = orch.submit(
         text,
@@ -663,6 +926,7 @@ async def chat_send(payload: dict):
         workers=(payload or {}).get("workers") or None,
         model=(payload or {}).get("model") or None,
         session_id=s["id"],
+        owner=saya,
     )
     sessions.attach(s["id"], tid, text)
     hub.emit("task", f"Percakapan {s['id']}: pesan baru", task=tid, session=s["id"], phase="created")
@@ -670,7 +934,7 @@ async def chat_send(payload: dict):
 
 
 @app.post("/api/upload")
-async def upload(payload: dict):
+async def upload(payload: dict, request: Request):
     """Simpan gambar lampiran ke folder kerja supaya pekerja bisa membacanya.
 
     UI mengirim base64, bukan multipart, supaya tidak perlu menambah pustaka.
@@ -688,7 +952,8 @@ async def upload(payload: dict):
     if len(mentah) > 12 * 1024 * 1024:
         return JSONResponse({"ok": False, "error": "gambar lebih dari 12 MB"}, status_code=400)
     aman = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(nama))[:80] or "lampiran.png"
-    tujuan = project.project_dir() / "lampiran"
+    # Lampiran masuk ke folder kerja milik pengirim, bukan folder bersama.
+    tujuan = users.ruang_kerja((_pengguna(request) or {}).get("nama") or "admin") / "lampiran"
     tujuan.mkdir(parents=True, exist_ok=True)
     path = tujuan / f"{int(time.time())}_{aman}"
     path.write_bytes(mentah)

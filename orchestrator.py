@@ -33,6 +33,10 @@ _TASK_FIELDS = (
     "id", "prompt", "status", "size", "workers", "model", "plan", "results",
     "test", "review", "summary", "commit", "created", "finished", "answer",
     "session", "kind", "sources", "procs",
+    # Pemilik dan folder kerja tugas. Tanpa keduanya di sini, tugas yang sudah
+    # selesai kehilangan pemiliknya saat server menyimpan ulang daftar tugas,
+    # dan pemisahan antar pengguna hilang begitu server dimulai ulang.
+    "owner", "workspace",
 )
 
 # Sumber yang dipakai jawaban. Model menuliskannya di baris terakhir sebagai
@@ -540,6 +544,10 @@ def load_tasks() -> int:
         return 0
     for t in items:
         if isinstance(t, dict) and t.get("id"):
+            # Tugas dari berkas lama tidak punya pemilik: dibaca sebagai milik
+            # admin, sama seperti sesi. Tanpa ini, seluruh riwayat tugas yang
+            # sudah ada hilang dari pemiliknya setelah pemisahan ini.
+            t.setdefault("owner", "admin")
             # A task that was mid-flight when the server stopped is not running
             # any more: report it as interrupted instead of a permanent "running".
             if t.get("status") == "running":
@@ -571,8 +579,17 @@ def get_task(tid: str) -> dict | None:
     return TASKS.get(tid)
 
 
-def list_tasks(limit: int = 50) -> list[dict]:
-    items = sorted(TASKS.values(), key=lambda t: t["created"], reverse=True)
+def list_tasks(limit: int = 50, owner: str | None = None) -> list[dict]:
+    """Daftar tugas. `owner` menyaring pemiliknya; None berarti semua (admin).
+
+    Tugas tanpa pemilik (berkas lama) dibaca sebagai milik admin, sama seperti
+    sesi: pekerjaan yang sudah ada tidak boleh hilang dari pemiliknya.
+    """
+    items = list(TASKS.values())
+    if owner is not None:
+        owner = (owner or "").strip().lower()
+        items = [t for t in items if (t.get("owner") or "admin") == owner]
+    items.sort(key=lambda t: t["created"], reverse=True)
     return [
         {
             "id": t["id"],
@@ -587,6 +604,7 @@ def list_tasks(limit: int = 50) -> list[dict]:
             "summary": (t.get("summary") or "")[:2000],
             "answer": (t.get("answer") or "")[:4000],
             "session": t.get("session") or "",
+            "owner": t.get("owner") or "admin",
         }
         for t in items[:limit]
     ]
@@ -1556,12 +1574,18 @@ class Orchestrator:
 
     # -------------------------------------------------------------- workflow
     def submit(self, prompt: str, workflow: str = "auto", workers: list[str] | None = None,
-               model: str | None = None, session_id: str | None = None) -> str:
+               model: str | None = None, session_id: str | None = None,
+               owner: str = "admin") -> str:
         cfg = config.load()
         tid = uuid.uuid4().hex[:12]
         # Pertanyaan ringan dijawab langsung, jadi tidak perlu folder kerja baru.
         # Tanpa ini setiap "halo" meninggalkan satu folder yang menumpuk.
         ringan = workflow == "auto" and cepatkah(prompt)
+        # Folder kerja milik pemilik tugas, bukan folder global. Dihitung di sini
+        # (thread pemanggil) dan disimpan di tugas, supaya thread pekerja tidak
+        # perlu tahu apa pun tentang akun.
+        import users as _users
+        ruang = "" if ringan else str(_users.ruang_kerja(owner))
         t = {
             "id": tid,
             "prompt": prompt,
@@ -1572,8 +1596,9 @@ class Orchestrator:
             "workers": [],
             "results": [],
             "session": session_id or "",
+            "owner": (owner or "admin").strip().lower(),
             "size": "chat" if ringan else "",
-            "workspace": "" if ringan else str(project.project_dir()),
+            "workspace": ruang,
         }
         with _TASK_LOCK:
             TASKS[tid] = t
@@ -1591,6 +1616,11 @@ class Orchestrator:
             if not model:
                 raise RuntimeError("no model configured, pick one in the Gateway tab")
             t["model"] = model
+            # Seluruh tugas ini bekerja di folder pemiliknya. Dikunci di awal
+            # thread, jadi setiap pemanggilan project.* di bawah ikut memakai
+            # folder itu, termasuk pekerja paralel dan pemeriksaan berkas.
+            if t.get("workspace"):
+                project.set_workspace(t["workspace"])
 
             # --- jawab langsung -------------------------------------------
             # Pertanyaan seperti "halo" atau "malam" tidak butuh pekerja CLI,
@@ -1853,6 +1883,10 @@ class Orchestrator:
             hub.emit("task", f"Gagal: {e}", task=tid, phase="error", ok=False, answer=t["answer"])
         finally:
             t["finished"] = time.time()
+            # Thread pekerja dipakai ulang oleh tugas berikutnya. Folder kerja
+            # yang tertinggal di sini akan membuat tugas pengguna lain bekerja di
+            # folder yang salah, jadi selalu dikembalikan.
+            project.set_workspace(None)
             _persist_tasks()
 
     def _task_is_green(self, test_res: dict | None, review: dict | None) -> bool:

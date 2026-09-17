@@ -141,6 +141,33 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 }
 .lewati:focus { top: 12px; }
 
+/* ---------------------------------------------------------------- masuk */
+
+/* Layar masuk menutup seluruh layar. Halaman UI di belakangnya disembunyikan
+   oleh app.js, jadi tidak ada data yang sempat terlihat sebelum token masuk. */
+.gerbang {
+  position: fixed; inset: 0; z-index: 80;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--kertas); padding: 20px;
+}
+.gerbang[hidden] { display: none; }
+.kartu-masuk {
+  width: min(380px, 100%);
+  display: flex; flex-direction: column; gap: 10px;
+  background: var(--permukaan); border: 1px solid var(--garis);
+  border-radius: var(--radius-2); padding: 24px 20px;
+}
+.kartu-masuk h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+.kartu-masuk .catatan { margin: 0 0 6px; }
+/* Lambang yang sama dengan kepala bar, hanya lebih besar. */
+.lambang-masuk {
+  display: block; width: 44px; height: 40px; margin-bottom: 6px;
+  background: url("/logo.png") left center / contain no-repeat;
+}
+[data-tema="gelap"] .lambang-masuk { background-image: url("/logo-gelap.png"); }
+.pesan-masuk { margin: 0; min-height: 18px; font-size: 13px; color: var(--galat); }
+.pesan-masuk:empty { min-height: 0; }
+
 :focus-visible { outline: 2px solid var(--fokus); outline-offset: 2px; border-radius: var(--radius-1); }
 
 /* ---------------------------------------------------------------- kerangka */

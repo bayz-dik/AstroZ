@@ -7,6 +7,7 @@ import pathlib
 import shlex
 import shutil
 import subprocess
+import threading
 import time
 from typing import Any, Iterable
 
@@ -14,6 +15,12 @@ import config
 import hub
 
 ROOT = pathlib.Path(__file__).resolve().parent
+
+# Folder kerja per-thread. Satu tugas dijalankan di satu thread, dan tugas milik
+# pengguna lain harus bekerja di foldernya sendiri. Thread-local dipakai supaya
+# tugas paralel antar pengguna tidak saling menimpa.
+_LOKAL = threading.local()
+
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".next", "dist", "build", ".mypy_cache"}
 # Berkas yang isinya bukan hasil kerja siapa pun dan selalu ada di repo: ikut
 # dihitung, panel berkas penuh sampah setiap tugas selesai.
@@ -25,6 +32,18 @@ BATAS_BERKAS = 20000
 
 
 def project_dir() -> pathlib.Path:
+    # Folder kerja khusus untuk thread ini. Satu tugas dijalankan di satu
+    # thread, dan tugas milik pengguna lain harus bekerja di foldernya sendiri.
+    # Override ini yang membuat 14 pemakaian project_dir() di bawah ikut benar
+    # tanpa harus mengubah satu per satu.
+    w = getattr(_LOKAL, "workspace", None)
+    if w:
+        p = pathlib.Path(w).expanduser()
+        if os.environ.get("ASTROZ_PEKERJA"):
+            return pathlib.Path.cwd()
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
     p = pathlib.Path(config.load()["project_dir"]).expanduser()
     # Pekerja CLI dijalankan dengan cwd yang sudah disiapkan orkestrator. Kalau
     # mereka juga memanggil ini (lewat project.ensure_repo atau alat bantu),
@@ -34,6 +53,29 @@ def project_dir() -> pathlib.Path:
         return pathlib.Path.cwd()
     p.mkdir(parents=True, exist_ok=True)
     return p
+
+
+def set_workspace(p: "pathlib.Path | str | None") -> None:
+    """Kunci folder kerja untuk thread ini. None berarti kembali ke setelan."""
+    _LOKAL.workspace = str(p) if p else None
+
+
+def workspace_sekarang() -> "str | None":
+    return getattr(_LOKAL, "workspace", None)
+
+
+def dengan_workspace(p, fn, *a, **kw):
+    """Jalankan fn dengan folder kerja p, lalu kembalikan keadaan semula.
+
+    Dipakai endpoint server yang membaca folder kerja: tanpa pengembalian di
+    `finally`, thread yang dipakai ulang bisa mewarisi folder pengguna lain.
+    """
+    lama = getattr(_LOKAL, "workspace", None)
+    set_workspace(p)
+    try:
+        return fn(*a, **kw)
+    finally:
+        set_workspace(lama)
 
 
 def _git(args: list[str], cwd: pathlib.Path, timeout: int = 25) -> tuple[int, str]:
