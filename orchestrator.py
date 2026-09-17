@@ -1692,6 +1692,16 @@ class Orchestrator:
             # aplikasi Android yang memang tidak menyertakannya. Menjalankan
             # tahap berikutnya tanpa pekerja hanya menghasilkan tugas yang gagal
             # setelah menunggu batas waktu, jadi jawab langsung dengan model.
+            #
+            # Di Android, pekerja disalin ke penyimpanan aplikasi di thread latar
+            # sesudah server hidup (binernya ratusan MB), jadi tugas pertama bisa
+            # datang beberapa detik sebelum pembungkusnya ada. Karena itu ada masa
+            # tenggang singkat: tanpa ini, pesan pertama selalu dijawab model dan
+            # pekerja yang sudah siap sepersekian detik kemudian tidak terpakai.
+            for _ in range(24):
+                if _pick_workers(cfg, 1):
+                    break
+                time.sleep(0.5)
             if not _pick_workers(cfg, 1):
                 t["size"] = t.get("size") or "chat"
                 t["workers"] = []
