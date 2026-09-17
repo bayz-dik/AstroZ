@@ -606,6 +606,7 @@ def baca(akar: pathlib.Path, sumber_url: str = "", nama_paksa: str = "") -> Mani
 
     _tandai_tak_didukung(akar, cap, man)
     _tandai_program_biasa(akar, cap, man)
+    _peringatkan_jalur_sementara(akar, man)
     return man
 
 
@@ -651,6 +652,23 @@ def _tandai_program_biasa(akar: pathlib.Path, cap: list[Capability], man: Manife
             "Paket ini program biasa, bukan paket capability: tidak ada skill, agen, perintah, hook, "
             "maupun server MCP di dalamnya. Tidak ada yang dipasang, dan tidak ada yang disalin diam-diam."
         )
+
+
+# Jalur yang isinya hilang saat mesin dimulai ulang. Tautan skill menunjuk ke
+# jalur nyata, jadi memasang dari sini membuat semua tautan itu putus diam-diam
+# pada reboot berikutnya: pekerja kehilangan skillnya tanpa pesan apa pun.
+JALUR_SEMENTARA = ("/tmp/", "/var/tmp/", "/run/", "/dev/shm/")
+
+
+def _peringatkan_jalur_sementara(akar: pathlib.Path, man: Manifest) -> None:
+    teks = str(akar)
+    if not teks.startswith(JALUR_SEMENTARA):
+        return
+    man.catatan.append(
+        "PERHATIAN: paket ini dibaca dari jalur sementara (" + teks.split("/")[1] + "/). "
+        "Tautan skill menunjuk ke jalur ini, jadi semuanya putus begitu mesin dimulai ulang. "
+        "Pasang dari tautan GitHub atau salin paketnya ke folder tetap lebih dulu."
+    )
 
 
 def _yaml_scalar(teks: str, kunci: str) -> str:

@@ -540,6 +540,42 @@ def test_daftar_plugin_dalam_repo(tmp_path):
     assert {x["jenis"] for x in hasil} == {"claude", "codex"}
 
 
+# ------------------------------------------------------------------ jalur sementara
+
+def test_paket_dari_jalur_sementara_diperingatkan(tmp_path, monkeypatch):
+    """Memasang dari /tmp harus memunculkan peringatan yang bisa dibaca.
+
+    Tautan skill menunjuk jalur nyata, jadi paket yang dipasang dari /tmp
+    kehilangan seluruh skillnya pada reboot berikutnya tanpa pesan apa pun.
+    """
+    d = tmp_path / "paket-sementara"
+    (d / ".claude-plugin").mkdir(parents=True)
+    (d / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "sementara", "version": "1"}))
+    (d / "skills" / "s").mkdir(parents=True)
+    (d / "skills" / "s" / "SKILL.md").write_text("---\nname: s\ndescription: S.\n---\n")
+    # tmp_path pytest memang berada di bawah /tmp, jadi perilaku aslinya sudah
+    # teruji tanpa monkeypatch. Prefiksnya dikunci ke tmp_path supaya tes ini
+    # tidak bergantung pada letak folder sementara mesin yang menjalankannya.
+    monkeypatch.setattr(ap, "JALUR_SEMENTARA", (str(tmp_path) + "/",))
+    m = ap.baca(d)
+    assert any("jalur sementara" in c for c in m.catatan), m.catatan
+
+
+def test_paket_dari_folder_tetap_tidak_diperingatkan(skill_hermes, tmp_path, monkeypatch):
+    """Folder biasa tidak boleh memunculkan peringatan palsu."""
+    # Prefiks dikunci ke folder lain supaya paket di tmp_path terbaca sebagai
+    # folder tetap, bukan sebagai jalur sementara.
+    monkeypatch.setattr(ap, "JALUR_SEMENTARA", ("/tidak-ada-jalur-sementara/",))
+    m = ap.baca(skill_hermes)
+    assert not any("jalur sementara" in c for c in m.catatan), m.catatan
+
+
+def test_prefiks_jalur_sementara_mencakup_folder_biasa():
+    """Daftar prefiksnya harus mencakup jalur sementara yang benar-benar dipakai."""
+    for p in ("/tmp/", "/var/tmp/", "/run/", "/dev/shm/"):
+        assert p in ap.JALUR_SEMENTARA
+
+
 # ------------------------------------------------------------------ skill ganda
 
 def test_skill_ganda_dihitung_sekali(tmp_path):
