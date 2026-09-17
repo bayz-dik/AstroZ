@@ -268,3 +268,165 @@ def ruang_kerja(nama: str) -> pathlib.Path:
     if peran(nama) == "admin":
         return pathlib.Path(config.load()["project_dir"]).expanduser()
     return config.RUNTIME / "users" / nama / "workspace"
+
+
+# ------------------------------------------------------------------ kode undangan
+
+# Kode undangan: cara memberi akses tanpa mengirim token 43 karakter lewat
+# aplikasi pesan, dan tanpa admin membuat akunnya satu per satu.
+#
+# Kenapa TIDAK terbuka untuk umum: tugas AstroZ menjalankan CLI koding dengan
+# izin bypass di mesin pemilik. Pendaftaran terbuka berarti siapa pun yang bisa
+# menjangkau portnya dapat menjalankan perintah di mesin itu. Kode undangan
+# menjaga syaratnya tetap satu hal yang hanya diketahui orang yang diundang.
+KODE_ALFABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # tanpa I/O/0/1: mudah dibaca
+KODE_PANJANG = 8
+KODE_DETIK = 24 * 3600          # berlaku sehari
+KODE_MAKS_PAKAI = 1             # sekali pakai
+
+_UNDANGAN: dict[str, dict] = {}
+
+
+def _undangan_file() -> pathlib.Path:
+    return pathlib.Path(config.RUNTIME) / "invites.json"
+
+
+def _kode_baru() -> str:
+    return "".join(secrets.choice(KODE_ALFABET) for _ in range(KODE_PANJANG))
+
+
+def _simpan_undangan() -> None:
+    try:
+        f = _undangan_file()
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps(list(_UNDANGAN.values()), ensure_ascii=False, indent=2))
+        f.chmod(0o600)
+    except Exception:
+        pass
+
+
+def undangan_load() -> int:
+    f = _undangan_file()
+    if not f.exists():
+        return 0
+    try:
+        items = json.loads(f.read_text())
+    except Exception:
+        return 0
+    if not isinstance(items, list):
+        return 0
+    now = time.time()
+    for k in items:
+        # Yang sudah kedaluwarsa atau sudah terpakai habis tidak dimuat lagi.
+        if isinstance(k, dict) and k.get("kode") and _undangan_hidup(k, now):
+            _UNDANGAN[k["kode"]] = k
+    return len(_UNDANGAN)
+
+
+def _undangan_hidup(k: dict, now: float | None = None) -> bool:
+    now = now or time.time()
+    if now > float(k.get("kedaluwarsa") or 0):
+        return False
+    return int(k.get("dipakai") or 0) < int(k.get("maks") or KODE_MAKS_PAKAI)
+
+
+def undangan_buat(peran: str = "user", detik: int = KODE_DETIK, maks: int = KODE_MAKS_PAKAI) -> dict:
+    if peran not in PERAN:
+        raise ValueError(f"peran harus salah satu dari: {', '.join(PERAN)}")
+    if peran == "admin":
+        # Undangan admin berarti menyerahkan seluruh kendali mesin. Kalau itu
+        # benar-benar dikehendaki, akunnya dibuat langsung, bukan lewat kode.
+        raise ValueError("undangan admin tidak diizinkan; buat akunnya langsung")
+    kode = _kode_baru()
+    while kode in _UNDANGAN:
+        kode = _kode_baru()
+    k = {
+        "kode": kode,
+        "peran": peran,
+        "dibuat": time.time(),
+        "kedaluwarsa": time.time() + max(60, int(detik)),
+        "maks": max(1, int(maks)),
+        "dipakai": 0,
+    }
+    with _lock:
+        _UNDANGAN[kode] = k
+    _simpan_undangan()
+    return k
+
+
+def undangan_daftar() -> list[dict]:
+    now = time.time()
+    return [
+        {**_publik_undangan(k)}
+        for k in sorted(_UNDANGAN.values(), key=lambda x: x.get("dibuat") or 0, reverse=True)
+        if _undangan_hidup(k, now)
+    ]
+
+
+def _publik_undangan(k: dict) -> dict:
+    return {
+        "kode": k["kode"],
+        "peran": k.get("peran", "user"),
+        "dibuat": k.get("dibuat"),
+        "kedaluwarsa": k.get("kedaluwarsa"),
+        "dipakai": int(k.get("dipakai") or 0),
+        "maks": int(k.get("maks") or KODE_MAKS_PAKAI),
+    }
+
+
+def undangan_hapus(kode: str) -> dict:
+    with _lock:
+        k = _UNDANGAN.pop((kode or "").strip().upper(), None)
+    if not k:
+        raise ValueError("kode undangan tidak ada")
+    _simpan_undangan()
+    return {"kode": k["kode"], "dihapus": True}
+
+
+def undangan_pakai(kode: str, nama: str) -> dict:
+    """Tukar kode undangan dengan akun baru. Token dikembalikan sekali.
+
+    Pemeriksaan dan pemakaian kode dilakukan di dalam satu kunci supaya kode
+    sekali-pakai tidak bisa dipakai dua orang yang menekan tombol bersamaan.
+    """
+    kode = (kode or "").strip().upper()
+    nama = (nama or "").strip().lower()
+    if not kode:
+        raise ValueError("kode undangan wajib diisi")
+    if not NAMA_AMAN.match(nama):
+        raise ValueError("nama hanya huruf kecil, angka, titik, garis bawah, dan strip (2-31 karakter)")
+    with _lock:
+        k = _UNDANGAN.get(kode)
+        if not k or not _undangan_hidup(k):
+            raise ValueError("kode undangan tidak berlaku atau sudah kedaluwarsa")
+        if nama in _U:
+            raise ValueError("nama itu sudah dipakai, pilih nama lain")
+        u, token = _buat_tanpa_kunci(nama, k.get("peran") or "user")
+        k["dipakai"] = int(k.get("dipakai") or 0) + 1
+        if not _undangan_hidup(k):
+            # Sudah habis dipakai: langsung dibuang supaya tidak ikut tersimpan.
+            _UNDANGAN.pop(kode, None)
+    _persist()
+    _simpan_undangan()
+    return {**_publik(u), "token": token}
+
+
+def _buat_tanpa_kunci(nama: str, peran: str) -> tuple[dict, str]:
+    """Buat akun, kembalikan (data akun, token asli).
+
+    Token dikembalikan terpisah dan TIDAK ditaruh di dalam dict akun: dict itu
+    yang disimpan ke users.json, jadi menaruh token di sana berarti menulis
+    token asli ke disk. Hanya sidik jarinya yang boleh tersimpan.
+    """
+    token = _token_baru()
+    garam = secrets.token_hex(16)
+    u = {
+        "nama": nama,
+        "peran": peran,
+        "garam": garam,
+        "sidik": _sidik(token, garam),
+        "dibuat": time.time(),
+        "aktif": True,
+    }
+    _U[nama] = u
+    return u, token

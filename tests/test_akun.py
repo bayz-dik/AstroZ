@@ -26,11 +26,13 @@ def bersih(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "RUNTIME", rt)
     monkeypatch.setattr(sessions, "SESSIONS_FILE", rt / "sessions.json")
     users._U.clear()
+    users._UNDANGAN.clear()
     sessions._S.clear()
     yield rt
     # Keadaan modul dikembalikan: kalau tidak, tes berikutnya mewarisi akun uji
     # dan menulisnya ke runtime milik mesin ini.
     users._U.clear()
+    users._UNDANGAN.clear()
     sessions._S.clear()
 
 
@@ -188,6 +190,127 @@ def test_sematkan_menghormati_pemilik(bersih):
     s = sessions.create("punya budi", owner="budi")
     assert sessions.toggle_pin(s["id"], True, owner="ani") is None
     assert sessions.toggle_pin(s["id"], True, owner="budi")["pinned"] is True
+
+
+# ------------------------------------------------------------------ kode undangan
+
+def test_undangan_sekali_pakai(bersih):
+    users.siapkan_pertama()
+    k = users.undangan_buat()
+    assert len(k["kode"]) == users.KODE_PANJANG
+    u = users.undangan_pakai(k["kode"], "ani")
+    assert u["nama"] == "ani"
+    assert users.verifikasi(u["token"])["nama"] == "ani"
+    # Sekali pakai: percobaan kedua harus ditolak.
+    with pytest.raises(ValueError):
+        users.undangan_pakai(k["kode"], "orang-lain")
+
+
+def test_undangan_bisa_dipakai_beberapa_orang(bersih):
+    users.siapkan_pertama()
+    k = users.undangan_buat(maks=3)
+    for nama in ("ani", "tono", "wati"):
+        assert users.undangan_pakai(k["kode"], nama)["nama"] == nama
+    # Habis di pemakaian ketiga.
+    with pytest.raises(ValueError):
+        users.undangan_pakai(k["kode"], "keempat")
+
+
+def test_undangan_kedaluwarsa_ditolak(bersih):
+    users.siapkan_pertama()
+    k = users.undangan_buat(detik=60)
+    k["kedaluwarsa"] = 1  # sudah lewat
+    with pytest.raises(ValueError):
+        users.undangan_pakai(k["kode"], "ani")
+
+
+def test_undangan_kode_salah_ditolak(bersih):
+    users.siapkan_pertama()
+    users.undangan_buat()
+    for kode in ("", "XXXXXXXY", "salah"):
+        with pytest.raises(ValueError):
+            users.undangan_pakai(kode, "ani")
+
+
+def test_undangan_tidak_bisa_membuat_admin(bersih):
+    """Undangan admin berarti menyerahkan seluruh kendali mesin."""
+    users.siapkan_pertama()
+    with pytest.raises(ValueError):
+        users.undangan_buat(peran="admin")
+
+
+def test_undangan_nama_bentrok_ditolak(bersih):
+    users.siapkan_pertama()
+    users.buat("ani", "user")
+    k = users.undangan_buat()
+    with pytest.raises(ValueError):
+        users.undangan_pakai(k["kode"], "ani")
+    # Kode tidak hangus karena percobaan yang gagal: namanya yang salah.
+    assert users.undangan_pakai(k["kode"], "tono")["nama"] == "tono"
+
+
+def test_token_tidak_ikut_tersimpan_ke_disk(bersih):
+    """Token asli tidak boleh ada di users.json, hanya sidik jarinya."""
+    users.siapkan_pertama()
+    k = users.undangan_buat()
+    u = users.undangan_pakai(k["kode"], "ani")
+    isi = (bersih / "users.json").read_text()
+    assert u["token"] not in isi
+    assert "_token_sekali" not in isi
+
+
+def test_undangan_disimpan_dan_dimuat_ulang(bersih):
+    """Kode yang masih berlaku harus selamat dari restart server."""
+    users.siapkan_pertama()
+    k = users.undangan_buat()
+    users._UNDANGAN.clear()
+    n = users.undangan_load()
+    assert n == 1
+    assert users.undangan_pakai(k["kode"], "ani")["nama"] == "ani"
+
+
+def test_undangan_kedaluwarsa_tidak_dimuat(bersih):
+    users.siapkan_pertama()
+    k = users.undangan_buat(detik=60)
+    (bersih / "invites.json").write_text(json.dumps([{**k, "kedaluwarsa": 1}]))
+    users._UNDANGAN.clear()
+    assert users.undangan_load() == 0
+
+
+def test_daftar_undangan_hanya_yang_hidup(bersih):
+    users.siapkan_pertama()
+    a = users.undangan_buat()
+    b = users.undangan_buat()
+    users.undangan_pakai(b["kode"], "ani")   # b habis (sekali pakai)
+    kode = [x["kode"] for x in users.undangan_daftar()]
+    assert a["kode"] in kode
+    assert b["kode"] not in kode
+
+
+def test_undangan_hapus(bersih):
+    users.siapkan_pertama()
+    k = users.undangan_buat()
+    assert users.undangan_hapus(k["kode"])["dihapus"] is True
+    with pytest.raises(ValueError):
+        users.undangan_pakai(k["kode"], "ani")
+
+
+def test_undangan_pemakai_dapat_folder_sendiri(bersih):
+    """Pendaftar lewat undangan harus terpisah seperti akun lain."""
+    users.siapkan_pertama()
+    k = users.undangan_buat()
+    users.undangan_pakai(k["kode"], "ani")
+    p = users.ruang_kerja("ani")
+    assert "ani" in str(p)
+    assert p != users.ruang_kerja("admin")
+
+
+def test_undangan_bukan_admin(bersih):
+    users.siapkan_pertama()
+    k = users.undangan_buat()
+    u = users.undangan_pakai(k["kode"], "ani")
+    assert u["peran"] == "user"
+    assert users.peran("ani") == "user"
 
 
 # ------------------------------------------------------------------ folder kerja

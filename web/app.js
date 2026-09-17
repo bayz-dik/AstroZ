@@ -51,6 +51,21 @@ async function kirimToken(token) {
 function pasangFormMasuk() {
   const f = el("form-masuk");
   if (!f) return;
+
+  // Tab: masuk atau daftar. Yang ditampilkan hanya satu, supaya layar masuk
+  // tidak menumpuk dua formulir sekaligus di layar HP.
+  function tabmana(nama) {
+    const masuk = nama === "masuk";
+    el("tab-masuk").setAttribute("aria-selected", String(masuk));
+    el("tab-daftar").setAttribute("aria-selected", String(!masuk));
+    el("form-masuk").hidden = !masuk;
+    el("form-daftar").hidden = masuk;
+    el("hasil-daftar").hidden = true;
+    setTimeout(() => (masuk ? el("token-masuk") : el("kode-undangan"))?.focus(), 60);
+  }
+  el("tab-masuk").addEventListener("click", () => tabmana("masuk"));
+  el("tab-daftar").addEventListener("click", () => tabmana("daftar"));
+
   f.addEventListener("submit", async (e) => {
     e.preventDefault();
     const token = el("token-masuk").value.trim();
@@ -77,6 +92,78 @@ function pasangFormMasuk() {
       tombol.textContent = "Masuk";
     }
   });
+
+  // Daftar dengan kode undangan: akun dan token dibuat server, pendaftar
+  // menyalin tokennya sendiri. Admin tidak menyentuh token sama sekali.
+  const fd = el("form-daftar");
+  if (fd) {
+    fd.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const pesan = el("pesan-daftar");
+      const tombol = el("tombol-daftar");
+      const kode = el("kode-undangan").value.trim().toUpperCase();
+      const nama = el("nama-daftar").value.trim().toLowerCase();
+      if (!kode || !nama) { pesan.textContent = "Isi kode dan namanya."; return; }
+      tombol.disabled = true;
+      tombol.textContent = "membuat akun";
+      pesan.textContent = "";
+      try {
+        const d = await minta("/api/undangan/pakai", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kode, nama }),
+        });
+        const token = (d.akun || {}).token || "";
+        el("token-baru").value = token;
+        el("form-daftar").hidden = true;
+        el("hasil-daftar").hidden = false;
+        el("kode-undangan").value = "";
+        el("nama-daftar").value = "";
+      } catch (err) {
+        pesan.textContent = err.message || "tidak bisa mendaftar";
+      } finally {
+        tombol.disabled = false;
+        tombol.textContent = "Buat akun";
+      }
+    });
+  }
+
+  const salin = el("salin-token");
+  if (salin) {
+    salin.addEventListener("click", async () => {
+      const t = el("token-baru").value;
+      try {
+        await navigator.clipboard.writeText(t);
+        pesanSingkat("Token disalin.");
+      } catch {
+        // Clipboard bisa ditolak peramban; pilih teksnya supaya bisa disalin manual.
+        el("token-baru").select();
+        pesanSingkat("Tekan lama untuk menyalin tokennya.", true);
+      }
+    });
+  }
+
+  const langsung = el("masuk-sekarang");
+  if (langsung) {
+    langsung.addEventListener("click", async () => {
+      const t = el("token-baru").value;
+      langsung.disabled = true;
+      try {
+        const u = await kirimToken(t);
+        tampilkanGerbang(false);
+        keadaan.peran = u.peran || "user";
+        keadaan.saya = u.nama || "";
+        sembunyikanKhususAdmin();
+        await mulai();
+      } catch (err) {
+        el("pesan-daftar").textContent = err.message || "tidak bisa masuk";
+        el("hasil-daftar").hidden = true;
+        el("form-daftar").hidden = false;
+      } finally {
+        langsung.disabled = false;
+      }
+    });
+  }
 }
 
 /* Menu yang menyangkut mesin pemilik (kunci API, pekerja, setelan) tidak
@@ -87,6 +174,8 @@ function sembunyikanKhususAdmin() {
   const admin = keadaan.peran === "admin";
   const kaki = el("kaki-pengaturan");
   if (kaki) kaki.hidden = !admin;
+  const blok = el("blok-admin");
+  if (blok) blok.hidden = !admin;
   // Pil model hanya berguna kalau daftar model boleh dibaca.
   const pil = el("pil-model");
   if (pil) pil.hidden = !admin;
@@ -94,7 +183,131 @@ function sembunyikanKhususAdmin() {
     const j = el("judul-bar");
     if (j) j.textContent = "AstroZ · " + keadaan.saya;
   }
+  // Bagian admin dimuat setelah perannya diketahui, bukan saat halaman dibuka.
+  if (admin) {
+    muatUndangan().catch(() => {});
+    muatAkun().catch(() => {});
+  }
 }
+
+/* ------------------------------------------------------------------ admin */
+
+/* Kelola undangan dan akun. Hanya tampil untuk admin; pengguna biasa tidak
+   melihat bloknya sama sekali, dan server tetap menolak kalau dipaksa. */
+async function muatUndangan() {
+  const wadah = el("daftar-undangan");
+  if (!wadah) return;
+  try {
+    const d = await ambil("/api/undangan");
+    wadah.replaceChildren();
+    const u = d.undangan || [];
+    if (!u.length) {
+      wadah.appendChild(buat("p", "kosong", "Belum ada kode undangan yang berlaku."));
+      return;
+    }
+    for (const k of u) {
+      const baris = buat("div", "baris-data");
+      const atas = buat("div", "atas");
+      atas.appendChild(buat("span", "nama", k.kode));
+      atas.appendChild(buat("span", "tanda-cap ada", k.peran));
+      baris.appendChild(atas);
+      const sisa = Math.max(0, Math.round(((k.kedaluwarsa || 0) * 1000 - Date.now()) / 1000));
+      const jam = Math.floor(sisa / 3600);
+      baris.appendChild(buat("div", "teks-kecil",
+        `dipakai ${k.dipakai}/${k.maks} · berlaku ${jam > 0 ? jam + " jam lagi" : Math.floor(sisa / 60) + " menit lagi"}`));
+      const b = buat("button", "tombol kecil garis", "batalkan");
+      b.type = "button";
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        try {
+          await kirim(`/api/undangan/${encodeURIComponent(k.kode)}`, {}, "DELETE");
+          pesanSingkat(`Kode ${k.kode} dibatalkan.`);
+          await muatUndangan();
+        } catch (e) {
+          pesanSingkat("Gagal membatalkan: " + e.message, true);
+        } finally {
+          b.disabled = false;
+        }
+      });
+      baris.appendChild(b);
+      wadah.appendChild(baris);
+    }
+  } catch (e) {
+    wadah.replaceChildren(buat("p", "kosong", "Daftar undangan tidak bisa dimuat: " + e.message));
+  }
+}
+
+async function muatAkun() {
+  const wadah = el("daftar-akun");
+  if (!wadah) return;
+  try {
+    const d = await ambil("/api/akun");
+    wadah.replaceChildren();
+    for (const a of d.akun || []) {
+      const baris = buat("div", "baris-data");
+      const atas = buat("div", "atas");
+      atas.appendChild(buat("span", "nama", a.nama));
+      atas.appendChild(buat("span", "tanda-cap " + (a.peran === "admin" ? "ada" : "tidak"), a.peran));
+      if (!a.aktif) atas.appendChild(buat("span", "tanda-cap tidak", "nonaktif"));
+      baris.appendChild(atas);
+      const deret = buat("div", "baris-aksi-pesan");
+      const bt = buat("button", "tombol kecil garis", "token baru");
+      bt.type = "button";
+      bt.addEventListener("click", async () => {
+        bt.disabled = true;
+        try {
+          const r = await kirim(`/api/akun/${encodeURIComponent(a.nama)}/token`, {});
+          // Token baru ditampilkan sekali di sini, lalu bisa disalin.
+          baris.querySelector(".token-baru")?.remove();
+          const kotak = buat("input", "token-baru");
+          kotak.readOnly = true;
+          kotak.value = (r.akun || {}).token || "";
+          kotak.style.marginTop = "6px";
+          baris.appendChild(kotak);
+          kotak.select();
+          pesanSingkat(`Token baru untuk ${a.nama} ditampilkan. Salin sekarang.`);
+        } catch (e) {
+          pesanSingkat("Gagal: " + e.message, true);
+        } finally {
+          bt.disabled = false;
+        }
+      });
+      deret.appendChild(bt);
+      baris.appendChild(deret);
+      wadah.appendChild(baris);
+    }
+  } catch (e) {
+    wadah.replaceChildren(buat("p", "kosong", "Daftar akun tidak bisa dimuat: " + e.message));
+  }
+}
+
+function pasangAdmin() {
+  const b = el("buat-undangan");
+  if (b) {
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        const maks = Math.max(1, Math.min(50, Number(el("undangan-maks").value) || 1));
+        const d = await kirim("/api/undangan", { peran: "user", maks });
+        const kode = (d.undangan || {}).kode || "";
+        pesanSingkat(`Kode undangan: ${kode} — kirim ke orangnya.`);
+        await muatUndangan();
+      } catch (e) {
+        pesanSingkat("Gagal membuat kode: " + e.message, true);
+      } finally {
+        b.disabled = false;
+      }
+    });
+  }
+  const m = el("muat-undangan");
+  if (m) {
+    m.addEventListener("click", async () => {
+      await Promise.all([muatUndangan(), muatAkun()]);
+    });
+  }
+}
+
+pasangAdmin();
 
 /* ------------------------------------------------------------------ bantuan */
 

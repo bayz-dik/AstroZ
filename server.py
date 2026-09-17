@@ -39,7 +39,10 @@ COOKIE = "astroz_token"
 # Jalur yang boleh dibuka tanpa masuk. Hanya halaman UI dan berkasnya: tanpa ini
 # halaman masuk sendiri tidak bisa dimuat.
 TERBUKA = {"/", "/app.css", "/app.js", "/manifest.webmanifest", "/favicon.ico"}
-TERBUKA_AWALAN = ("/api/masuk",)
+# Endpoint yang boleh dibuka tanpa masuk. Pendaftaran lewat kode undangan masuk
+# di sini karena orang yang mendaftar memang belum punya token. Syaratnya tetap
+# satu: harus tahu kodenya.
+TERBUKA_AWALAN = ("/api/masuk", "/api/undangan/")
 
 
 def _token_dari(request: Request) -> str:
@@ -165,6 +168,68 @@ async def akun_aktif(nama: str, payload: dict, request: Request):
     return {"ok": True, "akun": u}
 
 
+# ------------------------------------------------------------------ undangan
+# Admin membuat kode pendek, lalu membagikannya. Orangnya mendaftar sendiri dan
+# tokennya dibuat otomatis, jadi admin tidak perlu menyentuh token sama sekali.
+@app.get("/api/undangan")
+async def undangan_daftar(request: Request):
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh mengelola undangan", 403)
+    return {"ok": True, "undangan": users.undangan_daftar()}
+
+
+@app.post("/api/undangan")
+async def undangan_buat(payload: dict, request: Request):
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh membuat undangan", 403)
+    body = payload or {}
+    try:
+        k = users.undangan_buat(
+            peran=(body.get("peran") or "user"),
+            detik=int(body.get("detik") or users.KODE_DETIK),
+            maks=int(body.get("maks") or users.KODE_MAKS_PAKAI),
+        )
+    except ValueError as e:
+        return _tolak(str(e), 400)
+    hub.emit("system", f"Kode undangan dibuat (berlaku sampai {int(k['kedaluwarsa'])})")
+    return {"ok": True, "undangan": users._publik_undangan(k)}
+
+
+@app.delete("/api/undangan/{kode}")
+async def undangan_hapus(kode: str, request: Request):
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh menghapus undangan", 403)
+    try:
+        r = users.undangan_hapus(kode)
+    except ValueError as e:
+        return _tolak(str(e), 404)
+    return {"ok": True, **r}
+
+
+# Dua endpoint di bawah ini SENGAJA terbuka: yang memakainya belum punya token.
+# Yang menjaga adalah kodenya sendiri.
+@app.get("/api/undangan/cek")
+async def undangan_cek(kode: str = ""):
+    """Periksa kode tanpa memakainya, supaya pendaftar tahu kodenya sah."""
+    k = users._UNDANGAN.get((kode or "").strip().upper())
+    if not k or not users._undangan_hidup(k):
+        return {"ok": False, "error": "kode tidak berlaku atau sudah kedaluwarsa"}
+    return {"ok": True, "peran": k.get("peran") or "user"}
+
+
+@app.post("/api/undangan/pakai")
+async def undangan_pakai(payload: dict):
+    """Tukar kode dengan akun baru. Token dikembalikan SEKALI, untuk disalin."""
+    body = payload or {}
+    try:
+        u = await asyncio.to_thread(users.undangan_pakai, body.get("kode") or "", body.get("nama") or "")
+    except ValueError as e:
+        return _tolak(str(e), 400)
+    # Nama akun saja yang dicatat, bukan tokennya: feed kejadian tampil di UI.
+    hub.emit("system", f"Akun baru dari kode undangan: {u['nama']} ({u['peran']})")
+    return {"ok": True, "akun": u, "catatan": "token hanya ditampilkan sekali, salin sekarang"}
+
+
 @app.delete("/api/akun/{nama}")
 async def akun_hapus(nama: str, request: Request):
     if not _admin_saja(request):
@@ -188,9 +253,12 @@ async def _startup() -> None:
     baru = users.siapkan_pertama()
     if baru:
         hub.emit("system", "Akun admin dibuat. Token masuk ada di runtime/admin_token.txt", phase="boot")
+    # Kode undangan yang masih berlaku dimuat supaya tidak hilang saat restart.
+    nk = users.undangan_load()
     nt = orchestrator.load_tasks()
     ns = sessions.load()
-    hub.emit("system", f"UI AstroZ siap ({n} kejadian, {nt} tugas, {ns} percakapan, {nu or 1} akun)", phase="boot")
+    hub.emit("system", f"UI AstroZ siap ({n} kejadian, {nt} tugas, {ns} percakapan, "
+                       f"{nu or 1} akun, {nk} kode undangan)", phase="boot")
     asyncio.create_task(_bg_health())
     # Sinkron sekali saat start. Tanpa ini, orang yang baru mengkloning repo
     # membuka UI dan melihat daftar model kosong walau 9Router-nya hidup, karena

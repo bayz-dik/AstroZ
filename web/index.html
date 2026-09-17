@@ -18,15 +18,46 @@
 <!-- Layar masuk. Halaman UI sendiri terbuka tanpa token supaya layar ini bisa
      dimuat, tetapi seluruh datanya baru mengalir setelah token diterima. -->
 <div class="gerbang" id="gerbang" hidden>
-  <form class="kartu-masuk" id="form-masuk">
+  <div class="kartu-masuk">
     <span class="lambang-masuk" id="lambang-masuk" aria-hidden="true"></span>
     <h1>Masuk AstroZ</h1>
-    <p class="catatan">Tempel token yang diberikan admin. Token disimpan sebagai cookie di peramban ini.</p>
-    <label class="sr" for="token-masuk">Token</label>
-    <input id="token-masuk" type="password" autocomplete="current-password" placeholder="token" required>
-    <button type="submit" class="tombol penuh" id="tombol-masuk">Masuk</button>
-    <p class="pesan-masuk" id="pesan-masuk" role="alert"></p>
-  </form>
+
+    <!-- Dua tab: masuk (sudah punya token) dan daftar (punya kode undangan). -->
+    <div class="tab-masuk" role="tablist" aria-label="Masuk atau daftar">
+      <button type="button" role="tab" id="tab-masuk" aria-selected="true">Masuk</button>
+      <button type="button" role="tab" id="tab-daftar" aria-selected="false">Punya kode undangan</button>
+    </div>
+
+    <form id="form-masuk" class="isi-tab">
+      <p class="catatan">Tempel token yang diberikan admin. Token disimpan sebagai cookie di peramban ini.</p>
+      <label class="sr" for="token-masuk">Token</label>
+      <input id="token-masuk" type="password" autocomplete="current-password" placeholder="token" required>
+      <button type="submit" class="tombol penuh" id="tombol-masuk">Masuk</button>
+      <p class="pesan-masuk" id="pesan-masuk" role="alert"></p>
+    </form>
+
+    <form id="form-daftar" class="isi-tab" hidden>
+      <p class="catatan">Isi kode undangan dari admin dan pilih nama. Akun dan tokenmu dibuat otomatis.</p>
+      <label class="sr" for="kode-undangan">Kode undangan</label>
+      <input id="kode-undangan" placeholder="kode undangan, misalnya K7M2QP4X" autocapitalize="characters" required>
+      <label class="sr" for="nama-daftar">Nama</label>
+      <input id="nama-daftar" placeholder="nama kamu (huruf kecil, tanpa spasi)" autocapitalize="none" required>
+      <button type="submit" class="tombol penuh" id="tombol-daftar">Buat akun</button>
+      <p class="pesan-masuk" id="pesan-daftar" role="alert"></p>
+    </form>
+
+    <!-- Hasil pendaftaran: token ditampilkan SEKALI di sini. -->
+    <div class="isi-tab" id="hasil-daftar" hidden>
+      <p class="catatan">Akunmu siap. Salin token ini sekarang, karena hanya ditampilkan sekali.</p>
+      <label class="sr" for="token-baru">Token akunmu</label>
+      <input id="token-baru" readonly>
+      <div class="kelompok">
+        <button type="button" class="tombol kecil" id="salin-token">Salin token</button>
+        <button type="button" class="tombol kecil" id="masuk-sekarang">Masuk sekarang</button>
+      </div>
+      <p class="catatan">Simpan di tempat aman. Kalau hilang, minta admin menerbitkan yang baru.</p>
+    </div>
+  </div>
 </div>
 
 <div class="app">
@@ -310,7 +341,26 @@
 
     <section class="panel" id="alat-pengaturan" hidden>
       <h2>Pengaturan</h2>
-      <h3>Tema</h3>
+
+      <!-- Kelola akun dan undangan. Hanya admin yang melihat bagian ini;
+           app.js menyembunyikannya untuk pengguna biasa. -->
+      <div id="blok-admin">
+        <h3>Undangan</h3>
+        <p class="catatan">Buat kode pendek, kirim ke orangnya. Dia mendaftar sendiri di layar masuk dan tokennya dibuat otomatis, jadi kamu tidak perlu menyentuh token sama sekali.</p>
+        <label class="sr" for="undangan-maks">Berapa orang boleh memakai kode ini</label>
+        <input id="undangan-maks" type="number" min="1" max="50" value="1" placeholder="jumlah pemakai">
+        <div class="kelompok">
+          <button type="button" class="tombol kecil" id="buat-undangan">Buat kode undangan</button>
+          <button type="button" class="tombol kecil garis" id="muat-undangan">Muat ulang</button>
+        </div>
+        <div id="daftar-undangan"></div>
+
+        <h3 style="margin-top:22px">Akun</h3>
+        <p class="catatan">Siapa saja yang punya akses. Token hanya muncul sekali saat akun dibuat; kalau hilang, terbitkan yang baru dari sini.</p>
+        <div id="daftar-akun"></div>
+      </div>
+
+      <h3 style="margin-top:22px">Tema</h3>
       <p class="catatan">Warna tampilan. Pilihannya disimpan di peramban ini, bukan di server.</p>
       <div class="pilih-tema" role="group" aria-label="Tema">
         <button type="button" class="tombol kecil garis" data-pilih-tema="terang">Terang</button>

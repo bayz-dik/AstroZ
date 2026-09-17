@@ -159,6 +159,24 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 }
 .kartu-masuk h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
 .kartu-masuk .catatan { margin: 0 0 6px; }
+.isi-tab { display: flex; flex-direction: column; gap: 10px; }
+.isi-tab[hidden] { display: none; }
+.isi-tab .kelompok { margin: 0; }
+
+/* Tab masuk/daftar: satu baris, garis bawah pada yang aktif. */
+.tab-masuk {
+  display: flex; gap: 4px; border-bottom: 1px solid var(--garis); margin-bottom: 4px;
+}
+.tab-masuk button {
+  background: transparent; border: 0; cursor: pointer; font: inherit;
+  font-size: 14px; color: var(--tinta-lembut); padding: 9px 10px;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  min-height: var(--tinggi-target);
+}
+.tab-masuk button[aria-selected="true"] {
+  color: var(--tinta); border-bottom-color: var(--tinta); font-weight: 500;
+}
+.token-baru { font-family: var(--font-mesin); font-size: 12px; }
 /* Lambang yang sama dengan kepala bar, hanya lebih besar. */
 .lambang-masuk {
   display: block; width: 44px; height: 40px; margin-bottom: 6px;
