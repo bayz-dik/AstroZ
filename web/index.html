@@ -380,14 +380,16 @@
   </div>
   </div>
   <div class="kaki" id="kaki-alat">
-    <!-- Dua lambang saja, tanpa teks: gerigi untuk pengaturan dan gelembung
-         untuk percakapan baru. Di layar HP teks di sini bikin kakinya tinggi
-         dan memakan ruang daftar menu. -->
+    <!-- Label teks, bukan cuma lambang. Sebelumnya di sini hanya gerigi tanpa
+         tulisan: di layar HP tooltip tidak pernah muncul, jadi orang tidak
+         menemukan menu Pengaturan sama sekali. -->
     <button type="button" class="ikon-kaki" id="kaki-pengaturan" data-alat="pengaturan" aria-label="Pengaturan" title="Pengaturan">
-      <span data-ikon="gerigi" data-ukuran="21" aria-hidden="true"></span>
+      <span data-ikon="gerigi" data-ukuran="19" aria-hidden="true"></span>
+      <span class="teks-kaki">Pengaturan</span>
     </button>
     <button type="button" class="ikon-kaki" id="sesi-baru" aria-label="Percakapan baru" title="Percakapan baru">
-      <span data-ikon="bubble" data-ukuran="21" aria-hidden="true"></span>
+      <span data-ikon="bubble" data-ukuran="19" aria-hidden="true"></span>
+      <span class="teks-kaki">Baru</span>
     </button>
   </div>
 </div>

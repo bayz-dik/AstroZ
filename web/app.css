@@ -684,12 +684,16 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--aksen); 
 .kaki[hidden] { display: none; }
 .ikon-kaki {
   background: transparent; border: 0; cursor: pointer;
-  width: var(--tinggi-target); height: var(--tinggi-target);
+  min-height: var(--tinggi-target);
+  /* Pil, bukan lingkaran tetap: lebarnya ikut panjang labelnya. */
+  padding: 0 12px 0 10px;
   border-radius: var(--radius-pil);
-  display: inline-flex; align-items: center; justify-content: center;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   color: var(--tinta-2); flex: none;
+  font: inherit; font-size: 13px;
 }
 .ikon-kaki:hover { background: var(--permukaan-hangat); color: var(--tinta); }
+.teks-kaki { white-space: nowrap; }
 
 /* baris riwayat: satu tombol penuh per baris, aksinya di menu titik tiga.
    Aturan lamanya dihapus seluruhnya: `.daftar .baris-sesi > button:first-child`
