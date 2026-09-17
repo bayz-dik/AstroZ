@@ -37,6 +37,11 @@ workflow:
   review: true
   test_command: ''
   stall_seconds: 240
+  # Batas menunggu "ada socket terbuka" (lihat orchestrator.run_worker). Socket
+  # terbuka hanya membuktikan pekerja menunggu sesuatu, bukan bahwa sesuatu itu
+  # akan menjawab; tanpa batas ini satu port gateway mati membuat tiap pekerja
+  # menunggu sampai timeout penuh.
+  wait_ceiling_seconds: 600
   fix_on_fail: true
   fix_rounds: 1
   fix_review_rounds: 1
@@ -51,6 +56,20 @@ workflow:
     codex: 0.05
     claude: 0.45
   auto_commit: true
+  # Lapis 1 dan Lapis 2 orkestrator. Pekerja paralel mengklaim berkasnya dulu,
+  # yang klaimnya beririsan dikerjakan gantian, dan sesudah paralel selesai
+  # berkas yang benar-benar berubah dibandingkan dengan klaim itu.
+  klaim_berkas: true
+  # Batas jumlah berkas per klaim: klaim sepanjang isi repo membuat semua tugas
+  # beririsan dan tidak ada yang benar-benar paralel.
+  batas_klaim: 12
+  berkas_aman:
+  - team.yaml
+  - .env
+  - requirements.txt
+  - package.json
+  - package-lock.json
+  - Dockerfile
 hermes:
   profile: default
   enabled: true

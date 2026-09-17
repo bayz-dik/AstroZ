@@ -18,6 +18,13 @@ workspace/
 .venv/
 __pycache__/
 *.pyc
+
+# Venv alat luar (aider, cognee, mem0): ratusan MB, dipasang ulang dengan
+# `bash tools/pasang_alat.sh`, jadi tidak ikut repo.
+tools/paket/
+
+# Folder datanya plugin yang dipasang lewat adapter.
+.astroz/
 .pytest_cache/
 
 # Editor.

@@ -20,9 +20,9 @@ panel terpisah di sebelahnya.
 
 ## Yang perlu ada dulu
 
-1. **Python 3.10 atau lebih baru**, dengan tiga paket di `requirements.txt`
-   (fastapi, uvicorn, PyYAML). Pasang di venv supaya tidak menabrak python
-   sistem:
+1. **Python 3.10 atau lebih baru**, dengan paket di `requirements.txt`
+   (fastapi, uvicorn, PyYAML, plus pytest untuk menjalankan suite tes repo ini).
+   Pasang di venv supaya tidak menabrak python sistem:
 
    ```bash
    git clone https://github.com/bayz-dik/AstroZ.git astroz
@@ -129,12 +129,22 @@ menandai mana yang menjawab.
 - **Besar**: tugas dipecah, dikerjakan paralel, pekerja saling menilai, tes,
   lalu penilaian akhir.
 
-Kalau satu pekerja macet, tugas tidak ikut macet. Dua pengaman menjaganya:
+Kalau satu pekerja macet, tugas tidak ikut macet. Tiga pengaman menjaganya:
 
+- **Pintu diperiksa dulu**: sebelum pekerja dijalankan, kedua port gateway
+  dicoba disambung (`upstream_base_url` dan `api_base`). Pekerja menembak
+  penyaring SSE, sementara UI dan Hermes memakai 9Router langsung, jadi dua port
+  itu bisa berbeda nasib. Kalau ada yang mati, tugas berhenti dengan pesan yang
+  menyebut port mana, bukan menggantung menunggu jawaban yang tidak akan datang.
 - **Batas macet**: pekerja yang tidak menghasilkan kemajuan berarti selama
   `workflow.stall_seconds` (bawaan 240 detik) dihentikan. Baris progres seperti
   "Working..." tidak dihitung sebagai kemajuan, dan worker yang benar-benar
   mengalir keluarannya tidak pernah dipotong.
+- **Batas menunggu**: socket terbuka hanya membuktikan pekerja menunggu sesuatu,
+  bukan bahwa sesuatu itu akan menjawab. Karena itu "ada koneksi terbuka" hanya
+  boleh dipakai sebagai alasan menunggu selama `workflow.wait_ceiling_seconds`
+  (bawaan 600 detik). Tanpa batas ini satu port gateway yang mati membuat tiap
+  pekerja menunggu sampai timeout penuh: 900 detik dikali tiga pekerja.
 - **Eskalasi**: kalau semua percobaan gagal, tugas dicoba ke pekerja lain di
   daftar prioritas, sampai `workflow.escalate_tries` pekerja (bawaan 2). CLI
   yang macet gagal di model apa pun, jadi pindah pekerja lebih berguna daripada
@@ -172,11 +182,31 @@ web/index.html    kerangka UI
 web/app.css       tampilan
 web/app.js        perilaku: chat, panel proses, alat
 assets/           banner README
-tests/smoke.sh    uji end to end
+tests/smoke.sh    uji end to end lewat UI yang sedang jalan
+tests/*.py        suite pytest: adaptor, orkestrator, project, API server
 ```
 
 `team.yaml` berisi kunci API dan tidak ikut ke repo; contohnya ada di
 `team.yaml.example`.
+
+## Uji
+
+Dua lapis, dan keduanya dijalankan dari akar repo:
+
+```bash
+.venv/bin/python -m pytest tests -q   # suite cepat, tanpa CLI pekerja
+./tests/smoke.sh                      # end to end: model hidup + pekerja + UI
+MODEL=<id-model> ./tests/smoke.sh
+```
+
+Suite pytest menguji perilaku yang sudah pernah salah di mesin ini, jadi setiap
+tes menyebut alasan aslinya: penerjemah `stream-json` Claude, perintah tiap
+adaptor, pemeriksaan pintu gateway, garis dasar berkas satu tugas, pemilihan
+interpreter yang benar-benar punya pytest, dan urutan rute API. Satu tes
+memanggil UI yang sedang jalan lewat HTTP (dan melewati dirinya sendiri kalau UI
+belum menyala), karena rute dinamis pernah menelan rute tetap dan hanya panggilan
+HTTP yang bisa menangkap itu. Semua tes memakai team.yaml sementara di `tmp_path`,
+jadi tidak ada tes yang menulis setelan atau kunci pengguna.
 
 ## API
 
@@ -257,6 +287,7 @@ hermes plugins enable astroz
 ## Uji
 
 ```bash
+.venv/bin/python -m pytest tests -q
 ./tests/smoke.sh
 MODEL=<id-model> ./tests/smoke.sh
 ```

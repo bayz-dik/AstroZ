@@ -321,6 +321,7 @@ const DAFTAR_MENU = [
   { alat: "obrolan", judul: "Riwayat percakapan", ikon: "riwayat" },
   { alat: "skill", judul: "Skill", ikon: "skill" },
   { alat: "plugin", judul: "Plugin MCP", ikon: "plugin" },
+  { alat: "capability", judul: "Pasang dari URL", ikon: "plugin" },
   { alat: "pekerja", judul: "Pekerja", ikon: "pekerja" },
   { alat: "berkas", judul: "Berkas dan tes", ikon: "berkas" },
   { alat: "catatan", judul: "Catatan kejadian", ikon: "catatan" },
@@ -330,6 +331,7 @@ const HALAMAN = {
   obrolan: "alat-obrolan",
   skill: "alat-skill",
   plugin: "alat-plugin",
+  capability: "alat-capability",
   pekerja: "alat-pekerja",
   berkas: "alat-aktivitas",
   catatan: "alat-aktivitas",
@@ -340,6 +342,7 @@ const JUDUL_HALAMAN = {
   obrolan: "Riwayat percakapan",
   skill: "Skill",
   plugin: "Plugin MCP",
+  capability: "Pasang dari URL",
   pekerja: "Pekerja",
   berkas: "Berkas dan tes",
   catatan: "Catatan kejadian",
@@ -418,6 +421,7 @@ function bukaHalaman(nama) {
   pasangIkon(el("halaman"));
   if (nama === "skill") muatSkill();
   if (nama === "plugin") muatMcp();
+  if (nama === "capability") muatCapability();
   if (nama === "pekerja") muatPekerjaPasang();
   if (nama === "berkas") { muatBerkas(); muatGit(); }
   if (nama === "model") muatModel();
@@ -1900,6 +1904,231 @@ async function muatCatatan(ulang) {
 
 el("saring-catatan").addEventListener("change", () => muatCatatan(true));
 el("bersihkan-catatan").addEventListener("click", () => muatCatatan(true));
+
+/* --------------------------------------------------- panel: pasang dari URL */
+
+/* Satu halaman untuk semua ekosistem: plugin Claude, skill/plugin Codex,
+   skill/plugin Hermes, dan server MCP. Alurnya selalu dua langkah: pratinjau
+   dulu (tidak menulis apa pun), baru pasang. Yang tidak kompatibel muncul di
+   pratinjau dengan status dan alasannya, bukan menghilang diam-diam. */
+
+const CAP_JENIS_LABEL = {
+  skill: "Skill", agent: "Agen", command: "Perintah",
+  hook: "Hook", mcp: "MCP", rule: "Aturan",
+};
+const CAP_STATUS_LABEL = {
+  supported: { teks: "dipakai langsung", kelas: "ada" },
+  converted: { teks: "diterjemahkan", kelas: "tidak" },
+  skipped: { teks: "dilewati", kelas: "tidak" },
+  requires: { teks: "perlu alat lain", kelas: "tidak" },
+};
+
+function gambarPratinjau(d) {
+  const wadah = el("cap-hasil");
+  wadah.replaceChildren();
+  if (!d || !d.ok) {
+    wadah.appendChild(buat("p", "kosong", (d && d.error) || "Pratinjau gagal."));
+    return;
+  }
+
+  const kepala = buat("div", "baris-data");
+  const atas = buat("div", "atas");
+  atas.appendChild(buat("span", "nama", d.nama || "tanpa nama"));
+  atas.appendChild(buat("span", "tanda-cap ada", d.jenis_paket || "?"));
+  if (d.versi) atas.appendChild(buat("span", "tanda-cap tidak", d.versi));
+  kepala.appendChild(atas);
+  if (d.keterangan) kepala.appendChild(buat("div", "teks-kecil", d.keterangan));
+  const h = d.hitung || {};
+  kepala.appendChild(buat("div", "teks-kecil",
+    `${h.total || 0} capability: ${h.supported || 0} langsung, ${h.converted || 0} diterjemahkan, `
+    + `${h.skipped || 0} dilewati, ${h.requires || 0} perlu alat lain`));
+  if (d.deteksi && (d.deteksi.penanda || []).length) {
+    kepala.appendChild(buat("div", "teks-kecil", "penanda: " + d.deteksi.penanda.join(", ")));
+  }
+  for (const c of (d.catatan || [])) {
+    kepala.appendChild(buat("div", "teks-kecil", c));
+  }
+  wadah.appendChild(kepala);
+
+  // Plugin yang ada di dalam repo besar: bisa dipilih satu per satu.
+  const dalam = d.plugin_dalam || [];
+  if (dalam.length > 1) {
+    const k = buat("div", "baris-data");
+    k.appendChild(buat("div", "atas", ""));
+    k.querySelector(".atas").appendChild(buat("span", "nama", `${dalam.length} plugin di dalam repo ini`));
+    k.appendChild(buat("div", "teks-kecil", "pilih satu untuk dipratinjau sendiri"));
+    for (const p of dalam) {
+      const b = buat("button", "tombol kecil garis", `${p.jenis}: ${p.nama}${p.folder !== "." ? " (" + p.folder + ")" : ""}`);
+      b.type = "button";
+      b.addEventListener("click", () => {
+        el("cap-url").value = d.sumber_url || el("cap-url").value;
+        el("cap-sub").value = p.folder;
+        pratinjauCapability();
+      });
+      k.appendChild(b);
+    }
+    wadah.appendChild(k);
+  }
+
+  // Kelompokkan per jenis supaya daftar panjang tetap bisa dibaca.
+  const per = {};
+  for (const c of (d.capabilities || [])) (per[c.jenis] = per[c.jenis] || []).push(c);
+  for (const jenis of ["skill", "agent", "command", "hook", "mcp", "rule"]) {
+    const isi = per[jenis];
+    if (!isi || !isi.length) continue;
+    const blok = buat("div", "baris-data");
+    const t = buat("div", "atas");
+    t.appendChild(buat("span", "nama", `${CAP_JENIS_LABEL[jenis] || jenis} (${isi.length})`));
+    blok.appendChild(t);
+
+    // Untuk skill yang banyak, tampilkan beberapa dulu supaya panel tidak
+    // setinggi ratusan baris. Sisanya lewat tombol.
+    const batas = 8;
+    const tampil = isi.slice(0, batas);
+    for (const c of tampil) blok.appendChild(barisCapability(c));
+    if (isi.length > batas) {
+      const sisa = buat("button", "tombol kecil garis", `tampilkan ${isi.length - batas} lainnya`);
+      sisa.type = "button";
+      sisa.addEventListener("click", () => {
+        for (const c of isi.slice(batas)) blok.insertBefore(barisCapability(c), sisa);
+        sisa.remove();
+      });
+      blok.appendChild(sisa);
+    }
+    wadah.appendChild(blok);
+  }
+
+  // Tombol pasang: jenis yang punya isi bisa dipilih, default semuanya.
+  const ada = Object.keys(per).filter((k) => per[k].some((c) => c.status === "supported" || c.status === "converted"));
+  if (!ada.length) {
+    wadah.appendChild(buat("p", "catatan", "Tidak ada yang bisa dipasang dari paket ini."));
+    return;
+  }
+  const pilih = buat("div", "kelompok");
+  const kotak = {};
+  for (const jenis of ada) {
+    const l = document.createElement("label");
+    l.className = "teks-kecil";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = true;
+    cb.dataset.jenis = jenis;
+    kotak[jenis] = cb;
+    l.append(cb, document.createTextNode(" " + (CAP_JENIS_LABEL[jenis] || jenis)));
+    pilih.appendChild(l);
+  }
+  wadah.appendChild(pilih);
+
+  const b = buat("button", "tombol penuh", "Pasang ke pekerja yang kompatibel");
+  b.type = "button";
+  b.addEventListener("click", async () => {
+    const jenis = Object.values(kotak).filter((c) => c.checked).map((c) => c.dataset.jenis);
+    if (!jenis.length) { pesanSingkat("Pilih minimal satu jenis.", true); return; }
+    b.disabled = true;
+    b.textContent = "memasang";
+    try {
+      const r = await kirim("/api/capability/pasang", {
+        url: el("cap-url").value.trim(),
+        sub: el("cap-sub").value.trim(),
+        pilih: jenis,
+      });
+      pesanSingkat("Pemasangan berjalan. Lihat Catatan kejadian untuk hasilnya.");
+      await pantauJob(r.job);
+      await muatCapability();
+    } catch (e) {
+      pesanSingkat("Gagal memasang: " + e.message, true);
+    } finally {
+      b.disabled = false;
+      b.textContent = "Pasang ke pekerja yang kompatibel";
+    }
+  });
+  wadah.appendChild(b);
+}
+
+function barisCapability(c) {
+  const baris = buat("div", "baris-data");
+  const atas = buat("div", "atas");
+  atas.appendChild(buat("span", "nama", c.nama));
+  const st = CAP_STATUS_LABEL[c.status] || { teks: c.status, kelas: "tidak" };
+  atas.appendChild(buat("span", "tanda-cap " + st.kelas, st.teks));
+  baris.appendChild(atas);
+  if (c.keterangan) baris.appendChild(buat("div", "teks-kecil", c.keterangan));
+  if (c.pekerja && c.pekerja.length) {
+    baris.appendChild(buat("div", "teks-kecil", "pekerja: " + c.pekerja.join(", ")));
+  }
+  if (c.alasan) baris.appendChild(buat("div", "teks-kecil", c.alasan));
+  return baris;
+}
+
+async function pratinjauCapability() {
+  const url = el("cap-url").value.trim();
+  if (!url) { pesanSingkat("Isi tautan atau jalur paket dulu.", true); return; }
+  el("cap-status").textContent = "mengunduh dan membaca...";
+  el("cap-hasil").replaceChildren();
+  el("cap-pratinjau").disabled = true;
+  try {
+    const d = await kirim("/api/capability/pratinjau", { url, sub: el("cap-sub").value.trim() });
+    el("cap-status").textContent = "";
+    gambarPratinjau(d);
+  } catch (e) {
+    el("cap-status").textContent = "";
+    el("cap-hasil").replaceChildren(buat("p", "kosong", "Pratinjau gagal: " + e.message));
+  } finally {
+    el("cap-pratinjau").disabled = false;
+  }
+}
+
+async function muatCapability() {
+  el("cap-pratinjau").disabled = false;
+  try {
+    // GET memakai `ambil`, bukan `kirim`: fetch menolak permintaan GET yang
+    // membawa badan, jadi daftarnya selalu tampak gagal dimuat.
+    const d = await ambil("/api/capability");
+    const wadah = el("cap-terpasang");
+    wadah.replaceChildren();
+    if (!d.terpasang || !d.terpasang.length) {
+      wadah.appendChild(buat("p", "kosong", "Belum ada paket yang dipasang dari sini."));
+      return;
+    }
+    for (const p of d.terpasang) {
+      const baris = buat("div", "baris-data");
+      const atas = buat("div", "atas");
+      atas.appendChild(buat("span", "nama", p.nama));
+      atas.appendChild(buat("span", "tanda-cap ada", p.jenis_paket || "?"));
+      if (!p.ada) atas.appendChild(buat("span", "tanda-cap tidak", "folder hilang"));
+      baris.appendChild(atas);
+      const h = p.hitung || {};
+      baris.appendChild(buat("div", "teks-kecil",
+        `${h.total || 0} capability: ${h.supported || 0} langsung, ${h.converted || 0} diterjemahkan, `
+        + `${h.skipped || 0} dilewati, ${h.requires || 0} perlu alat lain`));
+      if (p.url) baris.appendChild(buat("div", "teks-kecil", p.url));
+      const b = buat("button", "tombol kecil garis", "lepas tautan");
+      b.type = "button";
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        try {
+          const r = await kirim(`/api/capability/${encodeURIComponent(p.nama)}`, {}, "DELETE");
+          pesanSingkat(`${p.nama} dilepas (${r.tautan_dilepas || 0} tautan).`);
+          await muatCapability();
+        } catch (e) {
+          pesanSingkat("Gagal melepas: " + e.message, true);
+        } finally {
+          b.disabled = false;
+        }
+      });
+      baris.appendChild(b);
+      wadah.appendChild(baris);
+    }
+  } catch (e) {
+    el("cap-terpasang").replaceChildren(buat("p", "kosong", "Daftar tidak bisa dimuat: " + e.message));
+  }
+}
+
+el("cap-pratinjau").addEventListener("click", () => pratinjauCapability());
+el("cap-muat").addEventListener("click", () => muatCapability());
+el("cap-url").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); pratinjauCapability(); }
+});
 
 /* --------------------------------------------------- panel: plugin MCP */
 

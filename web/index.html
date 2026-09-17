@@ -263,6 +263,27 @@
       <div id="daftar-mcp-siap"></div>
     </section>
 
+    <!-- Pasang dari URL: satu pintu untuk plugin Claude, Codex, Hermes, dan
+         server MCP. Pratinjau dulu supaya yang tidak kompatibel terlihat
+         sebelum dipasang, bukan sesudah. -->
+    <section class="panel" id="alat-capability" hidden>
+      <h2>Pasang dari URL</h2>
+      <p class="catatan">Tempel tautan repo GitHub, tautan folder di dalam repo, atau jalur paket di mesin ini. AstroZ mendeteksi jenisnya lebih dulu, lalu menunjukkan isinya sebelum memasang apa pun.</p>
+      <label class="sr" for="cap-url">Tautan atau jalur paket</label>
+      <input id="cap-url" placeholder="https://github.com/pemilik/repo atau /jalur/paket">
+      <label class="sr" for="cap-sub">Folder plugin di dalam repo (boleh kosong)</label>
+      <input id="cap-sub" placeholder="folder di dalam repo, misalnya integrations/claude-code-plugin">
+      <div class="kelompok">
+        <button type="button" class="tombol kecil" id="cap-pratinjau">Pratinjau</button>
+        <button type="button" class="tombol kecil garis" id="cap-muat">Muat ulang daftar</button>
+      </div>
+      <p class="catatan" id="cap-status"></p>
+      <div id="cap-hasil"></div>
+
+      <h2 style="margin-top:24px">Sudah dipasang</h2>
+      <div id="cap-terpasang"></div>
+    </section>
+
     <section class="panel" id="alat-pekerja" hidden>
       <h2>Pekerja</h2>
       <p class="catatan">Empat CLI koding yang mengerjakan tugas. Yang belum terpasang bisa dipasang dari sini.</p>

@@ -177,6 +177,67 @@ def untuk_tugas(tid: str, limit: int = 300) -> list[dict]:
     return out
 
 
+# ---------------------------------------------------------------- kunci berkas
+# Tabel kecil {jalur berkas: pekerja yang memegang}. Ini Lapis 3 orkestrator:
+# dipakai hanya kalau Lapis 1 dan 2 terbukti belum cukup (tabrakan berkas masih
+# sering terjadi). Belum ada pemanggilnya: sengaja disediakan sebagai alat yang
+# sudah teruji, bukan dinyalakan diam-diam.
+_pegang_lock = threading.Lock()
+_pegang: dict[str, str] = {}
+_pegang_sejak: dict[str, float] = {}
+# Batas pegang: pekerja yang mati tanpa melepas kuncinya tidak boleh membuat
+# pekerja lain menunggu selamanya.
+PEGANG_KEDALUWARSA = 1800.0
+
+
+def _bersihkan_kedaluwarsa() -> list[str]:
+    sekarang = time.time()
+    lepas = [f for f, t in _pegang_sejak.items() if sekarang - t > PEGANG_KEDALUWARSA]
+    for f in lepas:
+        _pegang.pop(f, None)
+        _pegang_sejak.pop(f, None)
+    return lepas
+
+
+def pegang_berkas(berkas: Iterable[str], pekerja: str) -> dict:
+    """Coba pegang beberapa berkas sekaligus untuk satu pekerja.
+
+    Semua atau tidak sama sekali: kalau satu berkas sedang dipegang pekerja
+    lain, tidak ada satu pun yang dipegang oleh pemanggil. Memegang sebagian
+    lalu gagal membuat dua pekerja sama-sama merasa berhak atas berkas berbeda
+    di satu kelompok yang sama, dan tabrakan tetap terjadi.
+    """
+    minta = [b for b in dict.fromkeys(berkas) if b]
+    with _pegang_lock:
+        _bersihkan_kedaluwarsa()
+        bentrok = {f: _pegang[f] for f in minta if f in _pegang and _pegang[f] != pekerja}
+        if bentrok:
+            return {"ok": False, "bentrok": bentrok, "dipegang": []}
+        for f in minta:
+            _pegang[f] = pekerja
+            _pegang_sejak[f] = time.time()
+        return {"ok": True, "bentrok": {}, "dipegang": minta}
+
+
+def lepas_berkas(berkas: Iterable[str], pekerja: str) -> list[str]:
+    """Lepas berkas yang dipegang pekerja ini; milik pekerja lain tidak disentuh."""
+    dilepas: list[str] = []
+    with _pegang_lock:
+        for f in berkas:
+            if _pegang.get(f) == pekerja:
+                _pegang.pop(f, None)
+                _pegang_sejak.pop(f, None)
+                dilepas.append(f)
+    return dilepas
+
+
+def pegang_siapa() -> dict[str, str]:
+    """Salinan tabel pegang, untuk panel dan pengujian."""
+    with _pegang_lock:
+        _bersihkan_kedaluwarsa()
+        return dict(_pegang)
+
+
 def subscribe() -> asyncio.Queue:
     q: asyncio.Queue = asyncio.Queue(maxsize=1000)
     _subscribers.add(q)

@@ -60,6 +60,12 @@ DEFAULTS: dict[str, Any] = {
         "review": True,
         "test_command": "",
         "stall_seconds": 240,
+        # Berapa lama "ada socket terbuka" masih boleh dipakai sebagai alasan
+        # menunggu. Socket terbuka hanya membuktikan pekerja menunggu SESUATU,
+        # bukan bahwa sesuatu itu akan menjawab (lihat orchestrator.run_worker).
+        # Tanpa batas ini satu port gateway yang mati membuat setiap pekerja
+        # menunggu sampai timeout penuh: 900s dikali tiga pekerja.
+        "wait_ceiling_seconds": 600,
         "escalate_tries": 2,
         "fix_on_fail": True,
         "fix_rounds": 1,
@@ -72,6 +78,21 @@ DEFAULTS: dict[str, Any] = {
         # Commit a finished task automatically, but only when its own
         # verification passed (tests ok + review PASS). See _task_is_green.
         "auto_commit": True,
+        # Lapis 1: pekerja paralel mengklaim berkasnya lebih dulu, dan yang
+        # klaimnya beririsan dikerjakan gantian. Lapis 2: sesudah paralel
+        # selesai, berkas yang benar-benar berubah dibandingkan dengan klaim.
+        "klaim_berkas": True,
+        # Batas jumlah berkas per klaim. Klaim sepanjang daftar isi repo sama
+        # saja dengan tidak mengklaim: semua tugas jadi beririsan dan tidak ada
+        # yang benar-benar paralel.
+        "batas_klaim": 12,
+        # Berkas yang jarang jadi tujuan tugas tapi paling mahal kalau rusak.
+        # Selalu ikut diklaim: ini yang membuat dua pekerja tidak menulis ke
+        # berkas setelan yang sama di saat yang sama.
+        "berkas_aman": [
+            "team.yaml", ".env", "requirements.txt", "package.json",
+            "package-lock.json", "Dockerfile",
+        ],
     },
     "hermes": {
         "profile": "default",

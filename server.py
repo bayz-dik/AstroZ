@@ -15,6 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 import adapters
+import adapters_plugin
 import config
 import hub
 import orchestrator
@@ -832,6 +833,80 @@ async def skills_add(payload: dict):
 @app.delete("/api/skills/{nama}")
 async def skills_remove(nama: str):
     res = await asyncio.to_thread(plugins.skill_hapus, nama)
+    return JSONResponse({"ok": res["ok"], **res}, status_code=200 if res["ok"] else 404)
+
+
+# ------------------------------------------------------------------ adapter plugin universal
+# Satu pintu untuk capability dari ekosistem mana pun (Claude Plugin, Codex
+# Skill/Plugin, Hermes Skill/Plugin, server MCP). Alur yang dipakai UI:
+#   POST /api/capability/pratinjau  -> unduh dan baca, belum memasang apa pun
+#   POST /api/capability/pasang     -> pasang ke pekerja yang kompatibel
+#   GET  /api/capability            -> daftar paket yang pernah dipasang
+#   DELETE /api/capability/{nama}   -> lepas tautan dan catatannya
+@app.get("/api/capability")
+async def capability_list():
+    return {
+        "ok": True,
+        "terpasang": adapters_plugin.terpasang(),
+        "jenis": list(adapters_plugin.JENIS),
+        "pekerja": list(adapters_plugin.PEKERJA),
+    }
+
+
+@app.post("/api/capability/pratinjau")
+async def capability_preview(payload: dict):
+    """Unduh dan baca sumber tanpa memasang. Ini yang membuat pratinjau jujur."""
+    body = payload or {}
+    url = (body.get("url") or "").strip()
+    if not url:
+        return JSONResponse({"ok": False, "error": "url atau jalur paket wajib diisi"}, status_code=400)
+    sub = (body.get("sub") or "").strip()
+    try:
+        if sub:
+            akar = await asyncio.to_thread(adapters_plugin.unduh, url)
+            akar = (akar / sub).resolve()
+            if not akar.exists():
+                return JSONResponse({"ok": False, "error": f"folder {sub} tidak ada"}, status_code=404)
+            man = await asyncio.to_thread(adapters_plugin.baca, akar, url)
+            d = adapters_plugin.deteksi(akar)
+            out = man.ringkas()
+            out["deteksi"] = {"jenis": d["jenis"], "penanda": d["penanda"]}
+            out["plugin_dalam"] = adapters_plugin.daftar_plugin_dalam(akar)
+            out["ok"] = True
+        else:
+            out = await asyncio.to_thread(adapters_plugin.pratinjau, url)
+    except ValueError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"}, status_code=500)
+    return out
+
+
+@app.post("/api/capability/pasang")
+async def capability_install(payload: dict):
+    body = payload or {}
+    url = (body.get("url") or "").strip()
+    if not url:
+        return JSONResponse({"ok": False, "error": "url atau jalur paket wajib diisi"}, status_code=400)
+    pilih = body.get("pilih") or None
+    if isinstance(pilih, str):
+        pilih = [x.strip() for x in pilih.split(",") if x.strip()]
+    if pilih:
+        tak_dikenal = [x for x in pilih if x not in adapters_plugin.JENIS]
+        if tak_dikenal:
+            return JSONResponse({"ok": False, "error": f"jenis tidak dikenal: {', '.join(tak_dikenal)}"}, status_code=400)
+    pekerja = body.get("pekerja") or None
+    sub = (body.get("sub") or "").strip()
+    try:
+        jid = adapters_plugin.pasang_latar(url, pilih=pilih, pekerja=pekerja, sub=sub)
+    except ValueError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    return {"ok": True, "job": jid}
+
+
+@app.delete("/api/capability/{nama}")
+async def capability_remove(nama: str):
+    res = await asyncio.to_thread(adapters_plugin.lupa, nama)
     return JSONResponse({"ok": res["ok"], **res}, status_code=200 if res["ok"] else 404)
 
 

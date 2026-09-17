@@ -1,4 +1,4 @@
-# Dependensi AstroZ. Hanya tiga, semuanya untuk server webnya.
+# Dependensi AstroZ: tiga untuk server webnya, pytest untuk suite tes repo ini.
 #
 # Pasang di dalam venv supaya tidak menabrak python sistem:
 #   python3 -m venv .venv
@@ -10,3 +10,18 @@
 fastapi>=0.110,<1
 uvicorn>=0.27,<1
 PyYAML>=6,<7
+# Dipakai tests/ (suite repo ini), bukan oleh server. Ada di sini supaya satu
+# perintah pemasangan menyiapkan mesin yang bisa menjalankan uji juga.
+pytest>=8,<10
+# Alat luar yang diintegrasikan AstroZ. Ketiganya SENGAJA tidak dipasang di venv
+# ini: aider mematok numpy<2 yang tidak punya wheel untuk Python 3.14, dan
+# memasangnya bersama server pernah membuat venv server kehilangan berkas paket
+# lain. Masing-masing punya venv sendiri di tools/paket/<nama>, dipasang oleh
+# `bash tools/pasang_alat.sh`.
+#
+#   mem0    ingatan antar sesi untuk agen koding
+#   cognee  ingatan berbentuk graf + server MCP (cognee-mcp)
+#   aider   agen koding baris perintah
+#
+# Versi yang terbukti jalan di mesin ini: mem0ai 2.0.20 (Python 3.14),
+# cognee 1.5.4 (Python 3.12), aider-chat 0.86.2 (Python 3.12).

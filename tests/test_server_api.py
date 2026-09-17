@@ -1,0 +1,83 @@
+"""Server: bentuk API yang dipakai UI.
+
+Dua hal yang pernah salah dan mahal: rute tetap `/api/tasks/running` ditelan
+oleh rute dinamis `/api/tasks/{tid}` (404 walau di tes impor benar, jadi strip
+kerja di UI tidak pernah muncul), dan `/api/state` ikut mengirim API key gateway
+ke seluruh jaringan karena servernya bind 0.0.0.0.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import socket
+import urllib.error
+import urllib.request
+
+import pytest
+
+server = pytest.importorskip("server", reason="butuh fastapi (venv repo)")
+
+
+def _rute() -> list[str]:
+    return [getattr(r, "path", "") for r in server.app.routes]
+
+
+def test_rute_tetap_sebelum_rute_dinamis():
+    """`/api/tasks/running` harus terdaftar sebelum `/api/tasks/{tid}`.
+
+    Kalau tidak, \"running\" dibaca sebagai id tugas dan endpointnya menjawab 404:
+    strip kerja di UI tidak pernah muncul, walau di tes impor langsung benar.
+    """
+    jalur = _rute()
+    assert jalur.index("/api/tasks/running") < jalur.index("/api/tasks/{tid}")
+
+
+def test_api_state_tidak_membocorkan_kunci_gateway(cfg_sementara):
+    """UI bind 0.0.0.0: apa pun di /api/state terbaca semua host di jaringan."""
+    hasil = asyncio.run(server.state())
+    teks = json.dumps(hasil)
+    assert "kunci-uji" not in teks
+    assert hasil["gateway"].get("api_key") in (None, "")
+    assert "has_key" in hasil["gateway"]
+
+
+def test_endpoint_running_menjawab_lewat_fungsi():
+    hasil = asyncio.run(server.tasks_running())
+    assert hasil["ok"] is True
+    assert isinstance(hasil["running"], list)
+
+
+def _http_get(jalur: str, port: int, timeout: float = 8.0) -> tuple[int, str]:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}{jalur}", timeout=timeout) as r:
+        return r.status, r.read().decode("utf-8", "replace")
+
+
+def test_api_lewat_http_sungguhan():
+    """Uji batas jaringan, bukan cuma fungsi: rute dinamis pernah menelannya.
+
+    Diukur: `/api/tasks/running` benar saat diimpor langsung, tetapi 404 lewat
+    HTTP karena `/api/tasks/{tid}` didaftarkan lebih dulu. Hanya panggilan HTTP
+    yang bisa menangkap itu, jadi tes ini memanggil server yang sedang jalan.
+    """
+    port = int(os.environ.get("UI_PORT") or 8799)
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=1):
+            pass
+    except OSError:
+        pytest.skip(f"UI belum jalan di :{port} (jalankan ./run.sh)")
+
+    status, body = _http_get("/api/tasks/running", port)
+    assert status == 200
+    assert json.loads(body)["ok"] is True
+
+    status, body = _http_get("/api/state", port)
+    assert status == 200
+    state = json.loads(body)
+    assert state["gateway"].get("api_key") in (None, "")
+
+    try:
+        _http_get("/api/tasks/tidak-ada-tugas-ini", port)
+        raise AssertionError("id tugas palsu seharusnya 404")
+    except urllib.error.HTTPError as e:
+        assert e.code == 404

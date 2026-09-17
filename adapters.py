@@ -152,6 +152,16 @@ class ClaudeAdapter(Worker):
         # --model is passed explicitly: without it Claude Code reads the model
         # from settings.json and appends a "[1m]" context suffix that gateways
         # do not recognise.
+        #
+        # --output-format stream-json, not json: with `json` this CLI prints
+        # NOTHING until the whole turn is finished. Measured on a small task
+        # that took 77s: zero bytes of stdout for 77s, then one JSON blob. The
+        # stall guard watches the last meaningful line, so it killed a healthy
+        # worker at the 240s mark on any task slower than that, and the task
+        # reported "macet" although the worker was working. stream-json emits a
+        # line per event (measured: one line every few seconds, including
+        # tool_progress heartbeats), so real progress is visible while it runs.
+        # --verbose is required by the CLI for stream-json in print mode.
         return [
             self.path or "claude",
             "-p",
@@ -159,7 +169,8 @@ class ClaudeAdapter(Worker):
             "--model",
             model,
             "--output-format",
-            "json",
+            "stream-json",
+            "--verbose",
             "--dangerously-skip-permissions",
             "--max-turns",
             "40",
@@ -391,6 +402,13 @@ class OMPAdapter(Worker):
         return {}
 
     def command(self, task: str, model: str, cwd: str) -> list[str]:
+        # Flag ditentukan dari keluaran `--help` (lihat probe). Kalau probe belum
+        # pernah jalan, `_help` kosong dan SEMUA flag opsional hilang tanpa suara:
+        # model yang dipilih di UI tidak terkirim dan omp berhenti di prompt
+        # persetujuan pertama, jadi tugasnya menggantung. Jadi pastikan probe
+        # sudah jalan sebelum menyusun perintah.
+        if not self._help and not self.error:
+            self.probe()
         exe = self.path or "omp"
         cmd = [exe, "-p", task]
         if "--model" in self._help:
