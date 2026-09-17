@@ -8,6 +8,23 @@
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORT="${1:-8799}"
+
+# Cek port dengan MENANYAKAN sesuatu, bukan sekadar menyambung.
+#
+# Kenapa: di HP ini pernah ada listener macet di :8799 yang menerima sambungan
+# TCP tetapi tidak pernah membalas HTTP. `(echo > /dev/tcp/...)` menjawab
+# "terbuka" untuk socket seperti itu, sehingga run.sh melaporkan "port busy,
+# reusing existing server" dan TIDAK menyalakan server yang benar. Akibatnya
+# seluruh UI mati tanpa satu pun pesan galat, dan token yang sah selalu ditolak
+# karena tidak ada yang menjawab.
+#
+# Jadi: sambungan terbuka saja tidak cukup. Port dianggap terpakai HANYA kalau
+# ada balasan HTTP dari sana.
+# Jalur yang menjawab cepat dan tidak butuh token.
+http_hidup() {
+  command -v curl >/dev/null 2>&1 || return 1
+  curl -sf -m 3 -o /dev/null "http://127.0.0.1:$1/$2" 2>/dev/null
+}
 shift || true
 START_9R=1
 FG=0
@@ -72,15 +89,27 @@ if ! port_open 20129; then
 fi
 if port_open 20129; then echo "[run] gateway (sanitised): http://127.0.0.1:20129/v1"; else echo "[run] WARN SSE sanitiser not reachable on :20129"; fi
 
-if port_open "$PORT"; then
-  echo "[run] port $PORT busy, reusing existing server"
+if http_hidup "$PORT" "manifest.webmanifest"; then
+  echo "[run] port $PORT sudah melayani AstroZ, dipakai apa adanya"
 else
+  if port_open "$PORT"; then
+    # Sambungan diterima tetapi tidak ada balasan HTTP: itu listener macet
+    # (bukan server kita). Menyerahkan port kepadanya berarti UI tidak akan
+    # pernah bisa dibuka, jadi dikatakan terang-terangan.
+    echo "[run] PERINGATAN: port $PORT menerima sambungan tetapi tidak menjawab HTTP."
+    echo "[run]            Ada proses macet di sana. Jalankan dengan port lain:"
+    echo "[run]              ./run.sh 8800"
+    echo "[run]            atau hentikan pemegangnya lalu jalankan lagi."
+  fi
   cd "$DIR"
   if [ "$FG" = "1" ]; then
     exec "$PY" -m uvicorn server:app --host 0.0.0.0 --port "$PORT"
   fi
   nohup "$PY" -m uvicorn server:app --host 0.0.0.0 --port "$PORT" >> "$DIR/logs/ui.log" 2>&1 &
-  for _ in $(seq 1 40); do port_open "$PORT" && break; sleep 0.5; done
+  for _ in $(seq 1 40); do http_hidup "$PORT" "manifest.webmanifest" && break; sleep 0.5; done
+  if ! http_hidup "$PORT" "manifest.webmanifest"; then
+    echo "[run] GAGAL: UI tidak menjawab di :$PORT. Lihat $DIR/logs/ui.log"
+  fi
 fi
 
 IP="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+(\.[0-9]+){3}$' | head -1)"

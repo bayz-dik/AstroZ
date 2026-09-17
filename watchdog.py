@@ -75,10 +75,22 @@ def spawn(args: list[str], log_name: str) -> int | None:
         fh.close()
 
 
-def wait_port(port: int, seconds: float = 25.0) -> bool:
+def wait_port(port: int, seconds: float = 25.0, path: str = "") -> bool:
+    """Tunggu sampai layanan benar-benar siap.
+
+    Kalau `path` diberikan, yang ditunggu adalah BALASAN HTTP di jalur itu, bukan
+    sekadar sambungan TCP. Ini bukan kemewahan: pernah ada listener macet di
+    :8799 yang menerima sambungan tetapi tidak pernah membalas. Dengan cek TCP
+    saja, wait_port langsung menjawab "siap" padahal server yang baru dijalankan
+    justru gagal mengikat port (address already in use), sehingga watchdog
+    melaporkan "restarted" untuk layanan yang sebenarnya tidak jalan.
+    """
     deadline = time.time() + seconds
     while time.time() < deadline:
-        if port_open(port):
+        if path:
+            if http_ok(port, path):
+                return True
+        elif port_open(port):
             return True
         time.sleep(0.5)
     return False
@@ -91,12 +103,19 @@ def ensure(name: str, port: int, check: tuple[str, ...], cmd: list[str],
     out = {"name": name, "port": port, "alive": alive, "action": "none"}
     if alive:
         return out
+    # Port terpegang tetapi tidak menjawab: pemegangnya bukan layanan ini
+    # (server basi atau proses lain). Restart tetap dicoba, tetapi dilaporkan
+    # terang-terangan supaya penyebabnya tidak dicari ke tempat yang salah.
+    if port_open(port):
+        out["held_by_other"] = True
+        print(f"[watchdog] {name} :{port} menerima sambungan tetapi tidak menjawab "
+              f"HTTP; pemegangnya bukan layanan ini", flush=True)
     out["action"] = "would-restart" if dry else "restart"
     if dry:
         return out
     pid = spawn(cmd, log)
     out["pid"] = pid
-    out["recovered"] = wait_port(port)
+    out["recovered"] = wait_port(port, path=(check[0] if check else ""))
     print(f"[watchdog] {name} :{port} was down -> {'restarted' if out['recovered'] else 'RESTART FAILED'}"
           f"{f' (pid {pid})' if pid else ''}", flush=True)
     return out
