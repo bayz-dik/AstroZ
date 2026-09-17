@@ -10,6 +10,7 @@ import re
 import shutil
 import threading
 import time
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -75,6 +76,37 @@ def _tolak(msg: str, kode: int = 401) -> JSONResponse:
     return JSONResponse({"ok": False, "error": msg}, status_code=kode)
 
 
+def _asal_sendiri(asal: str, request: Request) -> bool:
+    """True kalau `Origin` menunjuk host DAN port yang sama dengan permintaan ini.
+
+    Dipakai untuk menolak cookie yang ditanam dari situs lain. Host yang
+    diizinkan adalah host yang benar-benar dipakai permintaan itu (localhost,
+    IP LAN, atau nama host), jadi tidak ada daftar yang harus dirawat.
+
+    Port ikut dibandingkan: `http://127.0.0.1:9` adalah origin yang berbeda dari
+    `http://127.0.0.1:8799`, dan menyamakan keduanya membuat halaman lain di
+    mesin yang sama tetap bisa menanam cookie.
+    """
+    try:
+        p = urlparse(asal)
+    except Exception:
+        return False
+    host_asal = (p.hostname or "").lower()
+    if not host_asal:
+        return False
+    port_asal = p.port or (443 if p.scheme == "https" else 80)
+    port_ini = request.url.port or (443 if request.url.scheme == "https" else 80)
+    if port_asal != port_ini:
+        return False
+    host_ini = (request.url.hostname or "").lower()
+    if host_asal == host_ini:
+        return True
+    # localhost dan 127.0.0.1 menunjuk mesin yang sama, tetapi hanya kalau
+    # portnya juga sama.
+    lokal = {"localhost", "127.0.0.1", "::1"}
+    return host_asal in lokal and host_ini in lokal
+
+
 @app.middleware("http")
 async def gerbang_masuk(request: Request, call_next):
     """Semua permintaan API wajib membawa token yang sah.
@@ -95,8 +127,18 @@ async def gerbang_masuk(request: Request, call_next):
 
 
 @app.post("/api/masuk")
-async def masuk(payload: dict):
-    """Tukar token dengan cookie. Token tidak dikembalikan lagi setelah ini."""
+async def masuk(payload: dict, request: Request):
+    """Tukar token dengan cookie. Token tidak dikembalikan lagi setelah ini.
+
+    Cookie hanya ditulis kalau permintaannya datang dari halaman sendiri.
+    Halaman UI memang terbuka, jadi tanpa pemeriksaan asal, situs lain bisa
+    mengirim permintaan ke sini dan menanam cookie berisi token yang dia pilih
+    sendiri: peramban korban lalu memakai token penyerang tanpa sadar. Ini
+    serangan yang sama seperti login CSRF, dan biayanya satu baris pemeriksaan.
+    """
+    asal = (request.headers.get("origin") or "").strip()
+    if asal and not _asal_sendiri(asal, request):
+        return _tolak("permintaan masuk harus dari halaman AstroZ sendiri", 403)
     token = ((payload or {}).get("token") or "").strip()
     u = users.verifikasi(token)
     if not u:
@@ -369,7 +411,7 @@ async def state(request: Request):
         "gateway": gwcfg,
         "saya": saya,
         "peran": u.get("peran") or "user",
-        "workers": adapters.status_all(),
+        "workers": _status_pekerja(request),
         "worker_cfg": cfg["workers"] if admin else {},
         "tasks": orchestrator.list_tasks(30, owner=None if admin else saya),
         "project": {"dir": str(users.ruang_kerja(saya)),
@@ -505,7 +547,11 @@ async def gateway_models(request: Request, q: str = "", limit: int = 300, only_h
 
 
 @app.post("/api/gateway/model")
-async def gateway_set_model(payload: dict):
+async def gateway_set_model(payload: dict, request: Request):
+    # Satu model dipakai seluruh mesin: pekerja, Hermes, dan folder kerja
+    # bersama. Menggantinya bukan tindakan satu pengguna, jadi wajib admin.
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh mengganti model mesin", 403)
     model = (payload or {}).get("model", "").strip()
     if not model:
         return JSONResponse({"ok": False, "error": "model required"}, status_code=400)
@@ -529,8 +575,12 @@ async def gateway_set_key(payload: dict, request: Request):
 
 
 @app.post("/api/gateway/probe")
-async def gateway_probe(payload: dict | None = None):
+async def gateway_probe(request: Request, payload: dict | None = None):
     """Ping models through 9Router and record which ones actually answer."""
+    # Tes model memakai kunci API dan kuota pemilik mesin, dan hasilnya ditulis
+    # ke setelan bersama. Pengguna biasa tidak boleh memicunya.
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh menguji model", 403)
     body = payload or {}
     cfg = config.load()
     ids = body.get("models") or []
@@ -579,14 +629,33 @@ async def apply_everything(request: Request, payload: dict | None = None):
 
 
 # ----------------------------------------------------------------- workers
+
+# Kunci status pekerja yang boleh dilihat pengguna biasa. `path` dan
+# `config_path` menunjuk tata letak mesin pemilik (mis. /root/.claude/...),
+# dan `error` bisa memuat jalur atau keluaran perintah. Ketiganya hanya untuk
+# admin; pengguna biasa cukup tahu pekerja mana yang hidup dan versinya.
+_STATUS_UMUM = ("key", "label", "installed", "version")
+
+
+def _status_pekerja(request: Request) -> list[dict]:
+    """Status pekerja, disaring menurut peran yang meminta.
+
+    Dipakai `/api/workers`, `/api/workers/paket`, dan `/api/state`. Menyaring di
+    satu tempat lebih aman daripada mengingat-ingat kunci mana yang bocor di
+    tiap endpoint. Jalur konfigurasi dan pesan galat CLI adalah tata letak mesin
+    pemilik, bukan informasi pengguna biasa.
+    """
+    st = adapters.status_all()
+    if _admin_saja(request):
+        return st
+    return [{k: w.get(k) for k in _STATUS_UMUM} for w in st]
+
+
 @app.get("/api/workers")
-async def workers(refresh: int = 0):
+async def workers(request: Request, refresh: int = 0):
     if refresh:
         await asyncio.to_thread(adapters.status_all, True)
-    # Konfigurasi pekerja bisa memuat jalur dan nama model yang khusus mesin ini,
-    # jadi hanya admin yang melihatnya. Pengguna biasa tetap tahu pekerja mana
-    # yang hidup lewat daftar statusnya.
-    return {"workers": adapters.status_all()}
+    return {"workers": _status_pekerja(request)}
 
 
 @app.post("/api/workers/{key}")
@@ -741,7 +810,9 @@ async def task_detail(tid: str, request: Request):
     if not t or (owner is not None and (t.get("owner") or "admin") != owner):
         return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
     evs = await asyncio.to_thread(hub.untuk_tugas, tid, 300)
-    return {"ok": True, "task": t, "events": evs}
+    # UI membaca t["answer"]; bentuk balasan ini menyamakan keduanya supaya
+    # pemanggil tidak perlu tahu bedanya.
+    return {"ok": True, "task": t, "answer": t.get("answer") or "", "status": t.get("status") or "", "events": evs}
 
 
 @app.get("/api/tasks/{tid}/berkas")
@@ -1041,11 +1112,27 @@ async def upload(payload: dict, request: Request):
 
 # ------------------------------------------------------------------ alat
 @app.get("/api/tools/status")
-async def tools_status():
-    """Ringkas: gateway, pekerja, plugin MCP, dan paket skill."""
+async def tools_status(request: Request):
+    """Ringkas: gateway, pekerja, plugin MCP, dan paket skill.
+
+    Ringkasan ini menyangkut mesin pemilik (model, jalur konfigurasi CLI,
+    perintah plugin, antrean pekerjaan latar), jadi hanya admin yang menerima
+    isinya. Pengguna biasa tetap dapat bentuk jawabannya supaya panel tidak
+    pecah, dengan bagian mesin dikosongkan.
+    """
     cfg = config.load()
     mcp = plugins.mcp_daftar()
     skills = plugins.skill_daftar()
+    if not _admin_saja(request):
+        return {
+            "gateway": {"online": bool(cfg["gateway"].get("online")), "model": ""},
+            "workers": [],
+            "mcp": [],
+            "skills": [],
+            "skill_count": 0,
+            "mcp_count": 0,
+            "jobs": [],
+        }
     return {
         "gateway": {"online": bool(cfg["gateway"].get("online")), "model": cfg["gateway"].get("model")},
         "workers": [{"key": w["key"], "label": w.get("label") or w["key"], "installed": w["installed"],
@@ -1059,10 +1146,10 @@ async def tools_status():
 
 
 @app.get("/api/workers/paket")
-async def workers_paket():
+async def workers_paket(request: Request):
     """Paket npm tiap pekerja, plus status terpasang. Dipakai UI untuk menawarkan
     pemasangan otomatis supaya satu clone bisa langsung jalan."""
-    st = {w["key"]: w for w in adapters.status_all()}
+    st = {w["key"]: w for w in _status_pekerja(request)}
     out = []
     for key, paket in adapters.PAKET.items():
         s = st.get(key) or {}
@@ -1093,8 +1180,14 @@ async def worker_pasang(key: str, request: Request):
 
 # ------------------------------------------------------------------ plugin MCP
 @app.get("/api/mcp")
-async def mcp_list():
-    return {"ok": True, "servers": plugins.mcp_daftar(), "siap": plugins.MCP_SIAP}
+async def mcp_list(request: Request):
+    srv = plugins.mcp_daftar()
+    # `detail` memuat perintah yang dijalankan mesin ini beserta argumennya
+    # (sering berisi jalur dan variabel lingkungan). Nama dan pekerja mana yang
+    # memakainya tetap ditampilkan supaya halaman Plugin tidak kosong.
+    if not _admin_saja(request):
+        srv = [{"nama": s.get("nama"), "pekerja": s.get("pekerja"), "transport": s.get("transport")} for s in srv]
+    return {"ok": True, "servers": srv, "siap": plugins.MCP_SIAP}
 
 
 @app.post("/api/mcp")
@@ -1138,16 +1231,19 @@ async def mcp_remove(nama: str, request: Request):
 # Hasil pemindaian skill disimpan sebentar: halaman Skill terpasang memanggil
 # endpoint ini setiap kali dibuka, dan menghitung ukuran 93 paket setiap kali
 # membuat halaman terasa menggantung. Isinya hanya berubah kalau ada paket baru.
-_SKILL_CACHE: dict[str, object] = {"t": 0.0, "isi": None}
+_SKILL_CACHE: dict[str, object] = {"t": 0.0}
 _SKILL_CACHE_DETIK = 30
 
 
 @app.get("/api/skills")
-async def skills_list():
+async def skills_list(request: Request):
+    admin = _admin_saja(request)
     sekarang = time.time()
     t_lama = _SKILL_CACHE["t"]
-    if _SKILL_CACHE["isi"] is not None and isinstance(t_lama, float) and sekarang - t_lama < _SKILL_CACHE_DETIK:
-        return _SKILL_CACHE["isi"]
+    kunci = "admin" if admin else "umum"
+    simpan = _SKILL_CACHE.get(kunci)
+    if isinstance(simpan, dict) and simpan.get("isi") is not None and isinstance(t_lama, float) and sekarang - t_lama < _SKILL_CACHE_DETIK:
+        return simpan["isi"]
     daftar = await asyncio.to_thread(plugins.skill_terpasang)
     isi = {
         "ok": True,
@@ -1155,9 +1251,18 @@ async def skills_list():
         "siap": plugins.skill_ringkas_untuk_pekerja(),
         "daftar": daftar,
         "bawaan": plugins.skill_bawaan_siap(),
+        "path": str(plugins.SKILL_DIR),
+        "akar": str(plugins.HOME),
     }
+    # `path` menunjuk folder mesin pemilik; `tautan` menyebut folder konfigurasi
+    # tiap CLI. Keduanya hanya untuk admin. Isi lain (nama, paket, keterangan)
+    # tetap tampil supaya halaman Skill tidak kosong bagi pengguna biasa.
+    if not admin:
+        isi["paket"] = [{k: v for k, v in p.items() if k != "path"} for p in isi["paket"]]
+        isi["daftar"] = [{k: v for k, v in d.items() if k not in ("path", "tautan")} for d in isi["daftar"]]
+        isi["bawaan"] = [{k: v for k, v in b.items() if k != "path"} for b in (isi["bawaan"] or [])]
     _SKILL_CACHE["t"] = sekarang
-    _SKILL_CACHE["isi"] = isi
+    _SKILL_CACHE[kunci] = {"isi": isi}
     return isi
 
 
@@ -1167,7 +1272,8 @@ async def skills_bawaan(request: Request):
     if not _admin_saja(request):
         return _tolak("hanya admin yang boleh memasang skill bawaan", 403)
     res = await asyncio.to_thread(plugins.skill_pasang_bawaan)
-    _SKILL_CACHE["isi"] = None
+    _SKILL_CACHE.pop("admin", None)
+    _SKILL_CACHE.pop("umum", None)
     await asyncio.to_thread(plugins.skill_terpasang, True)
     return JSONResponse(res, status_code=200 if res.get("ok") else 400)
 
@@ -1205,18 +1311,30 @@ async def skills_remove(nama: str, request: Request):
 #   GET  /api/capability            -> daftar paket yang pernah dipasang
 #   DELETE /api/capability/{nama}   -> lepas tautan dan catatannya
 @app.get("/api/capability")
-async def capability_list():
+async def capability_list(request: Request):
+    paket = adapters_plugin.terpasang()
+    # `akar` adalah jalur folder di mesin pemilik. Pengguna biasa tetap melihat
+    # daftar paketnya, tanpa jalurnya.
+    if not _admin_saja(request):
+        paket = [{k: v for k, v in p.items() if k != "akar"} for p in paket]
     return {
         "ok": True,
-        "terpasang": adapters_plugin.terpasang(),
+        "terpasang": paket,
         "jenis": list(adapters_plugin.JENIS),
         "pekerja": list(adapters_plugin.PEKERJA),
     }
 
 
 @app.post("/api/capability/pratinjau")
-async def capability_preview(payload: dict):
-    """Unduh dan baca sumber tanpa memasang. Ini yang membuat pratinjau jujur."""
+async def capability_preview(payload: dict, request: Request):
+    """Unduh dan baca sumber tanpa memasang. Ini yang membuat pratinjau jujur.
+
+    Unduhan ini menjalankan git di mesin pemilik dan menulis ke folder data,
+    jadi hanya admin. Tanpa penjagaan ini, satu permintaan pengguna biasa cukup
+    untuk mengisi disk pemilik dengan klon repo sembarang.
+    """
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh mempratinjau paket", 403)
     body = payload or {}
     url = (body.get("url") or "").strip()
     if not url:
@@ -1282,14 +1400,22 @@ async def marketplace():
 
 
 @app.get("/api/jobs")
-async def jobs_list():
+async def jobs_list(request: Request):
+    # Pekerjaan latar milik mesin: pemasangan CLI, kloning paket. Antreannya
+    # menyebut paket dan perintah yang dijalankan pemilik mesin.
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh melihat pekerjaan latar", 403)
     return {"ok": True, "jobs": plugins.job_daftar(20)}
 
 
 @app.get("/api/jobs/{jid}")
-async def jobs_get(jid: str):
+async def jobs_get(jid: str, request: Request):
     j = plugins.job_lihat(jid)
     if not j:
+        return JSONResponse({"ok": False, "error": "job tidak ditemukan"}, status_code=404)
+    # Job yang dimulai pengguna sendiri tetap boleh dilihatnya; yang lain tidak.
+    u = _pengguna(request) or {}
+    if u.get("peran") != "admin" and (j.get("owner") or "") != (u.get("nama") or ""):
         return JSONResponse({"ok": False, "error": "job tidak ditemukan"}, status_code=404)
     return {"ok": True, "job": j}
 

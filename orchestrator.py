@@ -1687,6 +1687,44 @@ class Orchestrator:
                 hub.emit("task", "Tugas dihentikan sebelum mulai", task=tid, phase="cancel", ok=False)
                 return
 
+            # --- tanpa pekerja: jawab langsung lewat model -----------------
+            # Terjadi kalau tidak ada satu pun pekerja CLI terpasang, misalnya di
+            # aplikasi Android yang memang tidak menyertakannya. Menjalankan
+            # tahap berikutnya tanpa pekerja hanya menghasilkan tugas yang gagal
+            # setelah menunggu batas waktu, jadi jawab langsung dengan model.
+            if not _pick_workers(cfg, 1):
+                t["size"] = t.get("size") or "chat"
+                t["workers"] = []
+                hub.emit("plan", "Tidak ada pekerja CLI, dijawab langsung oleh model",
+                         task=tid, size="chat", phase="end")
+                gw = Gateway(cfg)
+                pesan = (
+                    "Kamu AstroZ, asisten kerja yang berjalan di dalam aplikasi Android. "
+                    "Di perangkat ini tidak ada pekerja CLI (claude, codex, opencode, omp), "
+                    "jadi kamu menjawab sendiri: tidak ada yang menjalankan perintah atau "
+                    "menulis berkas. Jawab dalam bahasa Indonesia, ringkas, langsung ke "
+                    "intinya. Kalau permintaannya butuh menjalankan perintah atau mengubah "
+                    "berkas di perangkat, katakan dengan jelas bahwa hal itu belum "
+                    "didukung di versi Android ini, lalu berikan jawaban atau langkah yang "
+                    "masih bisa kamu berikan sekarang."
+                )
+                jawab = gw.chat(model, [
+                    {"role": "system", "content": pesan},
+                    {"role": "user", "content": prompt},
+                ])
+                teks = (jawab.get("text") or "").strip()
+                if not teks:
+                    t["status"] = "error"
+                    t["answer"] = jawab.get("error") or "model tidak menjawab"
+                    hub.emit("task", "Model tidak menjawab", task=tid, phase="error", ok=False)
+                    return
+                t["answer"] = teks
+                t["status"] = "done"
+                t["finished"] = time.time()
+                t["results"] = []
+                hub.emit("task", "Jawaban dikirim", task=tid, phase="done", ok=True, size="chat")
+                return
+
             # --- plan -----------------------------------------------------
             if workflow in ("auto", "medium", "large"):
                 hub.emit("plan", "Menyusun rencana kerja", task=tid, phase="start")

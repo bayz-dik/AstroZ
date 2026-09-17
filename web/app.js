@@ -388,6 +388,7 @@ const JALUR_IKON = {
   kerja: "M3 12h3.6l2.4-6 4 12 2.4-6H21",
   kembali: "M15 5l-7 7 7 7",
   gerigi: "M12 15.4a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8ZM19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2 2 2 0 1 1-4 0 1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.5-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 4.3a2 2 0 1 1 4 0 1.7 1.7 0 0 0 2.7 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 21 11a2 2 0 1 1 0 4Z",
+  keluar: "M15 4h3.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H15M10.5 8 6.5 12l4 4M6.5 12H15",
   gambar: "M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1ZM3 16.4l4.6-4.6 4 4 3-3 6 6M9.4 9.6h.01",
   file: "M13 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9l-6-6m0 0v6h6",
   berkas: "M3 6.5h6.2l1.8 2H21v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18V6.5Z",
@@ -1205,6 +1206,27 @@ function sesiBaru() {
   muatSesi();
 }
 el("sesi-baru").addEventListener("click", sesiBaru);
+
+/* Keluar: hapus cookie token di server, lalu tampilkan layar masuk lagi.
+   Sebelumnya endpoint /api/keluar ada di server tetapi tidak ada tombolnya,
+   jadi satu-satunya cara berhenti memakai token adalah menghapus cookie
+   sendiri lewat pengaturan peramban.
+
+   Halaman dimuat ulang setelah cookie dihapus, bukan sekadar membersihkan
+   sebagian keadaan di memori. Terukur: tanpa muat ulang, panel yang sudah
+   tergambar (daftar skill berikut jalur paketnya) masih menampilkan isi milik
+   pengguna sebelumnya sampai halaman disegarkan sendiri. */
+el("kaki-keluar").addEventListener("click", async () => {
+  const b = el("kaki-keluar");
+  b.disabled = true;
+  try {
+    await kirim("/api/keluar", {});
+  } catch {
+    // Cookie mungkin sudah tidak ada; yang penting sesinya diakhiri.
+  }
+  // Tanpa token, halaman memuat layar masuk sendiri lewat /api/saya.
+  location.replace(location.pathname);
+});
 
 /* ----------------------------------------------------------- riwayat sesi */
 
@@ -2563,7 +2585,9 @@ function gambarSkill(paket, siap) {
     atas.appendChild(buat("span", "tanda-cap ada", p.jumlah + " skill"));
     baris.appendChild(atas);
     baris.appendChild(buat("div", "teks-kecil", (p.contoh || []).join(", ")));
-    baris.appendChild(buat("div", "teks-kecil", p.ukuran + "  " + p.path));
+    // `path` hanya dikirim ke admin. Tanpa pemeriksaan ini, pengguna biasa
+    // melihat "186 KB undefined" di tiap baris paket.
+    baris.appendChild(buat("div", "teks-kecil", p.path ? p.ukuran + "  " + p.path : p.ukuran));
     const b = buat("button", "tombol kecil garis", "lepas");
     b.type = "button";
     b.addEventListener("click", async () => {
@@ -2612,7 +2636,12 @@ function gambarSkillTerpasang() {
     if (s.paket) atas.appendChild(buat("span", "tanda-cap ada", s.paket));
     baris.appendChild(atas);
     if (s.keterangan) baris.appendChild(buat("div", "teks-kecil", s.keterangan));
-    baris.appendChild(buat("div", "teks-kecil", (s.tautan || []).join(", ") || "belum tertaut ke pekerja"));
+    // `tautan` hanya dikirim ke admin. Kalau tidak ada, barisnya dihilangkan:
+    // menulis "belum tertaut ke pekerja" untuk pengguna biasa itu bohong, karena
+    // skill itu memang tertaut, hanya daftar foldernya yang tidak dikirim.
+    if (s.tautan) {
+      baris.appendChild(buat("div", "teks-kecil", (s.tautan || []).join(", ") || "belum tertaut ke pekerja"));
+    }
     wadah.appendChild(baris);
   }
 }

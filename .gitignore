@@ -27,6 +27,25 @@ tools/paket/
 .astroz/
 .pytest_cache/
 
+# Android: venv Python 3.12 untuk membangun bundel APK.
+.venv312/
+
+# Keluaran build Android: APK, dex, cache Gradle, aset hasil salinan.
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+# Aset yang disalin oleh android/siapkan_aset.sh, dibangun ulang setiap build.
+# Termasuk di dalamnya basis data 9Router (kredensial provider) dan runtime
+# Node: keduanya dari mesin ini, bukan berkas sumber.
+android/app/src/main/assets/
+android/app/src/main/jniLibs/
+# aapt2 arm64 dari paket Termux (biner + pustaka pendampingnya).
+android/toolchain/aapt2-bin
+android/toolchain/libs/
+# APK hasil build.
+artifacts/
+
 # Editor.
 .vscode/
 .idea/
