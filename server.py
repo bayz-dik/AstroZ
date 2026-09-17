@@ -550,7 +550,11 @@ async def worker_probe(key: str):
 
 # ------------------------------------------------------------------- tasks
 @app.post("/api/tasks")
-async def submit_task(payload: dict):
+async def submit_task(payload: dict, request: Request):
+    # Pemilik wajib diambil dari token yang meminta. Tanpa ini tugas dari
+    # pengguna biasa tercatat milik admin, dan pekerja menulis ke folder kerja
+    # admin: pekerjaan satu orang masuk ke ruang orang lain.
+    saya = (_pengguna(request) or {}).get("nama") or "admin"
     prompt = (payload or {}).get("prompt", "").strip()
     if not prompt:
         return JSONResponse({"ok": False, "error": "prompt required"}, status_code=400)
@@ -560,6 +564,7 @@ async def submit_task(payload: dict):
         workflow=(payload.get("workflow") or "auto"),
         workers=payload.get("workers") or None,
         model=payload.get("model") or None,
+        owner=saya,
     )
     return {"ok": True, "id": tid}
 
@@ -642,13 +647,18 @@ async def tasks_running(request: Request):
 
 
 @app.post("/api/tasks/{tid}/hentikan")
-async def task_hentikan(tid: str):
+async def task_hentikan(tid: str, request: Request):
     """Hentikan tugas yang sedang berjalan dari UI.
 
     Pekerja CLI yang sedang bekerja dimatikan prosesnya, tahap berikutnya pada
     tugas itu dilewati, dan statusnya jadi `cancelled` supaya chat tidak terus
     menampilkan "sedang jalan" untuk pekerjaan yang sudah dibatalkan.
     """
+    u = _pengguna(request) or {}
+    owner = None if u.get("peran") == "admin" else (u.get("nama") or "admin")
+    t = orchestrator.get_task(tid)
+    if not t or (owner is not None and (t.get("owner") or "admin") != owner):
+        return JSONResponse({"ok": False, "error": "tidak ditemukan"}, status_code=404)
     hasil = orchestrator.hentikan(tid)
     if not hasil.get("ok"):
         return JSONResponse(hasil, status_code=404)
@@ -1000,8 +1010,11 @@ async def workers_paket():
 
 
 @app.post("/api/workers/{key}/pasang")
-async def worker_pasang(key: str):
+async def worker_pasang(key: str, request: Request):
     """Pasang satu CLI pekerja lewat npm di latar belakang."""
+    # Memasang program ke mesin pemilik: hanya admin.
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh memasang pekerja", 403)
     if key not in adapters.PAKET:
         return JSONResponse({"ok": False, "error": "pekerja tidak dikenal"}, status_code=404)
     if not shutil.which("npm"):
@@ -1017,7 +1030,12 @@ async def mcp_list():
 
 
 @app.post("/api/mcp")
-async def mcp_add(payload: dict):
+async def mcp_add(payload: dict, request: Request):
+    # Server MCP ditulis ke konfigurasi KEEMPAT pekerja, dan perintahnya
+    # dijalankan mesin ini saat pekerja memakainya. Menambah atau melepasnya
+    # karena itu mengubah keadaan bersama, bukan milik satu pengguna.
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh memasang plugin MCP", 403)
     body = payload or {}
     nama = (body.get("nama") or "").strip()
     target = (body.get("target") or body.get("command") or "").strip()
@@ -1040,7 +1058,9 @@ async def mcp_add(payload: dict):
 
 
 @app.delete("/api/mcp/{nama}")
-async def mcp_remove(nama: str):
+async def mcp_remove(nama: str, request: Request):
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh melepas plugin MCP", 403)
     res = await asyncio.to_thread(plugins.mcp_hapus, nama)
     hub.emit("system", f"Plugin MCP {nama} dilepas dari pekerja")
     return {"ok": True, "hasil": res}
@@ -1074,8 +1094,10 @@ async def skills_list():
 
 
 @app.post("/api/skills/bawaan")
-async def skills_bawaan():
+async def skills_bawaan(request: Request):
     """Tautkan semua skill bawaan repo ke folder yang dibaca pekerja."""
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh memasang skill bawaan", 403)
     res = await asyncio.to_thread(plugins.skill_pasang_bawaan)
     _SKILL_CACHE["isi"] = None
     await asyncio.to_thread(plugins.skill_terpasang, True)
@@ -1083,7 +1105,11 @@ async def skills_bawaan():
 
 
 @app.post("/api/skills")
-async def skills_add(payload: dict):
+async def skills_add(payload: dict, request: Request):
+    # Skill ditautkan ke folder yang dibaca KEEMPAT pekerja, jadi memasangnya
+    # mengubah keadaan bersama mesin ini, bukan milik satu pengguna.
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh memasang skill", 403)
     body = payload or {}
     url = (body.get("url") or body.get("repo") or "").strip()
     if not url:
@@ -1096,7 +1122,9 @@ async def skills_add(payload: dict):
 
 
 @app.delete("/api/skills/{nama}")
-async def skills_remove(nama: str):
+async def skills_remove(nama: str, request: Request):
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh melepas skill", 403)
     res = await asyncio.to_thread(plugins.skill_hapus, nama)
     return JSONResponse({"ok": res["ok"], **res}, status_code=200 if res["ok"] else 404)
 
@@ -1148,7 +1176,10 @@ async def capability_preview(payload: dict):
 
 
 @app.post("/api/capability/pasang")
-async def capability_install(payload: dict):
+async def capability_install(payload: dict, request: Request):
+    # Capability berakhir di folder yang dibaca keempat pekerja: keadaan bersama.
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh memasang capability", 403)
     body = payload or {}
     url = (body.get("url") or "").strip()
     if not url:
@@ -1170,7 +1201,9 @@ async def capability_install(payload: dict):
 
 
 @app.delete("/api/capability/{nama}")
-async def capability_remove(nama: str):
+async def capability_remove(nama: str, request: Request):
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh melepas capability", 403)
     res = await asyncio.to_thread(adapters_plugin.lupa, nama)
     return JSONResponse({"ok": res["ok"], **res}, status_code=200 if res["ok"] else 404)
 

@@ -125,6 +125,88 @@ def _token_dari_runtime() -> str:
     return m.group(1) if m else ""
 
 
+def test_endpoint_bersama_wajib_admin():
+    """Endpoint yang mengubah keadaan BERSAMA mesin ini harus khusus admin.
+
+    Kejadian nyata: pengguna biasa bisa memasang server MCP, skill, capability,
+    dan bahkan memasang CLI pekerja. Semuanya menulis ke konfigurasi dan folder
+    yang dibaca keempat pekerja milik pemilik mesin, jadi bukan milik satu
+    pengguna. Daftarnya dijaga di sini supaya tidak ada yang lolos lagi saat
+    endpoint baru ditambahkan.
+    """
+    import inspect
+    bersama = [
+        ("POST", "/api/mcp"),
+        ("DELETE", "/api/mcp/{nama}"),
+        ("POST", "/api/skills"),
+        ("DELETE", "/api/skills/{nama}"),
+        ("POST", "/api/skills/bawaan"),
+        ("POST", "/api/capability/pasang"),
+        ("DELETE", "/api/capability/{nama}"),
+        ("POST", "/api/workers/{key}/pasang"),
+        ("POST", "/api/workers/{key}"),
+        ("POST", "/api/config"),
+        ("POST", "/api/apply"),
+        ("POST", "/api/gateway/key"),
+        ("POST", "/api/gateway/sync"),
+        ("GET", "/api/gateway/models"),
+        ("GET", "/api/akun"),
+        ("POST", "/api/akun"),
+    ]
+    # Endpoint yang menyebut satu tugas wajib memeriksa PEMILIK tugasnya, bukan
+    # hanya status admin: kalau tidak, pengguna lain bisa menghentikan atau
+    # membaca tugas orang lewat id yang ditebak.
+    per_tugas = [
+        ("GET", "/api/tasks/{tid}"),
+        ("GET", "/api/tasks/{tid}/berkas"),
+        ("POST", "/api/tasks/{tid}/hentikan"),
+    ]
+    # Endpoint yang MEMBUAT pekerjaan wajib menetapkan pemiliknya. Tanpa ini
+    # tugas pengguna biasa tercatat milik admin dan menulis ke folder kerja admin.
+    pembuat = [
+        ("POST", "/api/tasks"),
+        ("POST", "/api/chat"),
+    ]
+    # Nama fungsi endpoint diambil dari tabel rute supaya cocok walau
+    # penamaannya berbeda dari dugaan.
+    peta: dict[tuple[str, str], object] = {}
+    for r in server.app.routes:
+        p = getattr(r, "path", "")
+        for m in (getattr(r, "methods", None) or []):
+            peta[(m, p)] = r
+    kurang: list[str] = []
+    for metode, jalur in bersama:
+        r = peta.get((metode, jalur))
+        if r is None:
+            kurang.append(f"{metode} {jalur} (rute tidak ada)")
+            continue
+        fn = getattr(r, "endpoint", None)
+        if fn is None:
+            kurang.append(f"{metode} {jalur} (tanpa endpoint)")
+            continue
+        if "_admin_saja" not in inspect.getsource(fn):
+            kurang.append(f"{metode} {jalur}")
+    for metode, jalur in per_tugas:
+        r = peta.get((metode, jalur))
+        fn = getattr(r, "endpoint", None) if r else None
+        if fn is None:
+            kurang.append(f"{metode} {jalur} (rute tidak ada)")
+            continue
+        # Pemeriksaan pemilik terlihat dari pemakaian get_task + owner.
+        src = inspect.getsource(fn)
+        if "get_task" not in src or "owner" not in src:
+            kurang.append(f"{metode} {jalur} (tanpa pemeriksaan pemilik)")
+    for metode, jalur in pembuat:
+        r = peta.get((metode, jalur))
+        fn = getattr(r, "endpoint", None) if r else None
+        if fn is None:
+            kurang.append(f"{metode} {jalur} (rute tidak ada)")
+            continue
+        if "owner=" not in inspect.getsource(fn):
+            kurang.append(f"{metode} {jalur} (tidak menetapkan owner)")
+    assert not kurang, "endpoint tanpa penjagaan: " + ", ".join(kurang)
+
+
 def test_api_lewat_http_sungguhan():
     """Uji batas jaringan, bukan cuma fungsi: rute dinamis pernah menelannya.
 
