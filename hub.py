@@ -16,12 +16,56 @@ from collections import deque
 from typing import Any, Iterable
 
 import config
+import storage
 
 _lock = threading.Lock()
 _subscribers: set[asyncio.Queue] = set()
 _loop: asyncio.AbstractEventLoop | None = None
 _recent: deque[dict] = deque(maxlen=4000)
 _seq = 0
+
+# Pemilik kejadian yang sedang dipancarkan, untuk thread ini.
+#
+# Kejadian ditulis ke berkas PEMILIKNYA, bukan ke satu berkas bersama: itu inti
+# pemisahan storage. Sayangnya emit() dipanggil dari dua jenis tempat:
+#
+#   * tugas pekerja, yang berjalan di thread-nya sendiri dan sudah punya pemilik
+#     (orchestrator._run mengunci pemilik di thread itu),
+#   * jalur sistem, yang tidak punya pengguna sama sekali: boot, sinkronisasi
+#     katalog model, plugin Hermes yang membaca berkas terpisah.
+#
+# Thread-local dipakai supaya yang pertama tidak perlu mengirim pemilik ke setiap
+# pemanggilan emit() (ada ratusan), sementara yang kedua tetap tercatat di
+# berkas admin lewat nilai bawaan. Kejadian sistem memang bukan milik siapa pun,
+# dan admin adalah pemilik mesinnya.
+_lokal = threading.local()
+PEMILIK_BAWAAN = "admin"
+
+
+def set_pemilik(nama: str | None) -> None:
+    """Kunci pemilik kejadian untuk thread ini. None berarti kembali ke bawaan."""
+    _lokal.pemilik = (nama or "").strip().lower() or None
+
+
+def pemilik_sekarang() -> str:
+    return getattr(_lokal, "pemilik", None) or PEMILIK_BAWAAN
+
+
+def bind_loop(loop: asyncio.AbstractEventLoop) -> None:
+    global _loop
+    _loop = loop
+
+
+def _berkas_kejadian(ev: dict) -> pathlib.Path:
+    """Berkas kejadian milik kejadian ini.
+
+    Kejadian yang sudah membawa `owner` (mis. dibuat orkestrator untuk tugas milik
+    pengguna tertentu) memakai pemilik itu, bukan pemilik thread: umpan balik
+    latar bisa memancarkan kejadian tugas yang dibuat thread lain.
+    """
+    nama = (ev.get("owner") or "").strip().lower() or pemilik_sekarang()
+    return storage.events_file(nama)
+
 
 KINDS = {
     "task",
@@ -38,14 +82,11 @@ KINDS = {
 }
 
 
-def bind_loop(loop: asyncio.AbstractEventLoop) -> None:
-    global _loop
-    _loop = loop
-
-
 def _write_line(ev: dict) -> None:
     try:
-        with open(config.EVENTS_FILE, "a", encoding="utf-8") as fh:
+        p = _berkas_kejadian(ev)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(ev, ensure_ascii=False) + "\n")
     except Exception:
         pass
@@ -90,31 +131,37 @@ def recent(limit: int = 300, kind: str | None = None) -> list[dict]:
 
 
 def load_from_disk(limit: int = 2000) -> int:
-    """Rehydrate the in-memory ring from the JSONL feed (survives restarts).
+    """Rehydrate the in-memory ring from every user's JSONL feed.
 
-    Only the tail is read. The feed grows without bound (worker stdout is long),
-    so reading the whole file makes the UI slower every day it runs; the file
-    itself is never truncated because it is the durable log.
+    Kejadian sekarang tersebar per pengguna, jadi semuanya dibaca: ring di memori
+    dipakai untuk menyajikan umpan ke SSE, dan SSE sudah disaring per pengguna
+    saat dikirim. Yang dibaca hanya ekornya; berkasnya tumbuh tanpa batas (keluaran
+    pekerja panjang), jadi membaca seluruhnya membuat UI makin lambat setiap hari,
+    sementara berkasnya sendiri tidak pernah dipotong karena ia catatan yang awet.
     """
     global _seq
-    p = config.EVENTS_FILE
-    if not p.exists():
+    berkas: list[pathlib.Path] = []
+    for nama in storage.daftar_pengguna():
+        p = storage.events_file(nama)
+        if p.is_file():
+            berkas.append(p)
+    if not berkas:
         return 0
-    tail = _baca_ekor(p, 3_000_000)
-    lines = tail.splitlines()[-limit:]
     n = 0
     with _lock:
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                ev = json.loads(line)
-            except Exception:
-                continue
-            _recent.append(ev)
-            _seq = max(_seq, int(ev.get("id", 0)))
-            n += 1
+        for p in berkas:
+            tail = _baca_ekor(p, 3_000_000)
+            for line in tail.splitlines()[-limit:]:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except Exception:
+                    continue
+                _recent.append(ev)
+                _seq = max(_seq, int(ev.get("id", 0)))
+                n += 1
     return n
 
 
@@ -138,12 +185,16 @@ _berkas_tugas: dict[str, tuple[int, list[dict]]] = {}
 _BERKAS_TUGAS_BYTE = 4_000_000
 
 
-def untuk_tugas(tid: str, limit: int = 300) -> list[dict]:
+def untuk_tugas(tid: str, limit: int = 300, owner: str | None = None) -> list[dict]:
     """Kejadian satu tugas, dibaca dari feed di disk kalau perlu.
 
     Ring di memori hanya menyimpan 4000 kejadian terakhir, dan aktivitas plugin
     Hermes bisa memenuhinya dalam beberapa menit. Tanpa membaca berkasnya,
     panel proses untuk tugas yang agak lama tampil kosong walau catatannya ada.
+
+    `owner` menyebut berkas mana yang dibaca. Tanpa itu, berkas semua pengguna
+    diperiksa: satu tugas hanya ada di berkas pemiliknya, jadi hasilnya sama,
+    tetapi dengan owner pencariannya langsung ke berkas yang benar.
     """
     if not tid:
         return []
@@ -151,29 +202,36 @@ def untuk_tugas(tid: str, limit: int = 300) -> list[dict]:
         dari_ring = [e for e in _recent if e.get("task") == tid]
     if dari_ring:
         return dari_ring[-limit:]
-    p = config.EVENTS_FILE
-    try:
-        ukuran = p.stat().st_size
-    except Exception:
-        return []
-    simpan = _berkas_tugas.get(tid)
-    if simpan and simpan[0] == ukuran:
-        return simpan[1]
+    if owner:
+        berkas = [storage.events_file(owner)]
+    else:
+        berkas = [storage.events_file(n) for n in storage.daftar_pengguna()]
     out: list[dict] = []
-    for line in _baca_ekor(p, _BERKAS_TUGAS_BYTE).splitlines():
-        line = line.strip()
-        if not line or tid not in line:
-            continue
+    for p in berkas:
         try:
-            ev = json.loads(line)
+            ukuran = p.stat().st_size
         except Exception:
             continue
-        if ev.get("task") == tid:
-            out.append(ev)
-    out = out[-limit:]
-    if len(_berkas_tugas) > 60:
-        _berkas_tugas.clear()
-    _berkas_tugas[tid] = (ukuran, out)
+        simpan = _berkas_tugas.get(tid)
+        if simpan and simpan[0] == ukuran and simpan[1]:
+            out = simpan[1]
+            break
+        for line in _baca_ekor(p, _BERKAS_TUGAS_BYTE).splitlines():
+            line = line.strip()
+            if not line or tid not in line:
+                continue
+            try:
+                ev = json.loads(line)
+            except Exception:
+                continue
+            if ev.get("task") == tid:
+                out.append(ev)
+        if out:
+            out = out[-limit:]
+            if len(_berkas_tugas) > 60:
+                _berkas_tugas.clear()
+            _berkas_tugas[tid] = (ukuran, out)
+            break
     return out
 
 

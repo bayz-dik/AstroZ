@@ -21,10 +21,10 @@ import adapters
 import config
 import hub
 import project
+import storage
 from gateway import Gateway
 
 TASKS: dict[str, dict] = {}
-TASKS_FILE = config.RUNTIME / "tasks.json"
 # Proses pekerja yang sedang hidup, per id tugas. Dipakai untuk menghentikan
 # tugas dari UI: tanpa daftar ini, tugas yang berjalan hanya bisa ditunggu.
 PROSES: dict[str, list] = {}
@@ -523,27 +523,42 @@ def _bersihkan_hasil(t: dict) -> None:
             st.pop("_pekerja", None)
 
 
-def _persist_tasks() -> None:
-    """Keep task history across restarts (the UI and plugin both read it)."""
+def _persist_tasks(owner: str | None = None) -> None:
+    """Keep task history across restarts (the UI and plugin both read it).
+
+    Tugas ditulis ke berkas PEMILIKNYA. Tanpa `owner`, semua pengguna ditulis ke
+    berkasnya masing-masing; dengan `owner`, hanya pengguna itu (dipakai setelah
+    satu tugas selesai supaya tidak menulis ulang berkas semua orang).
+    """
     try:
         for t in TASKS.values():
             _bersihkan_hasil(t)
-        items = sorted(TASKS.values(), key=lambda t: t.get("created", 0), reverse=True)[:60]
-        slim = [{k: t.get(k) for k in _TASK_FIELDS if k in t} for t in items]
-        TASKS_FILE.write_text(json.dumps(slim, ensure_ascii=False, default=str))
+        pemilik = [owner] if owner else sorted({(t.get("owner") or "admin") for t in TASKS.values()})
+        for nama in pemilik:
+            n = (nama or "admin").strip().lower()
+            items = [t for t in TASKS.values() if (t.get("owner") or "admin").strip().lower() == n]
+            items.sort(key=lambda t: t.get("created", 0), reverse=True)
+            slim = [{k: t.get(k) for k in _TASK_FIELDS if k in t} for t in items[:60]]
+            p = storage.tasks_file(n)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(slim, ensure_ascii=False, default=str))
     except Exception:
         pass
 
 
 def load_tasks() -> int:
-    if not TASKS_FILE.exists():
-        return 0
-    try:
-        items = json.loads(TASKS_FILE.read_text())
-    except Exception:
-        return 0
-    for t in items:
-        if isinstance(t, dict) and t.get("id"):
+    """Muat riwayat tugas SEMUA pengguna yang punya folder penyimpanan."""
+    for nama in storage.daftar_pengguna():
+        p = storage.tasks_file(nama)
+        if not p.is_file():
+            continue
+        try:
+            items = json.loads(p.read_text())
+        except Exception:
+            continue
+        for t in items:
+            if not (isinstance(t, dict) and t.get("id")):
+                continue
             # Tugas dari berkas lama tidak punya pemilik: dibaca sebagai milik
             # admin, sama seperti sesi. Tanpa ini, seluruh riwayat tugas yang
             # sudah ada hilang dari pemiliknya setelah pemisahan ini.
@@ -696,7 +711,7 @@ def hentikan(tid: str) -> dict:
         t["summary"] = (t.get("summary") or "") + " · dihentikan pengguna"
     hub.emit("task", f"Tugas dihentikan dari UI ({dimatikan} proses pekerja dimatikan)",
              task=tid, phase="cancel", ok=False)
-    _persist_tasks()
+    _persist_tasks(t.get("owner"))
     return {"ok": True, "id": tid, "proses_dimati": dimatikan}
 
 
@@ -1380,7 +1395,10 @@ class Orchestrator:
         for st in batch:
             klaim += list(st.get("klaim") or [])
         if not klaim:
-            tempat = config.RUNTIME / "cadangan" / (tid or "tugas")
+            # Cadangan ikut pemilik tugas ini, bukan pemilik thread: tugas bisa
+            # saja disiapkan dari thread lain. Pemiliknya dibaca dari tugasnya.
+            pemilik = (TASKS.get(tid) or {}).get("owner")
+            tempat = storage.cadangan_dir(pemilik) / (tid or "tugas")
             try:
                 tempat.mkdir(parents=True, exist_ok=True)
             except Exception:
@@ -1602,9 +1620,9 @@ class Orchestrator:
         }
         with _TASK_LOCK:
             TASKS[tid] = t
-        _persist_tasks()
+        _persist_tasks(t["owner"])
         hub.emit("task", f"Pesan diterima: {prompt[:120]}", task=tid, workflow=workflow,
-                 model=t["model"], phase="created", session=session_id or "")
+                 model=t["model"], phase="created", session=session_id or "", owner=t["owner"])
         threading.Thread(target=self._run, args=(tid, prompt, workflow, workers), daemon=True).start()
         return tid
 
@@ -1619,6 +1637,14 @@ class Orchestrator:
             # Seluruh tugas ini bekerja di folder pemiliknya. Dikunci di awal
             # thread, jadi setiap pemanggilan project.* di bawah ikut memakai
             # folder itu, termasuk pekerja paralel dan pemeriksaan berkas.
+            #
+            # Pemilik penyimpanan dikunci di baris yang sama dan selalu, termasuk
+            # untuk tugas "chat" yang tidak punya folder kerja: kejadian dan
+            # riwayat tugasnya tetap harus masuk ke berkas pemiliknya, bukan
+            # berkas admin. Dikunci dari id tugas (bukan dari workspace) supaya
+            # keduanya tidak bisa berbeda.
+            project.set_pengguna(t.get("owner") or "admin")
+            hub.set_pemilik(t.get("owner") or "admin")
             if t.get("workspace"):
                 project.set_workspace(t["workspace"])
 
@@ -1646,7 +1672,7 @@ class Orchestrator:
                 t["finished"] = time.time()
                 t["results"] = []
                 hub.emit("task", "Jawaban dikirim", task=tid, phase="done", ok=True, size="chat")
-                _persist_tasks()
+                _persist_tasks(t.get("owner"))
                 return
 
             d = project.ensure_repo()
@@ -1935,7 +1961,12 @@ class Orchestrator:
             # yang tertinggal di sini akan membuat tugas pengguna lain bekerja di
             # folder yang salah, jadi selalu dikembalikan.
             project.set_workspace(None)
-            _persist_tasks()
+            project.set_pengguna(None)
+            # Pemilik kejadian untuk thread ini juga dikembalikan: thread dipakai
+            # ulang, dan pemilik yang tertinggal akan menulis kejadian tugas
+            # berikutnya ke berkas pengguna yang salah.
+            hub.set_pemilik(None)
+            _persist_tasks(t.get("owner"))
 
     def _task_is_green(self, test_res: dict | None, review: dict | None) -> bool:
         """True only when the task's own verification actually passed.

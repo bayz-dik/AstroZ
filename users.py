@@ -29,6 +29,7 @@ import threading
 import time
 
 import config
+import storage
 
 def _users_file() -> pathlib.Path:
     """Jalur berkas akun, dihitung saat dipakai.
@@ -251,7 +252,12 @@ def hapus(nama: str) -> dict:
     with _lock:
         _U.pop(nama, None)
     _persist()
-    return {"nama": nama, "dihapus": True}
+    # Penyimpanan pengguna ikut dihapus: percakapan, tugas, catatan kejadian,
+    # folder kerja, dan cadangannya. Kalau tidak, bebannya tetap tertinggal di
+    # perangkat padahal akunnya sudah tidak ada, dan tidak ada lagi yang bisa
+    # membersihkannya dari UI.
+    berkas_terhapus = storage.hapus(nama)
+    return {"nama": nama, "dihapus": True, "storage_dihapus": berkas_terhapus}
 
 
 # ------------------------------------------------------------------ ruang kerja
@@ -259,15 +265,15 @@ def hapus(nama: str) -> dict:
 def ruang_kerja(nama: str) -> pathlib.Path:
     """Folder kerja milik satu pengguna.
 
-    Admin memakai folder kerja yang sudah ada di setelan supaya pekerjaan lama
-    tidak berpindah tempat. Pengguna lain mendapat foldernya sendiri di bawah
-    runtime/users/<nama>/workspace: terpisah dari yang lain, dan di luar repo
-    supaya tidak ikut ter-commit.
+    SEMUA pengguna, termasuk admin, memakai foldernya sendiri di
+    runtime/users/<nama>/workspace. Sebelumnya admin memakai folder lama di luar
+    runtime, dan itu membuat bebannya tidak terhitung di tempat yang sama dengan
+    pengguna lain: kebutuhan "tiap orang menanggung storage-nya sendiri" tidak
+    terpenuhi untuk admin. Folder lama dipindahkan sekali saat boot (lihat
+    storage.pindahkan_workspace_lama), jadi pekerjaan yang sudah ada tidak hilang.
     """
     nama = (nama or "").strip().lower() or "user"
-    if peran(nama) == "admin":
-        return pathlib.Path(config.load()["project_dir"]).expanduser()
-    return config.RUNTIME / "users" / nama / "workspace"
+    return storage.siapkan(nama) / "workspace"
 
 
 # ------------------------------------------------------------------ kode undangan

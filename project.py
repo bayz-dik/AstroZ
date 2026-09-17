@@ -13,6 +13,7 @@ from typing import Any, Iterable
 
 import config
 import hub
+import storage
 
 ROOT = pathlib.Path(__file__).resolve().parent
 
@@ -44,7 +45,12 @@ def project_dir() -> pathlib.Path:
         p.mkdir(parents=True, exist_ok=True)
         return p
 
-    p = pathlib.Path(config.load()["project_dir"]).expanduser()
+    # Tanpa folder kerja yang dikunci, pemiliknya dipakai: di luar tugas, folder
+    # kerja adalah milik pengguna yang sedang dilayani. Sebelumnya jalur ini
+    # membaca setelan `project_dir`, dan itu membuat admin (satu-satunya pemakai
+    # jalur ini) memakai folder bersama di luar penyimpanan pengguna.
+    nama = getattr(_LOKAL, "pengguna", None) or "admin"
+    p = storage.workspace(nama)
     # Pekerja CLI dijalankan dengan cwd yang sudah disiapkan orkestrator. Kalau
     # mereka juga memanggil ini (lewat project.ensure_repo atau alat bantu),
     # folder kerja baru ikut dibuat di mesin pekerja. Jangan: cukup pastikan
@@ -58,6 +64,22 @@ def project_dir() -> pathlib.Path:
 def set_workspace(p: "pathlib.Path | str | None") -> None:
     """Kunci folder kerja untuk thread ini. None berarti kembali ke setelan."""
     _LOKAL.workspace = str(p) if p else None
+
+
+def set_pengguna(nama: str | None) -> None:
+    """Kunci pemilik penyimpanan untuk thread ini.
+
+    Dikunci bersamaan dengan folder kerja (lihat orchestrator._run): keduanya
+    harus selalu menunjuk pengguna yang sama, karena kejadian, tugas, dan berkas
+    kerja satu tugas harus berakhir di folder pemiliknya. Dipisah dari
+    set_workspace supaya pemanggil yang hanya butuh folder kerja tidak ikut
+    mengubah tujuan penulisan kejadian.
+    """
+    _LOKAL.pengguna = (nama or "").strip().lower() or None
+
+
+def pengguna_sekarang() -> "str | None":
+    return getattr(_LOKAL, "pengguna", None)
 
 
 def workspace_sekarang() -> "str | None":
@@ -407,12 +429,13 @@ def pulihkan_berkas(relatif: Iterable[str], cadangan: pathlib.Path, awal: dict |
 def snap_sementara(berkas: Iterable[str], tag: str = "tugas", maks: int = 4000) -> pathlib.Path | None:
     """Salin berkas di luar folder kerja supaya bisa dipulihkan nanti.
 
-    Salinannya sengaja diletakkan di luar folder kerja (runtime/), bukan di
-    dalamnya: berkas cadangan di dalam folder kerja akan terbaca sebagai
-    perubahan tugas oleh panel berkas, ringkasan, dan penilai.
+    Salinannya sengaja diletakkan di luar folder kerja (di penyimpanan pemiliknya),
+    bukan di dalamnya: berkas cadangan di dalam folder kerja akan terbaca sebagai
+    perubahan tugas oleh panel berkas, ringkasan, dan penilai. Cadangan ikut
+    pemiliknya supaya beban storage-nya juga ikut terhitung di sana.
     """
     d = project_dir()
-    tempat = config.RUNTIME / "cadangan" / (tag or "tugas")
+    tempat = storage.cadangan_dir(pengguna_sekarang() or "admin") / (tag or "tugas")
     berkas = list(dict.fromkeys([b for b in berkas if b]))[:maks]
     if not berkas:
         return None

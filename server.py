@@ -23,6 +23,7 @@ import orchestrator
 import plugins
 import project
 import sessions
+import storage
 import users
 from gateway import Gateway
 
@@ -123,6 +124,16 @@ async def gerbang_masuk(request: Request, call_next):
         if not u:
             return _tolak("belum masuk, kirim token lewat cookie atau header Authorization")
         request.state.pengguna = u
+        # Pemilik kejadian dikunci untuk thread ini selama permintaan berjalan.
+        # Tanpa ini, kejadian yang dipancarkan dari penangan permintaan (mis.
+        # "pesan baru" di /api/chat) tidak punya pemilik dan jatuh ke berkas
+        # admin, sehingga id tugas pengguna lain muncul di catatan admin.
+        # Dikunci di sini, bukan di tiap penangan, supaya tidak ada yang terlewat.
+        hub.set_pemilik(u.get("nama"))
+        try:
+            return await call_next(request)
+        finally:
+            hub.set_pemilik(None)
     return await call_next(request)
 
 
@@ -172,6 +183,29 @@ async def akun_daftar(request: Request):
     if not _admin_saja(request):
         return _tolak("hanya admin yang boleh mengelola akun", 403)
     return {"ok": True, "akun": users.daftar()}
+
+
+@app.get("/api/storage")
+async def storage_pemakaian(request: Request):
+    """Pemakaian penyimpanan per pengguna.
+
+    Tidak ada batas yang ditegakkan: ini hitungan, bukan kuota. Tujuannya supaya
+    terlihat siapa menanggung berapa dan berkas besar bisa ditemukan sebelum
+    perangkatnya penuh. Pengguna biasa hanya melihat pemakaiannya sendiri;
+    daftar lengkap hanya untuk admin, karena menyebut nama orang lain.
+    """
+    u = _pengguna(request) or {}
+    saya = (u.get("nama") or "admin").strip().lower()
+    semua = storage.pemakaian()
+    if u.get("peran") != "admin":
+        semua = {saya: semua.get(saya) or storage.pemakaian([saya])[saya]}
+    return {
+        "ok": True,
+        "pemakaian": semua,
+        "total": sum(int(r.get("total") or 0) for r in semua.values()),
+        "akar": str(config.RUNTIME / "users"),
+        "kuota": None,  # tidak ada batas; field ini ada supaya UI tidak menebak
+    }
 
 
 @app.post("/api/akun")
@@ -287,6 +321,15 @@ async def akun_hapus(nama: str, request: Request):
 @app.on_event("startup")
 async def _startup() -> None:
     hub.bind_loop(asyncio.get_running_loop())
+    # Pemindahan sekali jalan: berkas bersama yang lama (tasks/sessions/events/
+    # cadangan) pindah ke folder pemiliknya, dan folder kerja lama pindah ke
+    # dalam penyimpanan admin. Dilakukan SEBELUM memuat apa pun, supaya data yang
+    # dimuat sudah dari tempat yang benar dan tidak ada yang hilang.
+    pindah = storage.pindahkan_berkas_lama()
+    pindah_ws = storage.pindahkan_workspace_lama()
+    for k, v in {**pindah, "workspace": pindah_ws}.items():
+        if v and not str(v).startswith(("dilewati", "sudah", "setelan", "tidak ada")):
+            hub.emit("system", f"Penyimpanan lama dipindah: {k} -> {v}", phase="boot")
     n = hub.load_from_disk(1500)
     nu = users.load()
     # Akun admin pertama dibuat di sini kalau belum ada akun sama sekali.
@@ -736,7 +779,7 @@ async def tasks_running(request: Request):
             # Ring di memori bisa sudah terisi kejadian lain (aktivitas plugin
             # Hermes deras). Ambil dari feed di disk supaya strip kerja tetap
             # tahu pekerja mana yang sedang aktif.
-            milik = await asyncio.to_thread(hub.untuk_tugas, t["id"], 40)
+            milik = await asyncio.to_thread(hub.untuk_tugas, t["id"], 40, t.get("owner"))
         # keadaan tiap pekerja: yang kejadian terakhirnya bukan "end" masih
         # bekerja. Daftar penugasan saja tidak cukup: ia tidak tahu siapa yang
         # sudah selesai dan siapa yang masih jalan.
@@ -809,7 +852,7 @@ async def task_detail(tid: str, request: Request):
     t = orchestrator.get_task(tid)
     if not t or (owner is not None and (t.get("owner") or "admin") != owner):
         return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
-    evs = await asyncio.to_thread(hub.untuk_tugas, tid, 300)
+    evs = await asyncio.to_thread(hub.untuk_tugas, tid, 300, t.get("owner"))
     # UI membaca t["answer"]; bentuk balasan ini menyamakan keduanya supaya
     # pemanggil tidak perlu tahu bedanya.
     return {"ok": True, "task": t, "answer": t.get("answer") or "", "status": t.get("status") or "", "events": evs}
@@ -1012,7 +1055,7 @@ async def sessions_get(sid: str, request: Request, events: int = 120):
     activity: dict[str, list[dict]] = {}
     if events:
         for tid in ids:
-            evs = await asyncio.to_thread(hub.untuk_tugas, tid, events)
+            evs = await asyncio.to_thread(hub.untuk_tugas, tid, events, s.get("owner"))
             if evs:
                 activity[tid] = evs
     return {"ok": True, "session": {**s, "tasks": ids}, "messages": messages, "activity": activity}

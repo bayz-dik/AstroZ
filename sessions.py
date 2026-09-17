@@ -15,8 +15,8 @@ import time
 import uuid
 
 import config
+import storage
 
-SESSIONS_FILE = config.RUNTIME / "sessions.json"
 MAX_SESSIONS = 40
 
 # Pemilik sesi. Berkas lama tidak punya kolom ini, jadi dibaca sebagai milik
@@ -25,27 +25,53 @@ MAX_SESSIONS = 40
 PEMILIK_BAWAAN = "admin"
 
 _lock = threading.Lock()
+# Sesi dimuat dari berkas per pengguna. Kuncinya id sesi (id dibuat acak 10
+# karakter, jadi tidak bentrok antar pengguna), nilainya dict sesi yang sudah
+# membawa `owner`.
 _S: dict[str, dict] = {}
 
 
+def _berkas(owner: str | None) -> pathlib.Path:
+    return storage.sessions_file(owner)
+
+
 def load() -> int:
-    if not SESSIONS_FILE.exists():
-        return 0
-    try:
-        items = json.loads(SESSIONS_FILE.read_text())
-    except Exception:
-        return 0
-    for s in items:
-        if isinstance(s, dict) and s.get("id"):
-            s.setdefault("owner", PEMILIK_BAWAAN)
-            _S[s["id"]] = s
+    """Muat percakapan SEMUA pengguna yang punya folder penyimpanan.
+
+    Dibaca semuanya, bukan satu berkas: itulah pemisahannya. Penyaringan per
+    pemilik terjadi di list_sessions/get_milik, bukan di sini, supaya sesi orang
+    lain tetap bisa dilihat admin dan tidak hilang saat pengguna lain memanggil
+    load().
+    """
+    for nama in storage.daftar_pengguna():
+        p = _berkas(nama)
+        if not p.is_file():
+            continue
+        try:
+            items = json.loads(p.read_text())
+        except Exception:
+            continue
+        for s in items:
+            if isinstance(s, dict) and s.get("id"):
+                # Pemilik dari berkas menang; kalau berkas lama tidak punya,
+                # pemiliknya adalah pemilik foldernya.
+                s.setdefault("owner", nama)
+                _S[s["id"]] = s
     return len(_S)
 
 
-def _persist() -> None:
+def _persist(owner: str | None) -> None:
+    """Tulis HANYA percakapan milik `owner` ke berkasnya sendiri."""
+    nama = (owner or PEMILIK_BAWAAN).strip().lower()
     try:
-        items = sorted(_S.values(), key=lambda s: s.get("updated", 0), reverse=True)[:MAX_SESSIONS]
-        SESSIONS_FILE.write_text(json.dumps(items, ensure_ascii=False, default=str))
+        items = [
+            s for s in _S.values()
+            if (s.get("owner") or PEMILIK_BAWAAN) == nama
+        ]
+        items.sort(key=lambda s: s.get("updated", 0), reverse=True)
+        p = _berkas(nama)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(items[:MAX_SESSIONS], ensure_ascii=False, default=str))
     except Exception:
         pass
 
@@ -62,7 +88,7 @@ def create(title: str = "", owner: str = PEMILIK_BAWAAN) -> dict:
          "owner": (owner or PEMILIK_BAWAAN).strip().lower()}
     with _lock:
         _S[s["id"]] = s
-    _persist()
+    _persist(s["owner"])
     return s
 
 
@@ -106,7 +132,7 @@ def attach(sid: str, tid: str, prompt: str = "") -> dict | None:
         if s["title"] in ("", "Percakapan baru") and prompt:
             s["title"] = _title_from(prompt)
         s["updated"] = time.time()
-    _persist()
+    _persist(s.get("owner"))
     return s
 
 
@@ -116,7 +142,7 @@ def rename(sid: str, title: str, owner: str | None = None) -> dict | None:
         return None
     s["title"] = (title or "").strip()[:80] or s["title"]
     s["updated"] = time.time()
-    _persist()
+    _persist(s.get("owner"))
     return s
 
 
@@ -126,7 +152,7 @@ def delete(sid: str, owner: str | None = None) -> bool:
     with _lock:
         gone = _S.pop(sid, None)
     if gone:
-        _persist()
+        _persist(gone.get("owner"))
     return bool(gone)
 
 
@@ -141,7 +167,7 @@ def toggle_pin(sid: str, pinned: bool | None = None, owner: str | None = None) -
     if not s:
         return None
     s["pinned"] = (not s.get("pinned")) if pinned is None else bool(pinned)
-    _persist()
+    _persist(s.get("owner"))
     return s
 
 

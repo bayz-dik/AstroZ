@@ -187,6 +187,7 @@ function sembunyikanKhususAdmin() {
   if (admin) {
     muatUndangan().catch(() => {});
     muatAkun().catch(() => {});
+    muatStorage().catch(() => {});
   }
 }
 
@@ -281,6 +282,46 @@ async function muatAkun() {
   }
 }
 
+function ukuranManusia(n) {
+  const b = Number(n) || 0;
+  if (b < 1024) return b + " B";
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
+  if (b < 1024 * 1024 * 1024) return (b / 1048576).toFixed(2) + " MB";
+  return (b / 1073741824).toFixed(2) + " GB";
+}
+
+async function muatStorage() {
+  const wadah = el("daftar-storage");
+  if (!wadah) return;
+  try {
+    const d = await ambil("/api/storage");
+    wadah.replaceChildren();
+    const baris = Object.entries(d.pemakaian || {})
+      .sort((a, b) => (b[1].total || 0) - (a[1].total || 0));
+    if (!baris.length) {
+      wadah.appendChild(buat("p", "kosong", "Belum ada penyimpanan pengguna."));
+      return;
+    }
+    for (const [nama, r] of baris) {
+      const b = buat("div", "baris-data");
+      const atas = buat("div", "atas");
+      atas.appendChild(buat("span", "nama", nama));
+      atas.appendChild(buat("span", "teks-kecil", ukuranManusia(r.total)));
+      b.appendChild(atas);
+      // Rincian per bagian: supaya terlihat BAGIAN mana yang besar, bukan cuma
+      // jumlahnya. Tanpa ini angka total tidak bisa ditindaklanjuti.
+      const rinci = buat("div", "teks-kecil");
+      rinci.textContent = `kerja ${ukuranManusia(r.workspace)} · kejadian ${ukuranManusia(r.events)} · tugas ${ukuranManusia(r.tasks)} · percakapan ${ukuranManusia(r.sessions)} · cadangan ${ukuranManusia(r.cadangan)}`;
+      b.appendChild(rinci);
+      wadah.appendChild(b);
+    }
+    const total = buat("p", "catatan", `Jumlah semua akun: ${ukuranManusia(d.total)}. Tidak ada batas ukuran; tiap akun menanggung berkasnya sendiri di ${d.akar}.`);
+    wadah.appendChild(total);
+  } catch (e) {
+    wadah.replaceChildren(buat("p", "kosong", "Pemakaian penyimpanan tidak bisa dimuat: " + e.message));
+  }
+}
+
 function pasangAdmin() {
   const b = el("buat-undangan");
   if (b) {
@@ -302,7 +343,7 @@ function pasangAdmin() {
   const m = el("muat-undangan");
   if (m) {
     m.addEventListener("click", async () => {
-      await Promise.all([muatUndangan(), muatAkun()]);
+      await Promise.all([muatUndangan(), muatAkun(), muatStorage()]);
     });
   }
 }

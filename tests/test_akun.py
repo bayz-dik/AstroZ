@@ -20,11 +20,15 @@ import users
 
 @pytest.fixture
 def bersih(tmp_path, monkeypatch):
-    """Runtime bersih di tmp_path: akun, sesi, dan folder kerja terpisah."""
+    """Runtime bersih di tmp_path: akun, sesi, dan folder kerja terpisah.
+
+    Penyimpanan sekarang per pengguna (storage.py), jadi cukup memindahkan
+    config.RUNTIME: semua jalur di bawahnya ikut pindah karena storage menghitung
+    jalurnya saat dipakai, bukan saat impor.
+    """
     rt = tmp_path / "runtime"
     rt.mkdir(parents=True)
     monkeypatch.setattr(config, "RUNTIME", rt)
-    monkeypatch.setattr(sessions, "SESSIONS_FILE", rt / "sessions.json")
     users._U.clear()
     users._UNDANGAN.clear()
     sessions._S.clear()
@@ -145,10 +149,22 @@ def test_sesi_punya_pemilik(bersih):
 
 
 def test_sesi_lama_dibaca_milik_admin(bersih):
-    """Percakapan yang sudah ada sebelum pemisahan tidak boleh hilang."""
+    """Percakapan yang sudah ada sebelum pemisahan tidak boleh hilang.
+
+    Berkas lamanya bersama di akar runtime; sesudah pemisahan ia pindah ke folder
+    pemiliknya. Yang diuji di sini adalah jalur pindahannya, bukan sekadar
+    pembacaan: tanpa pemindahan, seluruh riwayat percakapan hilang dari UI.
+    """
+    import storage
+
     (bersih / "sessions.json").write_text(json.dumps([
         {"id": "lama123", "title": "Percakapan lama", "created": 1, "updated": 1, "tasks": []}
     ]))
+    hasil = storage.pindahkan_berkas_lama()
+    assert hasil.get("sessions.json", "").startswith("digabung")
+    assert not (bersih / "sessions.json").exists()
+    assert storage.sessions_file("admin").is_file()
+
     sessions._S.clear()
     sessions.load()
     s = sessions.get("lama123")
@@ -315,12 +331,34 @@ def test_undangan_bukan_admin(bersih):
 
 # ------------------------------------------------------------------ folder kerja
 
-def test_admin_memakai_folder_kerja_yang_sudah_ada(bersih, monkeypatch):
-    """Pekerjaan lama tidak boleh berpindah tempat."""
+def test_admin_juga_punya_penyimpanan_sendiri(bersih, monkeypatch):
+    """Admin pun menanggung storage-nya sendiri.
+
+    Sebelumnya admin memakai folder lama di luar runtime, jadi bebannya tidak
+    terhitung bersama pengguna lain. Sekarang semua pengguna, termasuk admin,
+    memakai runtime/users/<nama>/, dan folder lama DIPINDAH ke sana supaya
+    pekerjaan yang sudah ada tidak hilang.
+    """
+    import storage
+
     monkeypatch.setattr(config, "CONFIG_PATH", bersih / "team.yaml")
     users.siapkan_pertama()
-    lama = config.load()["project_dir"]
-    assert str(users.ruang_kerja("admin")) == lama
+    # Folder kerja lama berisi pekerjaan, seperti keadaan sebelum pemisahan.
+    lama = bersih / "workspace_lama"
+    lama.mkdir(parents=True)
+    (lama / "catatan.txt").write_text("pekerjaan lama")
+    cfg = config.load()
+    cfg["project_dir"] = str(lama)
+    config.save(cfg)
+
+    assert storage.pindahkan_workspace_lama() == "dipindah"
+
+    baru = users.ruang_kerja("admin")
+    assert baru == storage.workspace("admin")
+    assert baru.is_dir()
+    assert (baru / "catatan.txt").read_text() == "pekerjaan lama"
+    # Pemindahan kedua tidak boleh mengulang atau menimpa.
+    assert storage.pindahkan_workspace_lama() != "dipindah"
 
 
 def test_pengguna_biasa_dapat_folder_sendiri(bersih):
@@ -342,3 +380,60 @@ def test_ruang_kerja_tidak_keluar_dari_runtime(bersih):
     users.buat("budi", "user")
     p = users.ruang_kerja("budi").resolve()
     assert str(p).startswith(str(bersih.resolve()))
+
+
+# ------------------------------------------------------------------ pemindahan
+
+def test_pemindahan_menggabung_bukan_menimpa(bersih):
+    """Berkas lama DIGABUNG ke penyimpanan admin, tidak ditimpa dan tidak dibuang.
+
+    Kejadian nyata yang membuat aturan ini ada: folder admin sudah berisi berkas
+    dari percobaan sebelumnya, dan aturan "lewati kalau tujuan ada" meninggalkan
+    riwayat kejadian asli berukuran megabyte di luar penyimpanan pengguna. UI lalu
+    hanya menampilkan data percobaan, dan data aslinya tidak pernah terlihat lagi.
+    """
+    import storage
+
+    # Keadaan tujuan: sudah ada, dari percobaan sebelumnya.
+    storage.siapkan("admin")
+    storage.tasks_file("admin").write_text(json.dumps([{"id": "t_baru", "owner": "admin"}]))
+    storage.sessions_file("admin").write_text(json.dumps([{"id": "s_baru", "owner": "admin"}]))
+    storage.events_file("admin").write_text('{"id": 2, "task": "t_baru"}\n')
+
+    # Keadaan sumber: berkas bersama yang lama, berisi riwayat asli.
+    (bersih / "tasks.json").write_text(json.dumps([{"id": "t_lama", "owner": "admin"}]))
+    (bersih / "sessions.json").write_text(json.dumps([{"id": "s_lama", "owner": "admin"}]))
+    (bersih / "events.jsonl").write_text('{"id": 1, "task": "t_lama"}\n')
+    (bersih / "cadangan" / "t9").mkdir(parents=True)
+    (bersih / "cadangan" / "t9" / "x.txt").write_text("isi")
+
+    hasil = storage.pindahkan_berkas_lama()
+    assert hasil["tasks.json"].startswith("digabung")
+    assert hasil["sessions.json"].startswith("digabung")
+    assert hasil["events.jsonl"] == "digabung"
+
+    # Keduanya ada: yang lama TIDAK hilang, yang baru tidak tertimpa.
+    tugas = {t["id"] for t in json.loads(storage.tasks_file("admin").read_text())}
+    assert tugas == {"t_baru", "t_lama"}
+    sesi = {s["id"] for s in json.loads(storage.sessions_file("admin").read_text())}
+    assert sesi == {"s_baru", "s_lama"}
+    kejadian = storage.events_file("admin").read_text()
+    assert "t_lama" in kejadian and "t_baru" in kejadian
+
+    # Cadangan ikut pindah, dan berkas bersama yang lama sudah tidak ada.
+    assert (storage.cadangan_dir("admin") / "t9" / "x.txt").read_text() == "isi"
+    assert not (bersih / "tasks.json").exists()
+    assert not (bersih / "events.jsonl").exists()
+    assert not (bersih / "cadangan").exists()
+
+
+def test_pemindahan_aman_dijalankan_dua_kali(bersih):
+    """Boot kedua tidak boleh menggandakan atau menghapus apa pun."""
+    import storage
+
+    (bersih / "tasks.json").write_text(json.dumps([{"id": "t1", "owner": "admin"}]))
+    storage.pindahkan_berkas_lama()
+    pertama = storage.tasks_file("admin").read_text()
+    hasil2 = storage.pindahkan_berkas_lama()
+    assert hasil2 == {}
+    assert storage.tasks_file("admin").read_text() == pertama
