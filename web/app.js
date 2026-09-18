@@ -2008,6 +2008,10 @@ async function muatModel() {
   if (keadaan.modelTersaring.q) p.set("q", keadaan.modelTersaring.q);
   if (keadaan.modelTersaring.hanyaHidup) p.set("only_healthy", "1");
   try {
+    // Daftar model datang dari 9Router. Kalau 9Router belum hidup, memanggil
+    // endpoint ini menyalakannya lebih dulu -- jadi pengguna yang langsung
+    // membuka panel Model tidak melihat daftar kosong hanya karena gateway
+    // belum dinyalakan.
     const d = await ambil("/api/gateway/models?" + p.toString());
     gambarDaftarModel(el("daftar-model"), d);
     gambarProvider(d.providers);
@@ -3028,6 +3032,31 @@ function terminalTanda(jalur) {
   t.textContent = pendek ? pendek + " $" : "$";
 }
 
+/* Menyalakan 9Router di dalam aplikasi, lalu melaporkan hasilnya.
+
+   Ini pengganti alur lama yang mengharuskan pengguna menjalankan 9Router
+   sendiri di Termux: sekarang server AstroZ yang menjalankannya memakai
+   libnode.so dari APK. Permintaan ini bisa memakan sampai 60 detik saat
+   pertama kali (Node harus menyala dan memuat basis datanya), jadi layarnya
+   diberi keterangan lebih dulu supaya tidak terlihat menggantung. */
+async function nyalakanRouter() {
+  terminalTulis("memeriksa gateway 9Router… (bisa sampai 60 detik)", "redup");
+  try {
+    const r = await ambil("/api/terminal?router=1");
+    const g = r.router || {};
+    if (g.ok && g.sudah_hidup) {
+      terminalTulis("9Router sudah hidup di port " + g.port, "bantuan");
+    } else if (g.ok) {
+      terminalTulis("9Router dinyalakan di port " + g.port + " (pid " + g.pid + ")", "bantuan");
+    } else {
+      terminalTulis("9Router gagal dinyalakan: " + (g.error || "sebab tidak diketahui"), "galat");
+      if (g.log) terminalTulis("log: " + g.log, "redup");
+    }
+  } catch (e) {
+    terminalTulis("tidak bisa memeriksa 9Router: " + e.message, "galat");
+  }
+}
+
 async function muatTerminal() {
   try {
     const d = await ambil("/api/terminal");
@@ -3043,6 +3072,10 @@ async function muatTerminal() {
       terminalTulis("Terminal siap. Folder kerja: " + d.cwd, "redup");
       terminalTulis("Coba: git clone https://github.com/git/git.git lalu cd git && ls", "redup");
       sambungTerminal();
+      // 9Router dinyalakan APLIKASI, bukan Termux: server AstroZ yang
+      // menjalankannya memakai libnode.so dari APK. Ini yang membuat pengguna
+      // tidak perlu menyiapkan apa pun di luar aplikasi.
+      nyalakanRouter();
     }
     el("terminal-input").disabled = !d.tersedia;
     el("terminal-jalan").disabled = !d.tersedia;

@@ -599,6 +599,12 @@ async def gateway_models(request: Request, q: str = "", limit: int = 300, only_h
                          provider: str = "", callable_only: int = 0):
     if not _admin_saja(request):
         return _tolak("hanya admin yang boleh melihat daftar model", 403)
+    # 9Router dinyalakan aplikasi, bukan Termux. Daftar model tidak bisa datang
+    # dari gateway yang belum hidup, jadi di sini gateway dipastikan hidup lebih
+    # dulu. Tanpa ini, pengguna yang membuka panel Model lebih dulu melihat
+    # daftar kosong dan menyimpulkan aplikasinya rusak.
+    if not await asyncio.to_thread(_router_hidup):
+        await asyncio.to_thread(_pastikan_router)
     cfg = config.load()
     gw = cfg["gateway"]
     meta = gw.get("model_meta", {})
@@ -1538,6 +1544,18 @@ async def terminal_info(request: Request):
     d["sesi"] = [{"owner": k, "id": s.id, "hidup": bool(s.proc and s.proc.poll() is None)}
                  for k, s in terminal.semua_sesi().items()] if u.get("peran") == "admin" else []
     return d
+
+
+def _router_hidup() -> bool:
+    """Apakah 9Router sudah menerima sambungan di portnya."""
+    import socket as _socket
+
+    port = int(getattr(config, "PORT_ROUTER", 20128) or 20128)
+    try:
+        with _socket.create_connection(("127.0.0.1", port), timeout=0.4):
+            return True
+    except OSError:
+        return False
 
 
 def _pastikan_router() -> dict:
