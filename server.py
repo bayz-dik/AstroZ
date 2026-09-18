@@ -2044,7 +2044,20 @@ async def terminal_jalankan(request: Request):
     if len(perintah) > 8000:
         return _tolak("perintah terlalu panjang", 400)
     s = terminal.sesi(u["nama"])
-    hasil = s.jalankan(perintah, timeout=int(data.get("timeout") or 120))
+    # Dijalankan di THREAD, bukan langsung di event loop.
+    #
+    # Kenapa: Sesi.jalankan() menunggu penanda selesai dengan polling. Kalau
+    # dipanggil langsung dari penangan async, ia memblokir SATU-SATUNYA event
+    # loop -- dan perintah yang memanggil balik server ini sendiri (mis.
+    # `9router pasang`, yang di dalamnya menjalankan `astroz router pasang`)
+    # akan menunggu balasan yang tidak pernah bisa dikirim, karena loop-nya
+    # sedang diblokir oleh pemanggilnya. Hasilnya menggantung sampai batas
+    # waktu, lalu klien melihat "permintaan gagal".
+    #
+    # Ini juga alasan balasan lain tetap harus cepat: selama sebuah perintah
+    # berjalan, permintaan lain hanya terlayani karena loop tidak diblokir.
+    hasil = await asyncio.to_thread(
+        s.jalankan, perintah, int(data.get("timeout") or 120))
     hasil["ok"] = bool(hasil.get("ok"))
     return hasil
 
@@ -2056,7 +2069,8 @@ async def terminal_alir(request: Request):
     if not u:
         return _tolak("belum masuk")
     s = terminal.sesi(u["nama"])
-    s.nyalakan()
+    # Di thread: lihat penjelasan di POST /api/terminal.
+    await asyncio.to_thread(s.nyalakan)
     kid = s.pelanggan_tambah()
     mulai = int(request.query_params.get("posisi") or 0)
     if mulai <= 0:
@@ -2213,7 +2227,12 @@ async def terminal_astroz(request: Request):
     if aksi == "terminal":
         if not arg:
             return _tolak("perintah kosong", 400)
-        return terminal.jalankan(arg, owner=nama, timeout=int(data.get("timeout") or 120))
+        # Di thread: Sesi.jalankan menunggu penanda selesai dengan polling, dan
+        # memblokir event loop berarti permintaan balik (mis. dari perintah yang
+        # memanggil server ini) tidak akan pernah terlayani.
+        return await asyncio.to_thread(
+            terminal.jalankan, arg, owner=nama,
+            timeout=int(data.get("timeout") or 120))
 
     if aksi in ("router_pasang", "router-pasang"):
         # Pemasangan dilakukan server, tanpa npm dan tanpa terminal: paket npm
