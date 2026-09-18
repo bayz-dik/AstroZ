@@ -3059,7 +3059,12 @@ async function nyalakanRouter() {
 
 async function muatTerminal() {
   try {
-    const d = await ambil("/api/terminal");
+    // Terminal disiapkan SAAT DIBUTUHKAN: 66 MB / 3000+ berkas. Kalau disiapkan
+    // saat boot, penyalinannya membuat server tidak menjawab dan halaman gagal
+    // dimuat. Permintaan pertama bisa memakan satu-dua menit; layarnya diberi
+    // keterangan supaya tidak terlihat menggantung.
+    el("terminal-keadaan").textContent = "menyiapkan terminal (sekali saja, bisa 1-2 menit)…";
+    const d = await ambil("/api/terminal?siapkan=1&router=1");
     Object.assign(terminalKeadaan, d);
     const alat = Object.entries(d.alat || {}).filter(([, ada]) => ada).map(([n]) => n);
     const kurang = Object.entries(d.alat || {}).filter(([, ada]) => !ada).map(([n]) => n);

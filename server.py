@@ -1549,6 +1549,17 @@ async def terminal_info(request: Request):
     u = _pengguna(request)
     if not u:
         return _tolak("belum masuk")
+    # Terminal disiapkan SAAT DIBUTUHKAN, bukan saat boot.
+    #
+    # Kenapa: menyalin 66 MB (3000+ berkas) saat boot membuat server tidak
+    # menjawab -- Python dan penyalinan itu berbagi satu proses, jadi WebView
+    # menyerah dengan timeout dan pengguna melihat "antarmuka belum selesai
+    # dimuat". Permintaan disampaikan ke Java lewat berkas penanda.
+    if request.query_params.get("siapkan") == "1":
+        d_siap = await asyncio.to_thread(_minta_siapkan, "terminal", 420)
+        if not d_siap.get("ok"):
+            return {**d_siap, "ok": False}
+
     d = terminal.info()
     d["ok"] = True
     d["cwd"] = str(terminal.folder_kerja(u["nama"]))
@@ -1569,6 +1580,37 @@ async def terminal_info(request: Request):
     d["sesi"] = [{"owner": k, "id": s.id, "hidup": bool(s.proc and s.proc.poll() is None)}
                  for k, s in terminal.semua_sesi().items()] if u.get("peran") == "admin" else []
     return d
+
+
+def _minta_siapkan(nama: str, timeout: int = 420) -> dict:
+    """Meminta Java menyiapkan sesuatu yang berat, lalu menunggu penandanya.
+
+    Dipakai untuk terminal (66 MB) dan pekerja (216 MB): keduanya tidak
+    disiapkan saat boot karena penyalinannya membuat server tidak menjawab.
+    Kalau aplikasi tidak menjawab (mis. berjalan tanpa Java, seperti di desktop),
+    permintaan ini dianggap tidak berlaku supaya pemanggilnya tetap jalan.
+    """
+    root = pathlib.Path(config.ROOT)
+    tanda = root / f"siap-{nama}"
+    minta = root / f"permintaan-{nama}"
+    # Sudah siap sebelumnya: tidak perlu meminta lagi.
+    if tanda.is_file():
+        return {"ok": True, "sudah_siap": True}
+    if nama == "terminal":
+        p = terminal.prefix()
+        if p is not None and (p / "bin/sh").exists():
+            return {"ok": True, "sudah_siap": True}
+    try:
+        minta.parent.mkdir(parents=True, exist_ok=True)
+        minta.write_text(str(time.time()))
+    except OSError as e:
+        return {"ok": False, "error": f"tidak bisa meminta penyiapan: {e}"}
+    batas = time.time() + timeout
+    while time.time() < batas:
+        if tanda.is_file():
+            return {"ok": True, "siap": True}
+        time.sleep(0.5)
+    return {"ok": False, "error": f"penyiapan {nama} belum selesai setelah {timeout} detik"}
 
 
 def _router_hidup() -> bool:
