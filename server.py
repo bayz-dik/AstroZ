@@ -2215,6 +2215,28 @@ async def terminal_astroz(request: Request):
             return _tolak("perintah kosong", 400)
         return terminal.jalankan(arg, owner=nama, timeout=int(data.get("timeout") or 120))
 
+    if aksi in ("router_pasang", "router-pasang"):
+        # Pemasangan dilakukan server, tanpa npm dan tanpa terminal: paket npm
+        # hanya arsip tar.gz dan tarball 9Router sudah lengkap, jadi Python bisa
+        # mengunduh dan mengekstraknya langsung. Inilah yang membuat perintah
+        # `9router pasang` tidak lagi bergantung pada npm (yang butuh shell).
+        if not admin:
+            return _tolak("hanya admin yang boleh memasang gateway", 403)
+        hasil = await asyncio.to_thread(_pasang_router_otomatis)
+        if hasil.get("ok"):
+            hasil["nyala"] = await asyncio.to_thread(_pastikan_router)
+            if hasil["nyala"].get("ok"):
+                hasil["sinkron"] = await asyncio.to_thread(_sinkron_model_setelah_setup)
+        return hasil
+
+    if aksi == "router":
+        if not admin:
+            return _tolak("hanya admin yang boleh mengubah gateway", 403)
+        hasil = await asyncio.to_thread(_pastikan_router)
+        if hasil.get("ok"):
+            hasil["sinkron"] = await asyncio.to_thread(_sinkron_model_setelah_setup)
+        return hasil
+
     return {"ok": False, "error": f"aksi tidak dikenal: {aksi or '(kosong)'}",
             "bantuan": "status | task | tugas | project | berkas | worker | model | review | terminal"}
 
