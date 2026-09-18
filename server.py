@@ -474,6 +474,18 @@ def _siapkan_sesudah_boot() -> None:
     except Exception as e:
         hub.emit("system", f"Pekerjaan latar gagal dimulai: {type(e).__name__}: {e}", ok=False)
 
+    # Gateway disiapkan SENDIRI, tanpa terminal dan tanpa perintah.
+    #
+    # Ini bagian yang membuat aplikasi setara aplikasi AI biasa: dibuka, gateway
+    # disiapkan sendiri (unduh + pasang kalau belum ada), lalu modelnya
+    # disinkronkan ke chat. Pengguna tidak pernah mengetik apa pun. Dijalankan
+    # paling akhir dan di thread sendiri supaya tidak menahan apa pun.
+    try:
+        threading.Thread(target=_siapkan_gateway_otomatis,
+                         name="astroz-gateway", daemon=True).start()
+    except Exception as e:
+        hub.emit("system", f"penyiapan gateway tidak bisa dimulai: {e}", ok=False)
+
 
 async def _sync_awal() -> None:
     """Ambil kunci, alamat, dan daftar model dari 9Router begitu server hidup."""
@@ -1830,9 +1842,8 @@ def _nyalakan_router(port: int) -> dict:
             break
     if cli is None:
         return {"ok": False,
-                "error": "9Router belum dipasang. Buka menu Terminal, lalu jalankan: "
-                         "9router pasang",
-                "petunjuk": "9router pasang"}
+                "error": "9Router belum dipasang",
+                "petunjuk": "pasang-otomatis"}
 
     import subprocess as _sp
 
@@ -1883,6 +1894,87 @@ def _nyalakan_router(port: int) -> dict:
                     "log": str(log)}
         time.sleep(0.4)
     return {"ok": False, "error": "9Router tidak siap dalam 60 detik", "log": str(log)}
+
+
+def _pasang_router_otomatis() -> dict:
+    """Memasang 9Router DI DALAM aplikasi: tanpa npm, tanpa terminal, tanpa git.
+
+    Kenapa tidak memakai npm: npm adalah program Node, dan di Android Node hanya
+    ada sebagai libnode.so yang harus dipanggil dari shell. Memakainya berarti
+    pengguna wajib membuka terminal -- persis yang tidak boleh terjadi. Paket npm
+    sebenarnya hanya arsip tar.gz, dan tarball yang dipublikasikan sudah lengkap
+    (tidak ada dependensi yang perlu diselesaikan npm), jadi bisa diunduh dan
+    diekstrak langsung dengan Python.
+
+    Ini yang membuat aplikasi setara aplikasi AI biasa: dibuka, gateway disiapkan
+    sendiri, pengguna tidak pernah mengetik perintah.
+    """
+    import io
+    import json as _json
+    import tarfile
+    import urllib.request
+
+    tujuan = pathlib.Path(config.ROOT) / "router-terpasang/node_modules/9router"
+    if (tujuan / "cli.js").is_file():
+        return {"ok": True, "sudah_terpasang": True, "lokasi": str(tujuan)}
+
+    try:
+        hub.emit("gateway", "Menyiapkan gateway: mengunduh 9Router…", phase="router")
+        with urllib.request.urlopen(
+                "https://registry.npmjs.org/9router", timeout=60) as r:
+            meta = _json.load(r)
+        versi = meta["dist-tags"]["latest"]
+        tautan = meta["versions"][versi]["dist"]["tarball"]
+        hub.emit("gateway", f"Mengunduh 9Router {versi}…", phase="router")
+        with urllib.request.urlopen(tautan, timeout=300) as r:
+            data = r.read()
+
+        tujuan.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
+            for m in tf.getmembers():
+                if not m.name.startswith("package/"):
+                    continue
+                m.name = m.name[len("package/"):]
+                if not m.name:
+                    continue
+                tf.extract(m, tujuan)
+
+        if not (tujuan / "cli.js").is_file():
+            return {"ok": False, "error": "paket terunduh tetapi cli.js tidak ada"}
+        try:
+            (tujuan.parent.parent / "versi.txt").write_text(versi)
+        except OSError:
+            pass
+        hub.emit("gateway", f"9Router {versi} siap dipakai", phase="router", ok=True)
+        return {"ok": True, "versi": versi, "lokasi": str(tujuan)}
+    except Exception as e:
+        return {"ok": False, "error": f"gagal memasang 9Router: {type(e).__name__}: {e}"}
+
+
+def _siapkan_gateway_otomatis() -> None:
+    """Menyiapkan gateway dari nol tanpa campur tangan pengguna.
+
+    Urutannya: pasang kalau belum ada, nyalakan, lalu sinkronkan model ke chat.
+    Berjalan di thread latar supaya tidak menahan apa pun; kemajuannya muncul di
+    feed kejadian, jadi pengguna melihat "menyiapkan gateway" alih-alih layar
+    diam.
+    """
+    try:
+        h = _pastikan_router()
+        if not h.get("ok") and h.get("petunjuk"):
+            hasil = _pasang_router_otomatis()
+            if not hasil.get("ok"):
+                hub.emit("gateway", hasil.get("error", "gateway gagal disiapkan"),
+                         ok=False, phase="router")
+                return
+            h = _pastikan_router()
+        if h.get("ok"):
+            _sinkron_model_setelah_setup()
+        else:
+            hub.emit("gateway", h.get("error", "gateway belum siap"), ok=False, phase="router")
+    except Exception as e:
+        hub.emit("gateway", f"penyiapan gateway gagal: {type(e).__name__}: {e}",
+                 ok=False, phase="router")
 
 
 def _sinkron_model_setelah_setup() -> dict:
