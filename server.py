@@ -1635,7 +1635,16 @@ def _pastikan_router() -> dict:
     env = dict(os.environ)
     env["HOME"] = str(home)
     env["USERPROFILE"] = str(home)
-    env["LD_LIBRARY_PATH"] = f"{root}/node/lib:{pathlib.Path(lib).parent}"
+    # LD_LIBRARY_PATH harus memuat SEMUA tempat pustaka pendamping libnode bisa
+    # berada. Kalau kurang satu, libnode gagal dimuat dengan pesan yang
+    # menyesatkan: 'CANNOT LINK EXECUTABLE libnode.so: library "libcares.so"
+    # not found'. Di perangkat, aset aplikasi ada di <root>/node/lib; di mesin
+    # pengembangan bisa juga di samping libnode itu sendiri.
+    pustaka = [str(root / "node/lib"), str(pathlib.Path(lib).parent)]
+    for tambahan in (os.environ.get("ASTROZ_NODE_LIB"), str(root / "node")):
+        if tambahan and tambahan not in pustaka:
+            pustaka.append(tambahan)
+    env["LD_LIBRARY_PATH"] = ":".join(pustaka)
     env["NODE_PATH"] = str(cli.parent.parent.parent / "runtime/node_modules")
     env["NO_UPDATE_NOTIFIER"] = "1"
     env.pop("PYTHONHOME", None)
