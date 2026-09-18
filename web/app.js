@@ -26,13 +26,14 @@ function tampilkanGerbang(tampil) {
   const g = el("gerbang");
   if (!g) return;
   g.hidden = !tampil;
-  el("app")?.setAttribute("aria-hidden", tampil ? "true" : "false");
+  const _app = el("app");
+  if (_app) _app.setAttribute("aria-hidden", tampil ? "true" : "false");
   if (tampil) {
     // Isi halaman disembunyikan, bukan dihapus: setelah masuk, semuanya kembali
     // seperti semula tanpa perlu memuat ulang.
     const app = document.querySelector(".app");
     if (app) app.style.display = "none";
-    setTimeout(() => el("token-masuk")?.focus(), 60);
+    setTimeout(() => { const n = el("token-masuk"); if (n) n.focus(); }, 60);
   } else {
     const app = document.querySelector(".app");
     if (app) app.style.display = "";
@@ -61,7 +62,7 @@ function pasangFormMasuk() {
     el("form-masuk").hidden = !masuk;
     el("form-daftar").hidden = masuk;
     el("hasil-daftar").hidden = true;
-    setTimeout(() => (masuk ? el("token-masuk") : el("kode-undangan"))?.focus(), 60);
+    setTimeout(() => { const n = masuk ? el("token-masuk") : el("kode-undangan"); if (n) n.focus(); }, 60);
   }
   el("tab-masuk").addEventListener("click", () => tabmana("masuk"));
   el("tab-daftar").addEventListener("click", () => tabmana("daftar"));
@@ -135,7 +136,7 @@ function pasangFormMasuk() {
       try {
         await navigator.clipboard.writeText(t);
         pesanSingkat("Token disalin.");
-      } catch {
+      } catch (e) {
         // Clipboard bisa ditolak peramban; pilih teksnya supaya bisa disalin manual.
         el("token-baru").select();
         pesanSingkat("Tekan lama untuk menyalin tokennya.", true);
@@ -259,7 +260,7 @@ async function muatAkun() {
         try {
           const r = await kirim(`/api/akun/${encodeURIComponent(a.nama)}/token`, {});
           // Token baru ditampilkan sekali di sini, lalu bisa disalin.
-          baris.querySelector(".token-baru")?.remove();
+          const _tb = baris.querySelector(".token-baru"); if (_tb) _tb.remove();
           const kotak = buat("input", "token-baru");
           kotak.readOnly = true;
           kotak.value = (r.akun || {}).token || "";
@@ -356,7 +357,7 @@ async function minta(jalan, opsi) {
   const r = await fetch(jalan, opsi);
   const teks = await r.text();
   let data = {};
-  try { data = teks ? JSON.parse(teks) : {}; } catch { data = { teks }; }
+  try { data = teks ? JSON.parse(teks) : {}; } catch (e) { data = { teks }; }
   if (r.status === 401) {
     // Sesi habis atau token belum ada: tampilkan layar masuk, bukan pesan galat
     // yang membingungkan di tengah halaman.
@@ -495,7 +496,7 @@ function sapaanWaktu() {
 
 function pakaiTema(nama) {
   document.documentElement.dataset.tema = nama;
-  try { localStorage.setItem("astroz-tema", nama); } catch {}
+  try { localStorage.setItem("astroz-tema", nama); } catch (e) {}
   for (const b of document.querySelectorAll("[data-pilih-tema]")) {
     b.setAttribute("aria-pressed", String(b.dataset.pilihTema === nama));
   }
@@ -506,7 +507,7 @@ try {
   const simpan = localStorage.getItem("astroz-tema");
   if (simpan) pakaiTema(simpan);
   else if (window.matchMedia("(prefers-color-scheme: dark)").matches) pakaiTema("gelap");
-} catch {}
+} catch (e) {}
 // Tombol tema ada di halaman Pengaturan, bukan lagi di menu titik tiga.
 for (const b of document.querySelectorAll("[data-pilih-tema]")) {
   b.addEventListener("click", () => {
@@ -808,14 +809,14 @@ async function salinPercakapan() {
   try {
     await navigator.clipboard.writeText(teks);
     pesanSingkat("Percakapan disalin ke papan klip.");
-  } catch {
+  } catch (e) {
     // peramban bisa menolak papan klip; sediakan jalan lain
     const ta = document.createElement("textarea");
     ta.value = teks;
     document.body.appendChild(ta);
     ta.select();
     try { document.execCommand("copy"); pesanSingkat("Percakapan disalin."); }
-    catch { pesanSingkat("Papan klip tidak bisa dipakai di peramban ini.", true); }
+    catch (e) { pesanSingkat("Papan klip tidak bisa dipakai di peramban ini.", true); }
     ta.remove();
   }
 }
@@ -973,7 +974,7 @@ function namaMerek(host) {
 }
 
 function hostDari(url) {
-  try { return new URL(url).hostname.replace(/^www\./, "").toLowerCase(); } catch { return ""; }
+  try { return new URL(url).hostname.replace(/^www\./, "").toLowerCase(); } catch (e) { return ""; }
 }
 
 function lambangSumber(url) {
@@ -1104,7 +1105,9 @@ const _URL_RX = /https?:\/\/[^\s<>"'`)\]}]+/g;
 function sumberDariTeks(teks, maks = 4) {
   const out = [];
   const ada = new Set();
-  for (const m of String(teks || "").matchAll(_URL_RX)) {
+  const _rx = new RegExp(_URL_RX.source, _URL_RX.flags.includes("g") ? _URL_RX.flags : _URL_RX.flags + "g");
+  let m;
+  while ((m = _rx.exec(String(teks || ""))) !== null) {
     const url = m[0].replace(/[.,;:]+$/, "");
     const host = hostDari(url);
     if (!host || host === "127.0.0.1" || host === "localhost") continue;
@@ -1171,7 +1174,7 @@ async function salinJawaban(teks) {
   try {
     await navigator.clipboard.writeText(isi);
     pesanSingkat("Jawaban disalin.");
-  } catch {
+  } catch (e) {
     // clipboard API butuh konteks aman (https atau localhost); di alamat LAN
     // lewat http, jalan pintas lama ini yang dipakai.
     const t = buat("textarea");
@@ -1181,7 +1184,7 @@ async function salinJawaban(teks) {
     document.body.appendChild(t);
     t.select();
     try { document.execCommand("copy"); pesanSingkat("Jawaban disalin."); }
-    catch { pesanSingkat("Tidak bisa menyalin di peramban ini.", true); }
+    catch (e) { pesanSingkat("Tidak bisa menyalin di peramban ini.", true); }
     t.remove();
   }
 }
@@ -1267,7 +1270,7 @@ el("kaki-keluar").addEventListener("click", async () => {
   b.disabled = true;
   try {
     await kirim("/api/keluar", {});
-  } catch {
+  } catch (e) {
     // Cookie mungkin sudah tidak ada; yang penting sesinya diakhiri.
   }
   // Tanpa token, halaman memuat layar masuk sendiri lewat /api/saya.
@@ -1655,7 +1658,7 @@ function barisLangkah(e) {
   if (fase) baris.dataset.fase = fase;
   baris.appendChild(buat("div", "waktu", waktu(e.ts)));
   const tengah = buat("div", "isi-langkah");
-  const judul = [TAHAP.find((s) => s.kunci === e.kind)?.label || e.kind, e.worker, fase]
+  const judul = [(TAHAP.find((s) => s.kunci === e.kind) || {}).label || e.kind, e.worker, fase]
     .filter(Boolean).join(" · ");
   tengah.appendChild(buat("div", "jenis", judul));
   const pesan = String(e.text || e.message || "")
@@ -1675,7 +1678,7 @@ async function gambarKerja() {
   let d;
   try {
     d = await ambil(`/api/tasks/${tid}`);
-  } catch {
+  } catch (e) {
     return; // biarkan tampilan terakhir
   }
   const t = d.task || {};
@@ -1812,7 +1815,7 @@ async function muatStrip() {
   let d;
   try {
     d = await ambil("/api/tasks/running");
-  } catch {
+  } catch (e) {
     return; // jaringan sedang putus: biarkan tampilan terakhir
   }
   stripData = d.running || [];
@@ -1930,7 +1933,7 @@ async function pantauTugas(tid) {
         keadaan.tugasJalan = null;
         if (keadaan.sesi) bukaSesiRingan(keadaan.sesi);
       }
-    } catch {
+    } catch (e) {
       if (lewat > 900) { clearInterval(jamPantau); ticker(false); }
     }
   }, 3000);
@@ -1941,7 +1944,7 @@ async function bukaSesiRingan(id) {
     const d = await ambil(`/api/sessions/${id}`);
     keadaan.aktivitas = d.activity || {};
     if (kerjaTugas) gambarKerja();
-  } catch {}
+  } catch (e) {}
   muatSesi();
 }
 
@@ -2163,7 +2166,7 @@ function pada2(id, kejadian, fn) {
 pada2("periksa-pekerja", "click", async (ev) => {
   ev.target.disabled = true;
   for (const w of keadaan.pekerja) {
-    try { await kirim(`/api/workers/${w.key}/probe`, {}); } catch {}
+    try { await kirim(`/api/workers/${w.key}/probe`, {}); } catch (e) {}
   }
   await muatPekerja();
   ev.target.disabled = false;
@@ -2357,7 +2360,7 @@ async function muatCatatan(ulang) {
     const d = await ambil("/api/events/recent?limit=200");
     const daftar = (d.events || []).slice().reverse();
     for (const e of daftar) tambahCatatan(e);
-  } catch {}
+  } catch (e) {}
 }
 
 el("saring-catatan").addEventListener("change", () => muatCatatan(true));
@@ -2690,7 +2693,7 @@ async function pantauJob(jid, ke) {
         pesanSingkat(j.hasil || (j.status === "selesai" ? "Selesai." : "Gagal."), j.status === "gagal");
         return j;
       }
-    } catch {}
+    } catch (e) {}
     await new Promise((r) => setTimeout(r, 2500));
   }
   // Pemanggilnya memuat ulang daftar, dan itu menghapus kotak log ini. Simpan
@@ -2941,9 +2944,9 @@ function sambungKejadian() {
           clearInterval(jamPantau);
           pantauTugas(e.task);
         }
-      } catch {}
+      } catch (e) {}
     };
-  } catch {}
+  } catch (e) {}
 }
 
 async function mulai() {
@@ -3052,12 +3055,12 @@ function sambungTerminal() {
   if (terminalAliran) return;
   try {
     terminalAliran = new EventSource("/api/terminal/alir");
-  } catch {
+  } catch (e) {
     return;
   }
   terminalAliran.onmessage = (ev) => {
     let d = {};
-    try { d = JSON.parse(ev.data); } catch { return; }
+    try { d = JSON.parse(ev.data); } catch (e) { return; }
     if (typeof d.baris === "string" && d.baris !== "") terminalTulis(d.baris);
     if (d.cwd) terminalTanda(d.cwd);
   };
