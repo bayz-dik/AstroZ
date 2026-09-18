@@ -1664,6 +1664,97 @@ def _router_hidup() -> bool:
         return False
 
 
+def _pemilik_port_router(port: int) -> str:
+    """Menentukan siapa yang menempati port 9Router: aplikasi ini, proses asing,
+    atau tidak bisa dipastikan.
+
+    Kenapa perlu: di HP, Termux bisa menjalankan 9Router di port yang sama
+    (127.0.0.1:20128). Kalau aplikasi memakai gateway itu, menutup Termux
+    mematikan aplikasi -- gejala yang dilaporkan pengguna sebagai "aplikasi
+    butuh Termux". Port terbuka saja tidak membuktikan apa pun.
+
+    Sinyalnya bukan pembacaan /proc (Android melarang membaca proses aplikasi
+    lain, jadi hasilnya tidak bisa dipercaya), melainkan BERKAS PID yang ditulis
+    aplikasi ini saat menyalakan 9Router-nya sendiri. Berkas itu memuat pid
+    proses; kalau pid itu masih hidup DAN cocok dengan proses yang memegang
+    port, pemiliknya aplikasi. Kalau port terbuka tetapi berkasnya tidak ada
+    atau pid-nya sudah mati, pemiliknya proses asing.
+
+    Mengembalikan "aplikasi", "asing", atau "tidak jelas" (kalau pid tidak bisa
+    diperiksa; pemanggil memperlakukannya sebagai sudah hidup supaya tidak
+    menyalakan proses kedua di port yang sama).
+    """
+    try:
+        pid = _pid_router_aplikasi()
+        if not pid:
+            return "asing"
+        # Pemiliknya aplikasi HANYA kalau proses itu benar-benar masih hidup.
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return "asing"
+        return "aplikasi"
+    except Exception:
+        return "tidak jelas"
+
+
+def _berkas_pid_router() -> pathlib.Path:
+    return pathlib.Path(config.ROOT) / "runtime" / "router.pid"
+
+
+def _port_router_terbuka(port: int) -> bool:
+    """True kalau ada yang mendengarkan di port itu pada loopback."""
+    import socket as _socket
+
+    try:
+        with _socket.create_connection(("127.0.0.1", port), timeout=0.4):
+            return True
+    except OSError:
+        return False
+
+
+def _pid_router_aplikasi() -> int:
+    """PID 9Router yang dinyalakan aplikasi ini, atau 0 kalau tidak ada."""
+    try:
+        isi = _berkas_pid_router().read_text().strip()
+        return int(isi) if isi.isdigit() else 0
+    except (OSError, ValueError):
+        return 0
+
+
+def _port_router_bebas(port: int) -> int:
+    """Mencari port 9Router yang tidak ditempati proses lain.
+
+    Dipakai kalau port baku ditempati proses asing (mis. 9Router milik Termux).
+    Aplikasi tidak boleh memakai port itu: begitu proses asing berhenti, gateway
+    ikut mati dan aplikasi tampak "butuh Termux". Menyalakan di port lain membuat
+    aplikasi benar-benar berdiri sendiri.
+    """
+    import socket as _socket
+
+    for kandidat in range(port + 1, port + 11):
+        with _socket.socket() as s:
+            try:
+                s.bind(("127.0.0.1", kandidat))
+                return kandidat
+            except OSError:
+                continue
+    return 0
+
+
+def _setel_port_router(port: int) -> None:
+    """Menulis port 9Router yang dipakai ke konfigurasi, supaya seluruh aplikasi
+    (chat, pekerja, terminal) memakai alamat yang sama."""
+    setattr(config, "PORT_ROUTER", port)
+    try:
+        cfg = config.load()
+        cfg["gateway"]["base_url"] = f"http://127.0.0.1:{port}"
+        cfg["gateway"]["upstream_base_url"] = f"http://127.0.0.1:{port}"
+        config.save(cfg)
+    except Exception:
+        pass
+
+
 def _pastikan_router() -> dict:
     """Menyalakan 9Router di dalam proses aplikasi kalau belum hidup.
 
@@ -1685,8 +1776,42 @@ def _pastikan_router() -> dict:
 
     port = int(getattr(config, "PORT_ROUTER", 20128) or 20128)
     if terbuka(port):
-        return {"ok": True, "sudah_hidup": True, "port": port}
+        # Port terbuka TIDAK cukup untuk menyimpulkan "9Router sudah hidup".
+        #
+        # Di HP, Termux bisa menjalankan 9Router-nya sendiri di port yang sama
+        # (127.0.0.1:20128). Kalau itu yang terjadi, aplikasi akan memakai
+        # gateway milik Termux -- dan begitu Termux ditutup, gateway mati dan
+        # aplikasi ikut mati. Pengguna melihat aplikasinya "butuh Termux",
+        # padahal yang salah adalah pemeriksaan ini.
+        #
+        # Jadi yang menempati port harus dipastikan 9Router MILIK APLIKASI.
+        pemilik = _pemilik_port_router(port)
+        if pemilik == "aplikasi":
+            return {"ok": True, "sudah_hidup": True, "port": port, "pemilik": "aplikasi"}
+        if pemilik == "asing":
+            # Aplikasi TIDAK memakai port milik proses lain. Ia menyalakan
+            # 9Router-nya sendiri di port lain, lalu seluruh aplikasi diarahkan
+            # ke port itu -- supaya menutup proses asing (Termux) tidak pernah
+            # mematikan aplikasi.
+            bebas = _port_router_bebas(port)
+            if bebas:
+                _setel_port_router(bebas)
+                return {**_nyalakan_router(bebas), "pemilik_lama": "asing",
+                        "catatan": f"port {port} dipakai proses lain (mis. Termux); "
+                                   f"aplikasi memakai port {bebas}"}
+            return {"ok": False, "port": port, "pemilik": "asing",
+                    "error": f"port {port} dipakai proses lain dan tidak ada port "
+                             "pengganti yang bebas",
+                    "saran": "Tutup 9Router yang berjalan di Termux, lalu coba lagi."}
+        # pemilik == "tidak jelas": diperlakukan sudah hidup supaya aplikasi tidak
+        # menyalakan proses kedua di port yang sama.
+        return {"ok": True, "sudah_hidup": True, "port": port, "pemilik": "tidak jelas"}
 
+    return _nyalakan_router(port)
+
+
+def _nyalakan_router(port: int) -> dict:
+    """Menyalakan 9Router milik aplikasi di port tertentu."""
     root = pathlib.Path(config.ROOT)
     lib = ctx_libnode()
     if not lib:
@@ -1741,7 +1866,17 @@ def _pastikan_router() -> dict:
         return {"ok": False, "error": f"gagal menjalankan 9Router: {e}"}
 
     for _ in range(150):
-        if terbuka(port):
+        if _port_router_terbuka(port):
+            # PID dicatat: inilah bukti bahwa yang menempati port adalah
+            # 9Router MILIK APLIKASI, bukan proses lain (mis. Termux). Tanpa
+            # catatan ini, aplikasi tidak bisa membedakan keduanya, dan itu yang
+            # membuatnya tampak bergantung pada Termux.
+            try:
+                berkas_pid = _berkas_pid_router()
+                berkas_pid.parent.mkdir(parents=True, exist_ok=True)
+                berkas_pid.write_text(str(proc.pid))
+            except OSError:
+                pass
             return {"ok": True, "port": port, "pid": proc.pid, "log": str(log)}
         if proc.poll() is not None:
             return {"ok": False, "error": f"9Router berhenti sendiri (exit {proc.returncode})",
