@@ -24,6 +24,7 @@ import plugins
 import project
 import sessions
 import storage
+import terminal
 import users
 from gateway import Gateway
 
@@ -1464,6 +1465,215 @@ async def jobs_get(jid: str, request: Request):
 
 
 # ------------------------------------------------------------------ static
+@app.get("/api/terminal")
+async def terminal_info(request: Request):
+    """Keadaan terminal: prefix mana yang dipakai dan alat apa saja yang ada."""
+    u = _pengguna(request)
+    if not u:
+        return _tolak("belum masuk")
+    d = terminal.info()
+    d["ok"] = True
+    d["cwd"] = str(terminal.folder_kerja(u["nama"]))
+    d["sesi"] = [{"owner": k, "id": s.id, "hidup": bool(s.proc and s.proc.poll() is None)}
+                 for k, s in terminal.semua_sesi().items()] if u.get("peran") == "admin" else []
+    return d
+
+
+@app.post("/api/terminal")
+async def terminal_jalankan(request: Request):
+    """Menjalankan satu perintah di terminal. Ini shell sungguhan, bukan tiruan.
+
+    Batas waktu dibatasi 30 menit supaya perintah berat (clone besar, npm
+    install) tetap bisa jalan tanpa menggantung permintaan selamanya.
+    """
+    u = _pengguna(request)
+    if not u:
+        return _tolak("belum masuk")
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    perintah = (data.get("perintah") or data.get("cmd") or "").strip()
+    if not perintah:
+        return _tolak("perintah kosong", 400)
+    if len(perintah) > 8000:
+        return _tolak("perintah terlalu panjang", 400)
+    s = terminal.sesi(u["nama"])
+    hasil = s.jalankan(perintah, timeout=int(data.get("timeout") or 120))
+    hasil["ok"] = bool(hasil.get("ok"))
+    return hasil
+
+
+@app.get("/api/terminal/alir")
+async def terminal_alir(request: Request):
+    """Keluaran terminal yang mengalir (SSE), untuk perintah panjang."""
+    u = _pengguna(request)
+    if not u:
+        return _tolak("belum masuk")
+    s = terminal.sesi(u["nama"])
+    s.nyalakan()
+    kid = s.pelanggan_tambah()
+    mulai = int(request.query_params.get("posisi") or 0)
+    if mulai <= 0:
+        # Kirim isi buffer sekarang supaya layar tidak kosong saat dibuka.
+        mulai = max(0, len(s.buffer()) - 4000)
+
+    async def aliran():
+        posisi = mulai
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                teks, posisi = await asyncio.to_thread(s.tunggu_baru, kid, posisi, 20.0)
+                if teks:
+                    for baris in teks.split("\n"):
+                        yield f"data: {json.dumps({'baris': baris})}\n\n"
+                else:
+                    yield ": tetap hidup\n\n"
+        finally:
+            s.pelanggan_buang(kid)
+
+    return StreamingResponse(aliran(), media_type="text/event-stream")
+
+
+@app.post("/api/terminal/bersihkan")
+async def terminal_bersihkan(request: Request):
+    u = _pengguna(request)
+    if not u:
+        return _tolak("belum masuk")
+    terminal.sesi(u["nama"]).bersihkan()
+    return {"ok": True}
+
+
+@app.post("/api/terminal/hentikan")
+async def terminal_hentikan(request: Request):
+    """Mematikan shell pengguna. Shell akan dibuat lagi saat perintah berikutnya."""
+    u = _pengguna(request)
+    if not u:
+        return _tolak("belum masuk")
+    terminal.matikan_sesi(u["nama"])
+    return {"ok": True}
+
+
+@app.post("/api/terminal/astroz")
+async def terminal_astroz(request: Request):
+    """Jembatan AstroZ <-> Terminal.
+
+    Dipakai oleh perintah `astroz` di dalam shell, supaya terminal dan AstroZ
+    bukan dua dunia terpisah. Semua aksi di sini benar-benar memanggil sistem
+    AstroZ yang sama dengan yang dipakai UI -- bukan jawaban tiruan:
+
+        astroz status           keadaan runtime, pekerja, dan model
+        astroz task "..."       membuat tugas baru (masuk ke orchestrator)
+        astroz tugas [n]        daftar tugas terakhir
+        astroz project [nama]   daftar project atau pindah project
+        astroz berkas [jalur]   daftar berkas di folder kerja
+        astroz worker [nama]    daftar pekerja atau mengaktifkan satu
+        astroz model [nama]     melihat atau mengganti model gateway
+        astroz review "..."     meminta pekerja meninjau folder kerja
+        astroz terminal "..."   menjalankan perintah shell
+    """
+    u = _pengguna(request)
+    if not u:
+        return _tolak("belum masuk")
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    aksi = (data.get("aksi") or "").strip().lower()
+    arg = (data.get("arg") or "").strip()
+    nama = u["nama"]
+    admin = u.get("peran") == "admin"
+
+    if aksi in ("status", ""):
+        cfg = config.load()
+        return {"ok": True, "aksi": "status", "pengguna": nama,
+                "peran": u.get("peran"), "kerja": str(terminal.folder_kerja(nama)),
+                "model": cfg["gateway"].get("model", ""),
+                "pekerja": _status_pekerja(request),
+                "terminal": terminal.info(),
+                "tugas_berjalan": len([t for t in orchestrator.list_tasks(50, owner=None if admin else nama)
+                                       if t.get("status") == "running"])}
+
+    if aksi in ("task", "tugas"):
+        if not arg:
+            daftar = orchestrator.list_tasks(int(data.get("maks") or 10),
+                                             owner=None if admin else nama)
+            return {"ok": True, "aksi": "tugas", "daftar": [
+                {"id": t.get("id"), "status": t.get("status"),
+                 "prompt": (t.get("prompt") or "")[:120]} for t in daftar]}
+        orch = orchestrator.Orchestrator()
+        tid = orch.submit(arg, workflow=(data.get("workflow") or "auto"),
+                          workers=data.get("workers") or None,
+                          model=data.get("model") or None, owner=nama)
+        return {"ok": True, "aksi": "task", "id": tid,
+                "pesan": f"tugas dibuat: {tid}. Pantau lewat `astroz tugas` atau UI AstroZ."}
+
+    if aksi in ("project", "proyek"):
+        kerja = terminal.folder_kerja(nama)
+        if not arg:
+            anak = sorted([d.name for d in kerja.iterdir() if d.is_dir() and not d.name.startswith(".")])
+            return {"ok": True, "aksi": "project", "kerja": str(kerja), "daftar": anak}
+        target = (kerja / arg).resolve()
+        if target != kerja and kerja not in target.parents:
+            return _tolak("project harus di dalam folder kerja Anda", 400)
+        if not target.is_dir():
+            return {"ok": False, "error": f"project tidak ada: {arg}",
+                    "petunjuk": f"buat dengan: mkdir {arg} && cd {arg}"}
+        return {"ok": True, "aksi": "project", "kerja": str(target),
+                "pesan": f"project {arg} ada. Masuk dengan: cd {arg}"}
+
+    if aksi in ("berkas", "file", "ls"):
+        kerja = terminal.cwd_sah(nama, arg)
+        anak = []
+        for p in sorted(kerja.iterdir()):
+            if p.name.startswith("."):
+                continue
+            anak.append({"nama": p.name, "jenis": "dir" if p.is_dir() else "file",
+                         "ukuran": p.stat().st_size if p.is_file() else 0})
+        return {"ok": True, "aksi": "berkas", "kerja": str(kerja), "daftar": anak[:200]}
+
+    if aksi in ("worker", "pekerja"):
+        if not arg:
+            return {"ok": True, "aksi": "worker", "daftar": _status_pekerja(request)}
+        if not admin:
+            return _tolak("hanya admin yang boleh mengubah setelan pekerja", 403)
+        if arg not in adapters.ADAPTERS:
+            return _tolak(f"pekerja tidak dikenal: {arg}. Yang ada: "
+                          + ", ".join(adapters.ADAPTERS), 404)
+        cfg = config.load()
+        w = cfg["workers"].setdefault(arg, {"enabled": True, "model": ""})
+        w["enabled"] = True
+        config.save(cfg)
+        hub.emit("system", f"Pekerja {arg} diaktifkan dari terminal oleh {nama}")
+        return {"ok": True, "aksi": "worker", "pesan": f"pekerja {arg} diaktifkan"}
+
+    if aksi == "model":
+        cfg = config.load()
+        if not arg:
+            return {"ok": True, "aksi": "model", "model": cfg["gateway"].get("model", "")}
+        if not admin:
+            return _tolak("hanya admin yang boleh mengganti model", 403)
+        gw = Gateway()
+        hasil = await asyncio.to_thread(gw.apply, arg, True, True)
+        return {"ok": True, "aksi": "model", "model": arg, "hasil": hasil}
+
+    if aksi in ("review", "tinjau"):
+        prompt = arg or "Tinjau isi folder kerja ini: cari masalah nyata, lalu laporkan temuan dan perbaikannya."
+        orch = orchestrator.Orchestrator()
+        tid = orch.submit(prompt, workflow="review", workers=None, model=None, owner=nama)
+        return {"ok": True, "aksi": "review", "id": tid,
+                "pesan": f"tugas review dibuat: {tid}"}
+
+    if aksi == "terminal":
+        if not arg:
+            return _tolak("perintah kosong", 400)
+        return terminal.jalankan(arg, owner=nama, timeout=int(data.get("timeout") or 120))
+
+    return {"ok": False, "error": f"aksi tidak dikenal: {aksi or '(kosong)'}",
+            "bantuan": "status | task | tugas | project | berkas | worker | model | review | terminal"}
+
+
 @app.get("/{path:path}")
 async def static_files(path: str):
     """Serve the UI's own assets (one HTML file, one stylesheet, one script)."""

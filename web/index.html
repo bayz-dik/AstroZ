@@ -197,6 +197,7 @@
           <div class="kelompok">
             <button type="button" class="tombol kecil garis" id="model-sinkron">Muat dari gateway</button>
             <button type="button" class="tombol kecil garis" id="model-uji">Uji mana yang hidup</button>
+            <button type="button" class="tombol kecil garis" id="model-pilih-lembar">Cari model lain</button>
           </div>
           <label class="sr" for="cari-model">Cari model</label>
           <input id="cari-model" type="search" placeholder="cari: kenari, qwen, claude, dvvai">
@@ -206,12 +207,6 @@
           </label>
           <div id="daftar-model"></div>
           <p class="catatan" id="catatan-model" style="margin-top:6px">Satu pilihan di sini dipakai Hermes dan keempat pekerja.</p>
-          <h2 style="margin-top:18px">Pekerja</h2>
-          <div id="daftar-pekerja"></div>
-          <div class="kelompok">
-            <button type="button" class="tombol kecil garis" id="periksa-pekerja">Periksa semua</button>
-            <button type="button" class="tombol kecil garis" id="terapkan-pekerja">Pakai model ini di pekerja</button>
-          </div>
           <h2 style="margin-top:18px">Alat bantu pekerja</h2>
           <p class="catatan">Ketiga perintah ini ada di PATH setiap pekerja.</p>
           <div id="daftar-alat-bantu"></div>
@@ -265,6 +260,25 @@
       <h2>Riwayat percakapan</h2>
       <p class="catatan">Yang disematkan naik ke paling atas daftar.</p>
       <div class="daftar" id="daftar-sesi"></div>
+    </section>
+
+    <section class="panel" id="alat-terminal" hidden>
+      <h2>Terminal</h2>
+      <p class="catatan" id="terminal-keadaan">Memeriksa terminal…</p>
+      <p class="catatan">Shell sungguhan di perangkat ini. Perintah dijalankan apa adanya: <code>git clone</code>, <code>npm install</code>, <code>curl</code>, dan skrip apa pun. Folder kerjamu sendiri; <code>cd</code> bertahan antar perintah. Ketik <code>astroz --help</code> untuk mengendalikan AstroZ dari sini.</p>
+      <div class="terminal-layar" id="terminal-layar" role="log" aria-live="polite" tabindex="0"></div>
+      <form class="terminal-baris" id="terminal-form" autocomplete="off">
+        <label class="sr" for="terminal-input">Perintah</label>
+        <span class="terminal-tanda" id="terminal-tanda" aria-hidden="true">$</span>
+        <input id="terminal-input" placeholder="git clone https://github.com/…" spellcheck="false"
+               autocapitalize="off" autocorrect="off">
+        <button type="submit" class="tombol kecil" id="terminal-jalan">Jalankan</button>
+      </form>
+      <div class="kelompok">
+        <button type="button" class="tombol kecil garis" id="terminal-bersih">Bersihkan</button>
+        <button type="button" class="tombol kecil garis" id="terminal-stop">Hentikan shell</button>
+        <button type="button" class="tombol kecil garis" id="terminal-bantuan">Perintah astroz</button>
+      </div>
     </section>
 
     <!-- Parkir panel halaman. Isinya dipindah ke #badan-halaman saat menunya
@@ -332,6 +346,11 @@
     <section class="panel" id="alat-pekerja" hidden>
       <h2>Pekerja</h2>
       <p class="catatan">Empat CLI koding yang mengerjakan tugas. Yang belum terpasang bisa dipasang dari sini.</p>
+      <div class="kelompok">
+        <button type="button" class="tombol kecil garis" id="periksa-pekerja">Periksa semua</button>
+        <button type="button" class="tombol kecil garis" id="terapkan-pekerja">Pakai model ini di pekerja</button>
+      </div>
+      <div id="daftar-pekerja"></div>
       <div id="daftar-pasang"></div>
     </section>
 

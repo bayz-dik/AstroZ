@@ -438,6 +438,7 @@ const JALUR_IKON = {
   pekerja: "M3.5 5.5h17v13h-17zM7.2 10l2.6 2.6L7.2 15.2M12.8 15.4h4",
   catatan: "M4 6.5h16M4 12h16M4 17.5h10",
   model: "M8.5 8.5h7v7h-7zM12 3.5V8.5M12 15.5v5M3.5 12h5M15.5 12h5M5.6 5.6 8.5 8.5M15.5 15.5l2.9 2.9M18.4 5.6 15.5 8.5M8.5 15.5l-2.9 2.9",
+  terminal: "M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 17V7A1.5 1.5 0 0 1 4 5.5ZM6.5 10l2.5 2.5L6.5 15M11.5 15.2h5",
   "titik-tiga": "M12 6.4h.01M12 12h.01M12 17.6h.01",
   hapus: "M5 7h14M9.5 7V5.2h5V7M7 7l.9 12.1h8.2L17 7M10.4 10.6v5.6M13.6 10.6v5.6",
   lain: "M12 6.4h.01M12 12h.01M12 17.6h.01",
@@ -660,6 +661,7 @@ for (const b of document.querySelectorAll("[data-aksi]")) {
    daftar menu tidak pernah menumpuk panjang ke bawah. */
 const DAFTAR_MENU = [
   { alat: "obrolan", judul: "Riwayat percakapan", ikon: "riwayat" },
+  { alat: "terminal", judul: "Terminal", ikon: "terminal" },
   { alat: "skill", judul: "Skill", ikon: "skill" },
   { alat: "plugin", judul: "Plugin MCP", ikon: "plugin" },
   { alat: "capability", judul: "Pasang dari URL", ikon: "plugin" },
@@ -670,6 +672,7 @@ const DAFTAR_MENU = [
 ];
 const HALAMAN = {
   obrolan: "alat-obrolan",
+  terminal: "alat-terminal",
   skill: "alat-skill",
   plugin: "alat-plugin",
   capability: "alat-capability",
@@ -681,6 +684,7 @@ const HALAMAN = {
 };
 const JUDUL_HALAMAN = {
   obrolan: "Riwayat percakapan",
+  terminal: "Terminal",
   skill: "Skill",
   plugin: "Plugin MCP",
   capability: "Pasang dari URL",
@@ -761,9 +765,10 @@ function bukaHalaman(nama) {
   halamanSekarang = nama;
   pasangIkon(el("halaman"));
   if (nama === "skill") muatSkill();
+  if (nama === "terminal") muatTerminal();
   if (nama === "plugin") muatMcp();
   if (nama === "capability") muatCapability();
-  if (nama === "pekerja") muatPekerjaPasang();
+  if (nama === "pekerja") { muatPekerja(); muatPekerjaPasang(); }
   if (nama === "berkas") { muatBerkas(); muatGit(); }
   if (nama === "model") muatModel();
   el("tutup-halaman").focus();
@@ -1604,6 +1609,62 @@ function tampilkanKerja(tid) {
   bukaKotakKerja(tid);
 }
 
+/* ------------------------------------------------------------------ tahap */
+
+/* Tahap pekerjaan, dihitung dari kejadian yang SUDAH ADA, bukan dari data
+   baru. Orchestrator memancarkan kind plan/worker/test/review/discuss/git/task
+   dan phase start/end/stall/error; dari situ tahapnya bisa disimpulkan tanpa
+   menambah apa pun di backend.
+
+   Kenapa perlu: sebelumnya pengguna hanya melihat daftar kejadian mentah
+   ("worker · codex · start") dan harus menyimpulkan sendiri sedang di tahap
+   apa. Dengan label tahap, satu pandangan sudah cukup. */
+const TAHAP = [
+  { kunci: "plan", label: "Perencanaan" },
+  { kunci: "worker", label: "Pengerjaan" },
+  { kunci: "discuss", label: "Diskusi" },
+  { kunci: "test", label: "Pengujian" },
+  { kunci: "review", label: "Peninjauan" },
+  { kunci: "git", label: "Simpan perubahan" },
+  { kunci: "task", label: "Penutup" },
+];
+
+function tahapDari(evs, t) {
+  const terpakai = new Set(evs.map((e) => e.kind));
+  const aktif = [...evs].reverse().find((e) => !["end"].includes(e.phase || ""));
+  const sekarang = aktif ? aktif.kind : "";
+  const hasil = TAHAP.map((s) => ({
+    ...s,
+    aktif: s.kunci === sekarang,
+    selesai: terpakai.has(s.kunci) && s.kunci !== sekarang,
+  }));
+  if (t.status === "failed" || t.status === "error") {
+    // Tandai tahap tempat kegagalan terjadi, supaya terlihat di mana berhentinya.
+    for (const s of hasil) if (s.aktif) s.gagal = true;
+  }
+  return hasil.filter((s) => s.aktif || s.selesai);
+}
+
+/* Satu langkah kejadian: waktu, tahap, pekerja, lalu pesan. Pesan dirapikan
+   (baris kosong dibuang, dipotong di batas yang wajar) supaya tidak ada blok
+   teks mentah yang mengacak-acak tata letak. */
+function barisLangkah(e) {
+  const baris = buat("div", "kejadian");
+  baris.dataset.jenis = e.kind || "";
+  const fase = String(e.phase || "");
+  if (fase) baris.dataset.fase = fase;
+  baris.appendChild(buat("div", "waktu", waktu(e.ts)));
+  const tengah = buat("div", "isi-langkah");
+  const judul = [TAHAP.find((s) => s.kunci === e.kind)?.label || e.kind, e.worker, fase]
+    .filter(Boolean).join(" · ");
+  tengah.appendChild(buat("div", "jenis", judul));
+  const pesan = String(e.text || e.message || "")
+    .split("\n").map((x) => x.trimEnd()).filter((x) => x.trim()).join("\n");
+  if (pesan) tengah.appendChild(buat("div", "pesan-log", pesan));
+  baris.appendChild(tengah);
+  return baris;
+}
+
 /* Isi kotak aktivitas: keadaan tugas, pekerja mana yang aktif, berkas yang
    berubah, lalu langkah terakhir. Semuanya dari endpoint yang sudah ada. */
 async function gambarKerja() {
@@ -1622,18 +1683,41 @@ async function gambarKerja() {
   wadah.replaceChildren();
 
   const kepala = buat("div", "kotak-kerja");
-  kepala.appendChild(buat("div", "nama", "keadaan: " + (t.status === "cancelled" ? "dihentikan" : (t.status || "?"))));
-  kepala.appendChild(buat("div", "baris-kecil", "tugas: " + tid + "  |  ukuran: " + (t.size || "otomatis") + "  |  model: " + (t.model || "bawaan")));
-  if (t.workers && t.workers.length) kepala.appendChild(buat("div", "baris-kecil", "pekerja: " + t.workers.join(", ")));
-  if (t.prompt) kepala.appendChild(buat("div", "baris-kecil", "perintah: " + String(t.prompt).slice(0, 160)));
+  const labelStatus = t.status === "cancelled" ? "dihentikan"
+    : t.status === "failed" || t.status === "error" ? "gagal"
+    : t.status === "done" ? "selesai" : "sedang dikerjakan";
+  kepala.appendChild(buat("div", "nama", labelStatus));
+  kepala.appendChild(buat("div", "baris-kecil",
+    "tugas " + tid + "  ·  ukuran " + (t.size || "otomatis") + "  ·  model " + (t.model || "bawaan")));
+  if (t.workers && t.workers.length) {
+    kepala.appendChild(buat("div", "baris-kecil", "pekerja: " + t.workers.join(", ")));
+  }
+  if (t.prompt) kepala.appendChild(buat("div", "baris-kecil perintah", String(t.prompt).slice(0, 200)));
   wadah.appendChild(kepala);
 
-  // Pekerja yang sedang aktif, dihitung dari kejadian terakhirnya: daftar
-  // penugasan saja tidak tahu siapa yang sudah selesai.
   // Kind yang benar-benar dipancarkan orchestrator: plan, worker, test, review,
   // discuss, git, task. "catatan" (log panel) tidak dipakai di sini: kalau ikut,
   // langkah terakhir penuh baris log dan bukan langkah kerja.
   const evs = (d.events || []).filter((e) => ["plan", "worker", "test", "review", "discuss", "git", "task"].includes(e.kind));
+
+  // Tahap: dihitung dari kejadian yang ada, jadi pengguna tahu posisinya.
+  const tahap = tahapDari(evs, t);
+  if (tahap.length) {
+    const kotak = buat("div", "kotak-kerja");
+    kotak.appendChild(buat("div", "nama", "tahap"));
+    const deret = buat("div", "deret-tahap");
+    for (const s of tahap) {
+      const c = buat("span", "tahap" + (s.aktif ? " aktif" : "") + (s.selesai ? " selesai" : "") + (s.gagal ? " gagal" : ""));
+      c.appendChild(buat("span", "tahap-titik"));
+      c.appendChild(document.createTextNode(s.label));
+      deret.appendChild(c);
+    }
+    kotak.appendChild(deret);
+    wadah.appendChild(kotak);
+  }
+
+  // Pekerja yang sedang aktif, dihitung dari kejadian terakhirnya: daftar
+  // penugasan saja tidak tahu siapa yang sudah selesai.
   const akhir = {};
   for (const e of evs) if (e.worker) akhir[e.worker] = e.phase || "";
   const pekerja = (t.workers || []).map((w) => ({ nama: w, aktif: !["end", "stall", "error"].includes(akhir[w] || "") }));
@@ -1651,25 +1735,20 @@ async function gambarKerja() {
   if (berkas && berkas.jumlah) {
     const bk = buat("div", "kotak-kerja");
     bk.appendChild(buat("div", "nama", berkas.jumlah + " berkas berubah"));
-    for (const f of berkas.berkas.slice(0, 8)) bk.appendChild(buat("div", "baris-kecil", f.path + "  " + f.size + " b"));
+    for (const f of berkas.berkas.slice(0, 8)) {
+      bk.appendChild(buat("div", "baris-kecil berkas-baris", f.path + "  " + f.size + " b"));
+    }
     wadah.appendChild(bk);
   }
 
   const langkah = buat("div", "kotak-kerja");
   langkah.appendChild(buat("div", "nama", "langkah terakhir"));
-  const isiLangkah = buat("div");
+  const isiLangkah = buat("div", "daftar-langkah");
   isiLangkah.id = "isi-kerja";
-  if (!evs.length) isiLangkah.appendChild(buat("p", "kosong", jalan ? "Menunggu langkah pertama." : "Tidak ada catatan langkah."));
-  for (const e of evs.slice(-40)) {
-    const baris = buat("div", "kejadian");
-    baris.dataset.jenis = e.kind || "";
-    baris.appendChild(buat("div", "waktu", waktu(e.ts)));
-    const tengah = buat("div");
-    tengah.appendChild(buat("div", "jenis", [e.kind, e.worker, e.phase].filter(Boolean).join(" · ")));
-    tengah.appendChild(buat("div", "pesan-log", e.text || e.message || ""));
-    baris.appendChild(tengah);
-    isiLangkah.appendChild(baris);
+  if (!evs.length) {
+    isiLangkah.appendChild(buat("p", "kosong", jalan ? "Menunggu langkah pertama." : "Tidak ada catatan langkah."));
   }
+  for (const e of evs.slice(-40)) isiLangkah.appendChild(barisLangkah(e));
   langkah.appendChild(isiLangkah);
   wadah.appendChild(langkah);
 
@@ -2010,6 +2089,7 @@ function gambarProvider(providers) {
 
 function gambarPekerja(daftar) {
   const wadah = el("daftar-pekerja");
+  if (!wadah) return;
   wadah.replaceChildren();
   keadaan.pekerja = daftar;
   for (const w of daftar) {
@@ -2066,21 +2146,31 @@ async function muatPekerja() {
     }));
     gambarPekerja(daftar);
   } catch (e) {
-    el("daftar-pekerja").replaceChildren(buat("p", "kosong", "Daftar pekerja tidak bisa dimuat: " + e.message));
+    const w = el("daftar-pekerja");
+    // Daftar pekerja sekarang tinggal di halaman Pekerja. Kalau panelnya tidak
+    // ada di DOM (halaman lain sedang terbuka), galatnya cukup dilaporkan lewat
+    // pesan singkat -- bukan berhenti karena elemennya tidak ditemukan.
+    if (w) w.replaceChildren(buat("p", "kosong", "Daftar pekerja tidak bisa dimuat: " + e.message));
+    else pesanSingkat("Daftar pekerja tidak bisa dimuat: " + e.message, true);
   }
 }
 
-el("periksa-pekerja").addEventListener("click", async () => {
-  el("periksa-pekerja").disabled = true;
+function pada2(id, kejadian, fn) {
+  const n = el(id);
+  if (n) n.addEventListener(kejadian, fn);
+}
+
+pada2("periksa-pekerja", "click", async (ev) => {
+  ev.target.disabled = true;
   for (const w of keadaan.pekerja) {
     try { await kirim(`/api/workers/${w.key}/probe`, {}); } catch {}
   }
   await muatPekerja();
-  el("periksa-pekerja").disabled = false;
+  ev.target.disabled = false;
   pesanSingkat("Pemeriksaan pekerja selesai.");
 });
 
-el("terapkan-pekerja").addEventListener("click", async () => {
+pada2("terapkan-pekerja", "click", async () => {
   try { await kirim("/api/apply", { model: keadaan.modelSekarang }); pesanSingkat("Model diterapkan ke pekerja."); await muatPekerja(); }
   catch (e) { pesanSingkat("Gagal menerapkan model: " + e.message, true); }
 });
@@ -2893,4 +2983,160 @@ async function mulai() {
 }
 
 pasangFormMasuk();
+
+/* ------------------------------------------------------------------ terminal */
+
+/* Terminal di UI memakai dua jalur yang berbeda, dan pemisahannya disengaja:
+
+   - Perintah yang hasilnya langsung ditampilkan (git clone, npm install, ls)
+     dikirim lewat POST /api/terminal dan dijalankan di shell pengguna yang
+     tetap hidup, supaya `cd` dan variabel bertahan antar perintah.
+   - Keluaran yang mengalir dibaca lewat SSE /api/terminal/alir, jadi perintah
+     panjang terlihat bergerak, bukan diam lalu muncul sekaligus.
+
+   Layar dibatasi jumlah barisnya: `npm install` bisa mengeluarkan ribuan baris
+   dan tanpa batas itu halaman akan melambat. */
+
+const terminalKeadaan = { tersedia: false, prefix: "", mode: "", alat: {}, siap: false };
+let terminalAliran = null;
+let terminalBaris = 0;
+const BATAS_BARIS_TERMINAL = 2000;
+
+function terminalTulis(teks, kelas) {
+  const layar = el("terminal-layar");
+  if (!layar) return;
+  const baris = buat("div", "terminal-baris-teks" + (kelas ? " " + kelas : ""), teks);
+  layar.appendChild(baris);
+  terminalBaris += 1;
+  // Buang dari atas, bukan dari bawah: yang dibaca pengguna adalah yang terbaru.
+  while (terminalBaris > BATAS_BARIS_TERMINAL && layar.firstChild) {
+    layar.removeChild(layar.firstChild);
+    terminalBaris -= 1;
+  }
+  layar.scrollTop = layar.scrollHeight;
+}
+
+function terminalTanda(jalur) {
+  const t = el("terminal-tanda");
+  if (!t) return;
+  // Tanda $ yang mengikuti folder kerja: tanpa ini pengguna tidak tahu di mana
+  // perintahnya dijalankan setelah beberapa kali `cd`.
+  const pendek = String(jalur || "").split("/").filter(Boolean).slice(-2).join("/");
+  t.textContent = pendek ? pendek + " $" : "$";
+}
+
+async function muatTerminal() {
+  try {
+    const d = await ambil("/api/terminal");
+    Object.assign(terminalKeadaan, d);
+    const alat = Object.entries(d.alat || {}).filter(([, ada]) => ada).map(([n]) => n);
+    const kurang = Object.entries(d.alat || {}).filter(([, ada]) => !ada).map(([n]) => n);
+    el("terminal-keadaan").textContent = d.tersedia
+      ? `Siap. Mode ${d.mode}. Tersedia: ${alat.join(", ")}` +
+        (kurang.length ? ` — belum ada: ${kurang.join(", ")}` : "")
+      : "Terminal tidak tersedia di lingkungan ini.";
+    terminalTanda(d.cwd);
+    if (d.tersedia) {
+      terminalTulis("Terminal siap. Folder kerja: " + d.cwd, "redup");
+      terminalTulis("Coba: git clone https://github.com/git/git.git lalu cd git && ls", "redup");
+      sambungTerminal();
+    }
+    el("terminal-input").disabled = !d.tersedia;
+    el("terminal-jalan").disabled = !d.tersedia;
+  } catch (e) {
+    el("terminal-keadaan").textContent = "Terminal tidak bisa dimuat: " + e.message;
+  }
+}
+
+function sambungTerminal() {
+  if (terminalAliran) return;
+  try {
+    terminalAliran = new EventSource("/api/terminal/alir");
+  } catch {
+    return;
+  }
+  terminalAliran.onmessage = (ev) => {
+    let d = {};
+    try { d = JSON.parse(ev.data); } catch { return; }
+    if (typeof d.baris === "string" && d.baris !== "") terminalTulis(d.baris);
+    if (d.cwd) terminalTanda(d.cwd);
+  };
+  // Kalau sambungan putus (layar tidur, server restart), sambungkan lagi setelah
+  // jeda. EventSource sebenarnya sudah mencoba sendiri, tetapi tidak saat
+  // server mati total, dan itu justru kasus yang sering terjadi di HP.
+  terminalAliran.onerror = () => {
+    terminalAliran.close();
+    terminalAliran = null;
+    setTimeout(() => { if (!el("alat-terminal").hidden || !el("halaman").hidden) sambungTerminal(); }, 3000);
+  };
+}
+
+async function terminalJalankanPerintah(perintah) {
+  if (!perintah.trim()) return;
+  terminalTulis("$ " + perintah, "perintah");
+  const tombol = el("terminal-jalan");
+  tombol.disabled = true;
+  tombol.textContent = "Berjalan…";
+  try {
+    const d = await kirim("/api/terminal", { perintah, timeout: 600 });
+    if (d.cwd) terminalTanda(d.cwd);
+    // Keluaran biasanya sudah tampil lewat aliran SSE; cetak hanya kalau aliran
+    // tidak menyampaikannya, supaya tidak ada baris kembar.
+    const teks = String(d.keluaran || "");
+    if (teks && !terminalAliran) {
+      for (const b of teks.replace(/\n$/, "").split("\n")) terminalTulis(b);
+    }
+    if (!d.ok) {
+      terminalTulis(`[selesai dengan kode ${d.kode}${d.error ? ": " + d.error : ""}]`, "galat");
+    }
+  } catch (e) {
+    terminalTulis("gagal: " + e.message, "galat");
+  } finally {
+    tombol.disabled = false;
+    tombol.textContent = "Jalankan";
+    el("terminal-input").focus();
+  }
+}
+
+/* Pemasangan penangan di bawah ini dijaga: kalau HTML yang dimuat masih versi
+   lama (cache browser), elemennya belum ada dan tanpa penjagaan satu galat akan
+   menghentikan sisa skrip. */
+function pada(id, kejadian, fn) {
+  const n = el(id);
+  if (n) n.addEventListener(kejadian, fn);
+}
+
+pada("terminal-form", "submit", (ev) => {
+  ev.preventDefault();
+  const inp = el("terminal-input");
+  const p = inp.value;
+  inp.value = "";
+  terminalJalankanPerintah(p);
+});
+
+pada("terminal-bersih", "click", () => {
+  el("terminal-layar").replaceChildren();
+  terminalBaris = 0;
+  kirim("/api/terminal/bersihkan", {}).catch(() => {});
+});
+
+pada("terminal-stop", "click", async () => {
+  await kirim("/api/terminal/hentikan", {}).catch(() => {});
+  terminalTulis("[shell dihentikan. Perintah berikutnya menyalakannya lagi.]", "redup");
+});
+
+pada("terminal-bantuan", "click", async () => {
+  const d = await kirim("/api/terminal", { perintah: "astroz --help", timeout: 60 }).catch(() => null);
+  if (d && d.keluaran) {
+    for (const b of String(d.keluaran).replace(/\n$/, "").split("\n")) terminalTulis(b, "bantuan");
+  } else {
+    terminalTulis("Perintah astroz tidak tersedia di lingkungan ini.", "redup");
+  }
+});
+
+// Pencarian model yang lebih lengkap ada di lembar bawah; tombol ini yang
+// menghubungkan panel model dengan lembar itu, supaya tidak ada dua tempat
+// pencarian yang harus diisi terpisah.
+pada("model-pilih-lembar", "click", () => { bukaLembar("lembar-model"); muatModelLembar(); });
+
 mulai();

@@ -785,6 +785,129 @@ pre.isi-berkas {
 }
 .pohon button:hover { background: var(--sorot); }
 
+/* ------------------------------------------------- sedang dikerjakan */
+
+/* Tahap: deret chip yang menunjukkan posisi pekerjaan. Yang aktif diberi
+   titik berdenyut; yang sudah lewat diredupkan. Dibuat ringkas supaya tidak
+   mengambil ruang dari daftar langkah di bawahnya. */
+.deret-tahap {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
+}
+.tahap {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; line-height: 1;
+  padding: 6px 10px; border-radius: var(--radius-pil);
+  background: var(--permukaan); box-shadow: var(--cincin);
+  color: var(--tinta-meta);
+}
+.tahap-titik {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--garis-kuat); flex: 0 0 auto;
+}
+.tahap.selesai { color: var(--tinta-2); }
+.tahap.selesai .tahap-titik { background: var(--selesai); }
+.tahap.aktif {
+  color: var(--aksen-teks); background: var(--sorot);
+  box-shadow: 0 0 0 1px var(--aksen);
+  font-weight: 600;
+}
+.tahap.aktif .tahap-titik {
+  background: var(--aksen);
+  animation: denyut 1.4s ease-in-out infinite;
+}
+.tahap.gagal { color: var(--galat); box-shadow: 0 0 0 1px var(--galat); }
+.tahap.gagal .tahap-titik { background: var(--galat); animation: none; }
+
+@keyframes denyut {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.7); }
+}
+
+/* Daftar langkah: dibatasi tingginya supaya tugas panjang tidak membuat
+   kotaknya tumbuh tanpa batas, dan tiap baris tidak menabrak baris lain. */
+.daftar-langkah {
+  max-height: 46vh; overflow-y: auto; margin-top: 8px;
+  overscroll-behavior: contain;
+}
+.daftar-langkah .kejadian { align-items: flex-start; }
+.daftar-langkah .isi-langkah { min-width: 0; }
+.daftar-langkah .jenis { font-size: 12px; font-weight: 600; color: var(--tinta-2); }
+.daftar-langkah .kejadian[data-fase="end"] .jenis { color: var(--selesai); }
+.daftar-langkah .kejadian[data-fase="error"] .jenis,
+.daftar-langkah .kejadian[data-fase="stall"] .jenis { color: var(--galat); }
+
+/* Pesan langkah: log dan potongan kode dibaca dalam monospace, tapi tetap
+   membungkus supaya tidak ada teks terpotong di layar sempit. */
+.daftar-langkah .pesan-log {
+  font-family: var(--font-mesin); font-size: 12px; line-height: 1.5;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  color: var(--tinta-2); margin-top: 2px; max-height: 18em; overflow-y: auto;
+}
+
+.baris-kecil.perintah {
+  color: var(--tinta-2); font-style: italic;
+  overflow-wrap: anywhere;
+}
+.baris-kecil.berkas-baris {
+  font-family: var(--font-mesin); font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------- terminal */
+
+/* Layar terminal: monospace, latar gelap tetap di tema terang maupun gelap.
+   Alasannya praktis: keluaran perintah panjang (log, npm, git) lebih mudah
+   dipindai pada latar gelap, dan itu yang diharapkan orang dari terminal. */
+.terminal-layar {
+  background: #17171A;
+  color: #E6E4DC;
+  border-radius: var(--radius-2);
+  padding: 12px 14px;
+  margin: 12px 0;
+  font-family: var(--font-mesin);
+  font-size: 12.5px;
+  line-height: 1.55;
+  height: 46vh;
+  min-height: 220px;
+  max-height: 560px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  box-shadow: var(--cincin);
+  scroll-behavior: smooth;
+}
+.terminal-layar:focus-visible { outline: 2px solid var(--fokus); outline-offset: 2px; }
+
+.terminal-baris-teks { margin: 0; }
+.terminal-baris-teks.perintah { color: #F0B27A; font-weight: 600; }
+.terminal-baris-teks.galat { color: #F09A9A; }
+.terminal-baris-teks.redup { color: #8E8C84; }
+.terminal-baris-teks.bantuan { color: #A8C7F0; }
+
+.terminal-baris {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 4px;
+}
+.terminal-tanda {
+  font-family: var(--font-mesin); font-size: 12px; color: var(--tinta-meta);
+  max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 0 0 auto;
+}
+.terminal-baris input {
+  flex: 1 1 auto; min-width: 0;
+  font-family: var(--font-mesin); font-size: 13px;
+  background: var(--permukaan-masuk); color: var(--tinta);
+  border: 0; border-radius: var(--radius-1);
+  padding: 10px 12px; min-height: var(--tinggi-target);
+}
+.terminal-baris input:disabled { opacity: 0.55; }
+.terminal-baris .tombol { flex: 0 0 auto; }
+
+@media (max-width: 560px) {
+  .terminal-layar { height: 40vh; font-size: 12px; }
+  .terminal-tanda { max-width: 12ch; }
+}
+
 /* ------------------------------------------------------------------ lapisan */
 
 .tirai { position: fixed; inset: 0; background: rgba(20, 20, 19, 0.45); z-index: 40; display: none; }
