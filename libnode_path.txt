@@ -1,0 +1,1 @@
+/root/AstroZ/android/app/src/main/jniLibs/arm64-v8a/libnode.so

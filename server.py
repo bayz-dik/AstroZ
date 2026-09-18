@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hmac
 import json
 import os
 import pathlib
@@ -34,6 +35,47 @@ WEB = ROOT / "web"
 app = FastAPI(title="AstroZ")
 _started = time.time()
 
+# Token milik APLIKASI (bukan token akun).
+#
+# Kenapa perlu: aplikasi Android memuat UI-nya dari server lokal dan tidak punya
+# cara memasukkan token -- pengguna tidak pernah melihat token apa pun. Sebelumnya
+# Java membaca runtime/admin_token.txt, berkas yang HANYA dibuat saat akun admin
+# pertama dibentuk. Di perangkat, users.json sudah ada (ikut dari basis data
+# 9Router), jadi berkas itu tidak pernah ditulis, doAutoLogin gagal, dan yang
+# muncul adalah layar minta token yang tidak diketahui siapa pun.
+#
+# Solusinya: server membuat token acak per pemasangan, menyimpannya di berkas
+# yang hanya bisa dibaca aplikasi (<root>/app_token.txt), dan menerimanya sebagai
+# identitas admin. Token ini TIDAK ditampilkan di UI dan tidak pernah ikut ke APK.
+_TOKEN_APLIKASI = ""
+_NAMA_TOKEN_FILE = "app_token.txt"
+
+
+def _token_aplikasi(root: pathlib.Path) -> str:
+    """Token aplikasi: dibaca dari berkas, dibuat kalau belum ada."""
+    global _TOKEN_APLIKASI
+    f = pathlib.Path(root) / _NAMA_TOKEN_FILE
+    if f.is_file():
+        isi = f.read_text().strip()
+        if len(isi) >= 20:
+            _TOKEN_APLIKASI = isi
+            return isi
+    import secrets as _secrets
+
+    baru = _secrets.token_urlsafe(32)
+    try:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(baru + "\n")
+        f.chmod(0o600)
+    except OSError:
+        pass
+    _TOKEN_APLIKASI = baru
+    return baru
+
+
+def token_aplikasi() -> str:
+    return _TOKEN_APLIKASI
+
 # ------------------------------------------------------------------ masuk
 
 # Nama cookie yang menyimpan token. Cookie dipakai supaya UI tidak perlu
@@ -64,7 +106,16 @@ def _pengguna(request: Request) -> dict | None:
     ada = getattr(request.state, "pengguna", None)
     if ada is not None:
         return ada
-    u = users.verifikasi(_token_dari(request))
+    token = _token_dari(request)
+    # Token aplikasi (dibuat server saat boot, dibaca Java dari app_token.txt)
+    # berlaku sebagai admin. Ini yang membuat aplikasi Android bisa masuk sendiri
+    # tanpa pengguna mengetik token apa pun.
+    if token and _TOKEN_APLIKASI and hmac.compare_digest(token, _TOKEN_APLIKASI):
+        admin = users.ambil(users.admin_pertama()) or {"nama": "admin", "peran": "admin"}
+        u = {"nama": admin.get("nama", "admin"), "peran": "admin", "aktif": True}
+        request.state.pengguna = u
+        return u
+    u = users.verifikasi(token)
     request.state.pengguna = u
     return u
 
@@ -339,6 +390,11 @@ async def _startup() -> None:
     baru = users.siapkan_pertama()
     if baru:
         hub.emit("system", "Akun admin dibuat. Token masuk ada di runtime/admin_token.txt", phase="boot")
+    # Token milik aplikasi: dibuat sekali per pemasangan. Ini yang dipakai
+    # aplikasi Android untuk masuk sendiri, jadi pengguna tidak perlu mengetik
+    # token apa pun. Di desktop, berkas ini juga ada tetapi tidak dipakai UI.
+    _token_aplikasi(pathlib.Path(config.ROOT))
+    hub.emit("system", "Token aplikasi siap (dipakai aplikasi Android untuk masuk sendiri)", phase="boot")
     # Kode undangan yang masih berlaku dimuat supaya tidak hilang saat restart.
     nk = users.undangan_load()
     nt = orchestrator.load_tasks()
@@ -1474,9 +1530,97 @@ async def terminal_info(request: Request):
     d = terminal.info()
     d["ok"] = True
     d["cwd"] = str(terminal.folder_kerja(u["nama"]))
+    # Di aplikasi Android, 9Router hidup sebagai proses di dalam aplikasi --
+    # bukan di Termux. Permintaan dari UI inilah yang menyalakannya saat
+    # dibutuhkan, supaya boot tidak menanggung bebannya.
+    if request.query_params.get("router") == "1":
+        d["router"] = await asyncio.to_thread(_pastikan_router)
     d["sesi"] = [{"owner": k, "id": s.id, "hidup": bool(s.proc and s.proc.poll() is None)}
                  for k, s in terminal.semua_sesi().items()] if u.get("peran") == "admin" else []
     return d
+
+
+def _pastikan_router() -> dict:
+    """Menyalakan 9Router di dalam proses aplikasi kalau belum hidup.
+
+    Kenapa di Python, bukan di Java: 9Router adalah program Node, dan satu-satunya
+    Node di APK adalah libnode.so di nativeLibraryDir -- di sana subprocess.run
+    Python berfungsi normal (sudah dipakai pekerja), sedangkan memanggilnya dari
+    Java penuh jebakan jalur. Selain itu endpoint ini juga membuat permintaan
+    model bisa memicu gateway sendiri, jadi pengguna tidak perlu menyalakan
+    apa pun lebih dulu.
+    """
+    import socket as _socket
+
+    def terbuka(port: int) -> bool:
+        try:
+            with _socket.create_connection(("127.0.0.1", port), timeout=0.4):
+                return True
+        except OSError:
+            return False
+
+    port = int(getattr(config, "PORT_ROUTER", 20128) or 20128)
+    if terbuka(port):
+        return {"ok": True, "sudah_hidup": True, "port": port}
+
+    root = pathlib.Path(config.ROOT)
+    lib = ctx_libnode()
+    if not lib:
+        return {"ok": False, "error": "libnode.so tidak ditemukan di aplikasi"}
+
+    cli = root / "router/node_modules/9router/cli.js"
+    if not cli.is_file():
+        return {"ok": False, "error": f"9router tidak ada di {cli}"}
+
+    import subprocess as _sp
+
+    home = root / "router-home"
+    home.mkdir(parents=True, exist_ok=True)
+    env = dict(os.environ)
+    env["HOME"] = str(home)
+    env["USERPROFILE"] = str(home)
+    env["LD_LIBRARY_PATH"] = f"{root}/node/lib:{pathlib.Path(lib).parent}"
+    env["NODE_PATH"] = str(root / "router/runtime/node_modules")
+    env["NO_UPDATE_NOTIFIER"] = "1"
+    env.pop("PYTHONHOME", None)
+
+    log = root / "logs/9router.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(log, "ab") as f:
+            proc = _sp.Popen([lib, str(cli), "--port", str(port), "--host", "127.0.0.1",
+                              "--no-browser", "--skip-update"],
+                             cwd=str(root / "router"), env=env, stdout=f, stderr=f)
+    except Exception as e:
+        return {"ok": False, "error": f"gagal menjalankan 9Router: {e}"}
+
+    for _ in range(150):
+        if terbuka(port):
+            return {"ok": True, "port": port, "pid": proc.pid, "log": str(log)}
+        if proc.poll() is not None:
+            return {"ok": False, "error": f"9Router berhenti sendiri (exit {proc.returncode})",
+                    "log": str(log)}
+        time.sleep(0.4)
+    return {"ok": False, "error": "9Router tidak siap dalam 60 detik", "log": str(log)}
+
+
+def ctx_libnode() -> str:
+    """Jalur libnode.so yang sebenarnya.
+
+    Java menuliskan jalurnya ke <root>/libnode_path.txt saat start, karena
+    nativeLibraryDir berubah setiap aplikasi dipasang ulang dan hanya Java yang
+    tahu nilainya. Tanpa berkas itu, jalur dicari sendiri sebagai cadangan.
+    """
+    for nama in ("libnode_path.txt", "node_path.txt"):
+        f = pathlib.Path(config.ROOT) / nama
+        if f.is_file():
+            isi = f.read_text().strip()
+            if isi and pathlib.Path(isi).is_file():
+                return isi
+    # Cadangan: cari di folder lib aplikasi.
+    for p in pathlib.Path("/data/app").glob("*/id.astroz.app*/lib/arm64/libnode.so"):
+        return str(p)
+    return ""
 
 
 @app.post("/api/terminal")
