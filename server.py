@@ -50,6 +50,12 @@ _started = time.time()
 _TOKEN_APLIKASI = ""
 _NAMA_TOKEN_FILE = "app_token.txt"
 
+# Penanda bahwa penyiapan wajib sudah selesai (lihat _siapkan_sesudah_boot).
+# Dipakai /api/versi untuk membuktikan startup benar-benar tuntas: port terbuka
+# saja tidak cukup, karena uvicorn membuka port SEBELUM startup event selesai --
+# dan selama itu permintaan hanya menggantung sampai timeout.
+_STARTUP_SELESAI = threading.Event()
+
 
 def _token_aplikasi(root: pathlib.Path) -> str:
     """Token aplikasi: dibaca dari berkas, dibuat kalau belum ada."""
@@ -372,68 +378,101 @@ async def akun_hapus(nama: str, request: Request):
 
 @app.on_event("startup")
 async def _startup() -> None:
-    """Menyiapkan server sebelum melayani permintaan.
+    """Menandai server hidup dan memindahkan penyiapan ke thread latar.
 
-    Pekerjaan di sini DIBAGI DUA, dan pembagiannya penting untuk HP:
+    ATURAN yang mahal untuk dipelajari: fungsi ini TIDAK boleh mengerjakan
+    apa pun yang bisa lambat.
 
-      - Bagian yang cepat dan wajib (memindahkan berkas lama, memuat akun,
-        membuat token aplikasi, memuat tugas/percakapan) dijalankan LANGSUNG,
-        karena tanpa itu permintaan pertama akan dilayani dengan keadaan
-        setengah siap.
-      - Bagian yang bisa lama (membaca 1500 kejadian dari disk) dijalankan di
-        THREAD terpisah. Di HP, membaca riwayat bisa memakan detik, dan selama
-        itu event loop TIDAK melayani permintaan apa pun -- akibatnya WebView
-        yang memuat halaman tampak menggantung sampai batas waktunya habis,
-        walau portnya sudah terbuka. Itu gejala "antarmuka belum selesai
-        dimuat" yang terlihat di perangkat.
+    Alasannya: uvicorn membuka port SEBELUM menjalankan startup event
+    (`Server.startup()` memanggil `lifespan.startup()` lebih dulu, lalu
+    `loop.create_server`). Artinya begitu port terbuka, aplikasi menganggap
+    servernya siap dan langsung memuat halaman -- padahal kalau fungsi ini
+    memblokir event loop, port itu hanya menerima sambungan tanpa pernah
+    menjawab. Di perangkat, gejalanya persis: "port UI 8799: terbuka" tetapi
+    "probe HTTP: GAGAL: java.net.SocketTimeoutException: timeout", dan halaman
+    tidak pernah muncul.
+
+    Di perangkat juga ditemukan bukti tambahannya: token aplikasi belum dibuat
+    ("cookie sesi tidak ditanam: token aplikasi belum ada"), padahal pembuatan
+    token hanya beberapa baris di fungsi ini -- jadi pemblokirannya terjadi
+    sebelum baris itu.
+
+    Karena itu seluruh penyiapan dipindah ke `_siapkan_sesudah_boot()` di
+    thread terpisah. Yang tersisa di sini hanya hal yang WAJIB di event loop:
+    mengikat loop hub (supaya kejadian bisa disiarkan) dan membuat task latar.
+    Keduanya hanya mendaftarkan, tidak menunggu.
     """
     hub.bind_loop(asyncio.get_running_loop())
-    # Pemindahan sekali jalan: berkas bersama yang lama (tasks/sessions/events/
-    # cadangan) pindah ke folder pemiliknya, dan folder kerja lama pindah ke
-    # dalam penyimpanan admin. Dilakukan SEBELUM memuat apa pun, supaya data yang
-    # dimuat sudah dari tempat yang benar dan tidak ada yang hilang.
-    pindah = storage.pindahkan_berkas_lama()
-    pindah_ws = storage.pindahkan_workspace_lama()
-    for k, v in {**pindah, "workspace": pindah_ws}.items():
-        if v and not str(v).startswith(("dilewati", "sudah", "setelan", "tidak ada")):
-            hub.emit("system", f"Penyimpanan lama dipindah: {k} -> {v}", phase="boot")
-    nu = users.load()
-    # Akun admin pertama dibuat di sini kalau belum ada akun sama sekali.
-    # Tokennya ditulis ke runtime/admin_token.txt (hanya bisa dibaca pemilik
-    # mesin), BUKAN ke feed kejadian yang tampil di UI.
-    baru = users.siapkan_pertama()
-    if baru:
-        hub.emit("system", "Akun admin dibuat. Token masuk ada di runtime/admin_token.txt", phase="boot")
-    # Token milik aplikasi: dibuat sekali per pemasangan. Ini yang dipakai
-    # aplikasi Android untuk masuk sendiri, jadi pengguna tidak perlu mengetik
-    # token apa pun. Di desktop, berkas ini juga ada tetapi tidak dipakai UI.
-    _token_aplikasi(pathlib.Path(config.ROOT))
-    # Kode undangan yang masih berlaku dimuat supaya tidak hilang saat restart.
-    nk = users.undangan_load()
-    nt = orchestrator.load_tasks()
-    ns = sessions.load()
-    # Riwayat kejadian dibaca di thread: ini bagian yang paling lama di HP dan
-    # tidak boleh menahan pelayanan permintaan.
-    threading.Thread(target=hub.load_from_disk, args=(1500,), daemon=True).start()
-    hub.emit("system", f"UI AstroZ siap ({nt} tugas, {ns} percakapan, "
-                       f"{nu or 1} akun, {nk} kode undangan)", phase="boot")
+    _STARTUP_SELESAI.clear()
+    # Task yang butuh event loop: hanya dibuat di sini, isinya menunggu sendiri.
     asyncio.create_task(_bg_health())
-    # Sinkron sekali saat start. Tanpa ini, orang yang baru mengkloning repo
-    # membuka UI dan melihat daftar model kosong walau 9Router-nya hidup, karena
-    # sinkron hanya jalan kalau tombolnya ditekan. Kunci API dan alamat gateway
-    # juga diambil di sini: 9Router yang sudah dikonfigurasi sudah menyimpan
-    # kuncinya, jadi tidak perlu dimasukkan ulang lewat UI.
     asyncio.create_task(_sync_awal())
-    # mirror Hermes activity feeds into the hub: the astroz plugin feed and the
-    # live-activity plugin feed (both are written by separate processes).
-    home = pathlib.Path(config.hermes_home())
-    for rel, tag in (("runtime/hermes_plugin.jsonl", "astroz"), ("runtime/live_activity.jsonl", "live-activity")):
-        threading.Thread(target=hub.follow_file, args=(home / rel,), kwargs={"kind": "hermes", "tag": tag}, daemon=True).start()
-    threading.Thread(target=_refresh_workers, daemon=True).start()
-    # Skill bawaan repo dipasang sekali di sini, jadi clone baru langsung punya
-    # skill tanpa memasangnya satu per satu dari UI. Jalan di thread sendiri:
-    # menautkan ratusan folder bisa makan beberapa detik.
-    threading.Thread(target=plugins.pasang_bawaan_sekali, daemon=True).start()
+    # Sisa penyiapan (memindahkan berkas, memuat akun, membuat token, memuat
+    # tugas/percakapan, membaca riwayat, menautkan plugin) di thread latar.
+    threading.Thread(target=_siapkan_sesudah_boot, name="astroz-boot", daemon=True).start()
+    hub.emit("system", "Server hidup; penyiapan berjalan di latar", phase="boot")
+
+
+def _siapkan_sesudah_boot() -> None:
+    """Penyiapan server, DI LUAR event loop supaya permintaan tetap dilayani.
+
+    Dijalankan sekali dari `_startup` lewat thread. Urutannya sengaja: berkas
+    lama dipindah sebelum apa pun dimuat (supaya data yang dimuat sudah dari
+    tempat yang benar), dan token aplikasi dibuat lebih dulu supaya aplikasi
+    bisa segera masuk tanpa menunggu sisa penyiapan.
+    """
+    try:
+        # Pemindahan sekali jalan: berkas bersama yang lama (tasks/sessions/
+        # events/cadangan) pindah ke folder pemiliknya, dan folder kerja lama
+        # pindah ke dalam penyimpanan admin.
+        pindah = storage.pindahkan_berkas_lama()
+        pindah_ws = storage.pindahkan_workspace_lama()
+        for k, v in {**pindah, "workspace": pindah_ws}.items():
+            if v and not str(v).startswith(("dilewati", "sudah", "setelan", "tidak ada")):
+                hub.emit("system", f"Penyimpanan lama dipindah: {k} -> {v}", phase="boot")
+
+        # Token milik aplikasi dibuat PALING AWAL setelah pemindahan: ini yang
+        # dipakai aplikasi Android untuk masuk sendiri, jadi pengguna tidak
+        # perlu mengetik token apa pun. Dibuat sebelum langkah lain yang bisa
+        # lama supaya aplikasi bisa masuk secepat mungkin.
+        _token_aplikasi(pathlib.Path(config.ROOT))
+
+        nu = users.load()
+        # Akun admin pertama dibuat di sini kalau belum ada akun sama sekali.
+        # Tokennya ditulis ke runtime/admin_token.txt (hanya bisa dibaca pemilik
+        # mesin), BUKAN ke feed kejadian yang tampil di UI.
+        baru = users.siapkan_pertama()
+        if baru:
+            hub.emit("system", "Akun admin dibuat. Token masuk ada di runtime/admin_token.txt", phase="boot")
+        # Kode undangan yang masih berlaku dimuat supaya tidak hilang saat restart.
+        nk = users.undangan_load()
+        nt = orchestrator.load_tasks()
+        ns = sessions.load()
+        hub.emit("system", f"UI AstroZ siap ({nt} tugas, {ns} percakapan, "
+                           f"{nu or 1} akun, {nk} kode undangan)", phase="boot")
+    except Exception as e:
+        hub.emit("system", f"Penyiapan gagal: {type(e).__name__}: {e}", ok=False, phase="boot")
+    finally:
+        # Ditandai SETELAH bagian wajib selesai: dipakai /api/versi untuk
+        # membuktikan startup benar-benar tuntas, bukan sekadar port terbuka.
+        _STARTUP_SELESAI.set()
+
+    # Sisa pekerjaan latar. Dipisah dari blok di atas supaya kegagalannya tidak
+    # pernah membuat penanda "startup selesai" tidak terpasang.
+    try:
+        threading.Thread(target=hub.load_from_disk, args=(1500,), daemon=True).start()
+        # mirror Hermes activity feeds into the hub: the astroz plugin feed and the
+        # live-activity plugin feed (both are written by separate processes).
+        home = pathlib.Path(config.hermes_home())
+        for rel, tag in (("runtime/hermes_plugin.jsonl", "astroz"), ("runtime/live_activity.jsonl", "live-activity")):
+            threading.Thread(target=hub.follow_file, args=(home / rel,), kwargs={"kind": "hermes", "tag": tag}, daemon=True).start()
+        threading.Thread(target=_refresh_workers, daemon=True).start()
+        # Skill bawaan repo dipasang sekali di sini, jadi clone baru langsung punya
+        # skill tanpa memasangnya satu per satu dari UI. Jalan di thread sendiri:
+        # menautkan ratusan folder bisa makan beberapa detik.
+        threading.Thread(target=plugins.pasang_bawaan_sekali, daemon=True).start()
+    except Exception as e:
+        hub.emit("system", f"Pekerjaan latar gagal dimulai: {type(e).__name__}: {e}", ok=False)
 
 
 async def _sync_awal() -> None:
