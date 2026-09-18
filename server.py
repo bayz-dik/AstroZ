@@ -372,6 +372,21 @@ async def akun_hapus(nama: str, request: Request):
 
 @app.on_event("startup")
 async def _startup() -> None:
+    """Menyiapkan server sebelum melayani permintaan.
+
+    Pekerjaan di sini DIBAGI DUA, dan pembagiannya penting untuk HP:
+
+      - Bagian yang cepat dan wajib (memindahkan berkas lama, memuat akun,
+        membuat token aplikasi, memuat tugas/percakapan) dijalankan LANGSUNG,
+        karena tanpa itu permintaan pertama akan dilayani dengan keadaan
+        setengah siap.
+      - Bagian yang bisa lama (membaca 1500 kejadian dari disk) dijalankan di
+        THREAD terpisah. Di HP, membaca riwayat bisa memakan detik, dan selama
+        itu event loop TIDAK melayani permintaan apa pun -- akibatnya WebView
+        yang memuat halaman tampak menggantung sampai batas waktunya habis,
+        walau portnya sudah terbuka. Itu gejala "antarmuka belum selesai
+        dimuat" yang terlihat di perangkat.
+    """
     hub.bind_loop(asyncio.get_running_loop())
     # Pemindahan sekali jalan: berkas bersama yang lama (tasks/sessions/events/
     # cadangan) pindah ke folder pemiliknya, dan folder kerja lama pindah ke
@@ -382,7 +397,6 @@ async def _startup() -> None:
     for k, v in {**pindah, "workspace": pindah_ws}.items():
         if v and not str(v).startswith(("dilewati", "sudah", "setelan", "tidak ada")):
             hub.emit("system", f"Penyimpanan lama dipindah: {k} -> {v}", phase="boot")
-    n = hub.load_from_disk(1500)
     nu = users.load()
     # Akun admin pertama dibuat di sini kalau belum ada akun sama sekali.
     # Tokennya ditulis ke runtime/admin_token.txt (hanya bisa dibaca pemilik
@@ -394,12 +408,14 @@ async def _startup() -> None:
     # aplikasi Android untuk masuk sendiri, jadi pengguna tidak perlu mengetik
     # token apa pun. Di desktop, berkas ini juga ada tetapi tidak dipakai UI.
     _token_aplikasi(pathlib.Path(config.ROOT))
-    hub.emit("system", "Token aplikasi siap (dipakai aplikasi Android untuk masuk sendiri)", phase="boot")
     # Kode undangan yang masih berlaku dimuat supaya tidak hilang saat restart.
     nk = users.undangan_load()
     nt = orchestrator.load_tasks()
     ns = sessions.load()
-    hub.emit("system", f"UI AstroZ siap ({n} kejadian, {nt} tugas, {ns} percakapan, "
+    # Riwayat kejadian dibaca di thread: ini bagian yang paling lama di HP dan
+    # tidak boleh menahan pelayanan permintaan.
+    threading.Thread(target=hub.load_from_disk, args=(1500,), daemon=True).start()
+    hub.emit("system", f"UI AstroZ siap ({nt} tugas, {ns} percakapan, "
                        f"{nu or 1} akun, {nk} kode undangan)", phase="boot")
     asyncio.create_task(_bg_health())
     # Sinkron sekali saat start. Tanpa ini, orang yang baru mengkloning repo
