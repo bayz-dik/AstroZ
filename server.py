@@ -1552,11 +1552,20 @@ async def terminal_info(request: Request):
     d = terminal.info()
     d["ok"] = True
     d["cwd"] = str(terminal.folder_kerja(u["nama"]))
+    d["pengguna"] = u.get("nama")
+    d["peran"] = u.get("peran")
+    d["tanpa_token"] = True   # aplikasi masuk sendiri; pengguna tidak melihat token
     # Di aplikasi Android, 9Router hidup sebagai proses di dalam aplikasi --
     # bukan di Termux. Permintaan dari UI inilah yang menyalakannya saat
     # dibutuhkan, supaya boot tidak menanggung bebannya.
     if request.query_params.get("router") == "1":
-        d["router"] = await asyncio.to_thread(_pastikan_router)
+        hasil = await asyncio.to_thread(_pastikan_router)
+        d["router"] = hasil
+        # Sesudah 9Router hidup, katalog modelnya langsung disinkronkan ke
+        # konfigurasi AstroZ. Inilah yang membuat model hasil setup muncul di
+        # chat tanpa langkah tambahan.
+        if hasil.get("ok"):
+            d["sinkron"] = await asyncio.to_thread(_sinkron_model_setelah_setup)
     d["sesi"] = [{"owner": k, "id": s.id, "hidup": bool(s.proc and s.proc.poll() is None)}
                  for k, s in terminal.semua_sesi().items()] if u.get("peran") == "admin" else []
     return d
@@ -1602,9 +1611,22 @@ def _pastikan_router() -> dict:
     if not lib:
         return {"ok": False, "error": "libnode.so tidak ditemukan di aplikasi"}
 
-    cli = root / "router/node_modules/9router/cli.js"
-    if not cli.is_file():
-        return {"ok": False, "error": f"9router tidak ada di {cli}"}
+    # 9Router dicari di dua tempat, urut:
+    #   1. yang dipasang pengguna dari terminal (root/router-terpasang) --
+    #      ini yang utama, karena pengguna memang memasangnya sendiri dan
+    #      bisa memakai versi terbaru
+    #   2. cadangan bawaan (root/router) kalau ada
+    cli = None
+    for kandidat in (root / "router-terpasang/node_modules/9router/cli.js",
+                     root / "router/node_modules/9router/cli.js"):
+        if kandidat.is_file():
+            cli = kandidat
+            break
+    if cli is None:
+        return {"ok": False,
+                "error": "9Router belum dipasang. Buka menu Terminal, lalu jalankan: "
+                         "9router pasang",
+                "petunjuk": "9router pasang"}
 
     import subprocess as _sp
 
@@ -1614,7 +1636,7 @@ def _pastikan_router() -> dict:
     env["HOME"] = str(home)
     env["USERPROFILE"] = str(home)
     env["LD_LIBRARY_PATH"] = f"{root}/node/lib:{pathlib.Path(lib).parent}"
-    env["NODE_PATH"] = str(root / "router/runtime/node_modules")
+    env["NODE_PATH"] = str(cli.parent.parent.parent / "runtime/node_modules")
     env["NO_UPDATE_NOTIFIER"] = "1"
     env.pop("PYTHONHOME", None)
 
@@ -1624,7 +1646,7 @@ def _pastikan_router() -> dict:
         with open(log, "ab") as f:
             proc = _sp.Popen([lib, str(cli), "--port", str(port), "--host", "127.0.0.1",
                               "--no-browser", "--skip-update"],
-                             cwd=str(root / "router"), env=env, stdout=f, stderr=f)
+                             cwd=str(cli.parent), env=env, stdout=f, stderr=f)
     except Exception as e:
         return {"ok": False, "error": f"gagal menjalankan 9Router: {e}"}
 
@@ -1636,6 +1658,34 @@ def _pastikan_router() -> dict:
                     "log": str(log)}
         time.sleep(0.4)
     return {"ok": False, "error": "9Router tidak siap dalam 60 detik", "log": str(log)}
+
+
+def _sinkron_model_setelah_setup() -> dict:
+    """Menyinkronkan katalog model ke konfigurasi AstroZ setelah 9Router siap.
+
+    Inilah yang membuat model hasil setup di 9Router langsung muncul di chat
+    tanpa langkah tambahan: alamat gateway, kunci, dan daftar model disalin ke
+    team.yaml, lalu pekerja memakai model yang sama.
+    """
+    try:
+        cfg = config.load()
+        gw = Gateway(cfg)
+        # Kunci diambil dari 9Router kalau belum ada di konfigurasi.
+        if not cfg["gateway"].get("api_key"):
+            kunci = gw.api_key
+            if kunci:
+                cfg = config.load()
+                cfg["gateway"]["api_key"] = kunci
+                config.save(cfg)
+        h = gw.health()
+        if not h.get("online"):
+            return {"ok": False, "error": "9Router belum menjawab"}
+        res = gw.sync(True)
+        jumlah = res.get("models", 0) if isinstance(res, dict) else 0
+        hub.emit("gateway", f"Model disinkronkan setelah setup: {jumlah} model", phase="sync")
+        return {"ok": True, "model": jumlah, "hasil": res}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 def ctx_libnode() -> str:
