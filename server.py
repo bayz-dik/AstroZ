@@ -1809,12 +1809,12 @@ def _pastikan_router() -> dict:
             if bebas:
                 _setel_port_router(bebas)
                 return {**_nyalakan_router(bebas), "pemilik_lama": "asing",
-                        "catatan": f"port {port} dipakai proses lain (mis. Termux); "
-                                   f"aplikasi memakai port {bebas}"}
+                        "catatan": f"port {port} is held by another process (e.g. Termux); "
+                                   f"the app is using port {bebas}"}
             return {"ok": False, "port": port, "pemilik": "asing",
-                    "error": f"port {port} dipakai proses lain dan tidak ada port "
-                             "pengganti yang bebas",
-                    "saran": "Tutup 9Router yang berjalan di Termux, lalu coba lagi."}
+                    "error": f"port {port} is held by another process and no free "
+                             "replacement port was found",
+                    "saran": "Close the 9Router running in Termux, then try again."}
         # pemilik == "tidak jelas": diperlakukan sudah hidup supaya aplikasi tidak
         # menyalakan proses kedua di port yang sama.
         return {"ok": True, "sudah_hidup": True, "port": port, "pemilik": "tidak jelas"}
@@ -1827,7 +1827,7 @@ def _nyalakan_router(port: int) -> dict:
     root = pathlib.Path(config.ROOT)
     lib = ctx_libnode()
     if not lib:
-        return {"ok": False, "error": "libnode.so tidak ditemukan di aplikasi"}
+        return {"ok": False, "error": "libnode.so was not found in the app"}
 
     # 9Router dicari di dua tempat, urut:
     #   1. yang dipasang pengguna dari terminal (root/router-terpasang) --
@@ -1842,7 +1842,7 @@ def _nyalakan_router(port: int) -> dict:
             break
     if cli is None:
         return {"ok": False,
-                "error": "9Router belum dipasang",
+                "error": "9Router is not installed",
                 "petunjuk": "pasang-otomatis"}
 
     import subprocess as _sp
@@ -1874,7 +1874,7 @@ def _nyalakan_router(port: int) -> dict:
                               "--no-browser", "--skip-update"],
                              cwd=str(cli.parent), env=env, stdout=f, stderr=f)
     except Exception as e:
-        return {"ok": False, "error": f"gagal menjalankan 9Router: {e}"}
+        return {"ok": False, "error": f"failed to start 9Router: {e}"}
 
     for _ in range(150):
         if _port_router_terbuka(port):
@@ -1890,10 +1890,10 @@ def _nyalakan_router(port: int) -> dict:
                 pass
             return {"ok": True, "port": port, "pid": proc.pid, "log": str(log)}
         if proc.poll() is not None:
-            return {"ok": False, "error": f"9Router berhenti sendiri (exit {proc.returncode})",
+            return {"ok": False, "error": f"9Router exited on its own (exit {proc.returncode})",
                     "log": str(log)}
         time.sleep(0.4)
-    return {"ok": False, "error": "9Router tidak siap dalam 60 detik", "log": str(log)}
+    return {"ok": False, "error": "9Router was not ready within 60 seconds", "log": str(log)}
 
 
 def _pasang_router_otomatis() -> dict:
@@ -1919,13 +1919,13 @@ def _pasang_router_otomatis() -> dict:
         return {"ok": True, "sudah_terpasang": True, "lokasi": str(tujuan)}
 
     try:
-        hub.emit("gateway", "Menyiapkan gateway: mengunduh 9Router…", phase="router")
+        hub.emit("gateway", "Setting up gateway: downloading 9Router…", phase="router")
         with urllib.request.urlopen(
                 "https://registry.npmjs.org/9router", timeout=60) as r:
             meta = _json.load(r)
         versi = meta["dist-tags"]["latest"]
         tautan = meta["versions"][versi]["dist"]["tarball"]
-        hub.emit("gateway", f"Mengunduh 9Router {versi}…", phase="router")
+        hub.emit("gateway", f"Downloading 9Router {versi}…", phase="router")
         with urllib.request.urlopen(tautan, timeout=300) as r:
             data = r.read()
 
@@ -1940,15 +1940,15 @@ def _pasang_router_otomatis() -> dict:
                 tf.extract(m, tujuan)
 
         if not (tujuan / "cli.js").is_file():
-            return {"ok": False, "error": "paket terunduh tetapi cli.js tidak ada"}
+            return {"ok": False, "error": "package downloaded but cli.js is missing"}
         try:
             (tujuan.parent.parent / "versi.txt").write_text(versi)
         except OSError:
             pass
-        hub.emit("gateway", f"9Router {versi} siap dipakai", phase="router", ok=True)
+        hub.emit("gateway", f"9Router {versi} is ready", phase="router", ok=True)
         return {"ok": True, "versi": versi, "lokasi": str(tujuan)}
     except Exception as e:
-        return {"ok": False, "error": f"gagal memasang 9Router: {type(e).__name__}: {e}"}
+        return {"ok": False, "error": f"failed to install 9Router: {type(e).__name__}: {e}"}
 
 
 def _siapkan_gateway_otomatis() -> None:
@@ -2257,7 +2257,7 @@ async def terminal_astroz(request: Request):
         # mengunduh dan mengekstraknya langsung. Inilah yang membuat perintah
         # `9router pasang` tidak lagi bergantung pada npm (yang butuh shell).
         if not admin:
-            return _tolak("hanya admin yang boleh memasang gateway", 403)
+            return _tolak("only an admin may install the gateway", 403)
         hasil = await asyncio.to_thread(_pasang_router_otomatis)
         if hasil.get("ok"):
             hasil["nyala"] = await asyncio.to_thread(_pastikan_router)
@@ -2267,14 +2267,14 @@ async def terminal_astroz(request: Request):
 
     if aksi == "router":
         if not admin:
-            return _tolak("hanya admin yang boleh mengubah gateway", 403)
+            return _tolak("only an admin may change the gateway", 403)
         hasil = await asyncio.to_thread(_pastikan_router)
         if hasil.get("ok"):
             hasil["sinkron"] = await asyncio.to_thread(_sinkron_model_setelah_setup)
         return hasil
 
-    return {"ok": False, "error": f"aksi tidak dikenal: {aksi or '(kosong)'}",
-            "bantuan": "status | task | tugas | project | berkas | worker | model | review | terminal"}
+    return {"ok": False, "error": f"unknown action: {aksi or '(empty)'}",
+            "bantuan": "status | task | tugas | project | berkas | worker | model | review | terminal | router | router_pasang"}
 
 
 @app.get("/{path:path}")
