@@ -166,7 +166,40 @@ def env(owner: str = "") -> dict:
     # Batas folder kerja, dibaca oleh PENJARA.
     if owner:
         e["ASTROZ_KERJA"] = str(folder_kerja(owner))
-    e.pop("PYTHONHOME", None)  # jangan sampai Python tertukar dengan milik app
+    bersihkan_env_python(e)
+    return e
+
+
+# Variabel Python milik proses aplikasi yang HARUS dibuang dari lingkungan perintah
+# pengguna.
+#
+# Kenapa: server ini berjalan di dalam proses Python Chaquopy (3.13), dan
+# `os.environ` proses itu memuat PYTHONPATH/PYTHONHOME yang menunjuk stdlib
+# Chaquopy berbentuk zip. Perintah yang kita jalankan mewarisi variabel itu, lalu
+# Python CLI dari aset (3.14) membaca zip stdlib 3.13 dan mati sebelum menjalankan
+# apa pun:
+#
+#   Fatal Python error: Failed to import encodings module
+#   zipimport.ZipImportError: module load failed: bad magic number in
+#     'encodings': b'\xf3\r\r\n'
+#
+# Byte \xf3\r\r\n adalah magic Python 3.13. Ini mematikan `python3`, `pip`, dan
+# setiap skrip yang memakai keduanya. PYTHONHOME pernah dibuang untuk alasan yang
+# sama; PYTHONPATH terlewat dan gejalanya kambuh di perangkat.
+#
+# Diverifikasi di mesin ini: dengan PYTHONPATH menunjuk zip ber-magic 3.13,
+# `python3.14 -c "print(6*7)"` gagal dengan pesan yang persis sama.
+#
+# PYTHONSAFEPATH mencegah Python menambahkan folder skrip ke sys.path, sehingga
+# modul di folder kerja tidak bisa menutupi modul stdlib bernama sama.
+ENV_PYTHON_TERLARANG = ("PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONEXECUTABLE")
+
+
+def bersihkan_env_python(e: dict) -> dict:
+    """Membuang variabel Python milik proses aplikasi dan mengunci sys.path."""
+    for k in ENV_PYTHON_TERLARANG:
+        e.pop(k, None)
+    e["PYTHONSAFEPATH"] = "1"
     return e
 
 
