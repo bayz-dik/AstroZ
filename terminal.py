@@ -78,7 +78,7 @@ def info() -> dict:
     """Keadaan terminal, apa adanya: prefix mana yang dipakai dan alat apa saja
     yang benar-benar ada (diperiksa dengan menjalankannya, bukan diasumsikan)."""
     p = prefix()
-    alat = ["sh", "git", "curl", "npm", "node", "python", "busybox"]
+    alat = ["sh", "bash", "git", "curl", "npm", "node", "python", "pip", "busybox"]
     ada = {}
     for a in alat:
         if p is not None:
@@ -87,6 +87,11 @@ def info() -> dict:
             # dilaporkan -- bukan "tidak ada" yang menyesatkan.
             if a == "sh":
                 ada[a] = (p / "bin/sh").exists() or (p / "bin/busybox").exists()
+            elif a == "python":
+                # Alias tanpa versi dibuat Java di perangkat; yang pasti ada di
+                # aset adalah python3.14.
+                ada[a] = (p / "bin/python").exists() or (p / "bin/python3").exists() \
+                    or (p / "bin/python3.14").exists()
             else:
                 ada[a] = (p / "bin" / a).exists()
         else:
@@ -135,7 +140,7 @@ def env(owner: str = "") -> dict:
     p = prefix()
     e = dict(os.environ)
     if p is not None:
-        e["PATH"] = f"{p}/bin:/system/bin:/system/xbin"
+        e["PATH"] = f"{p}/bin:{p}/libexec/git-core:/system/bin:/system/xbin"
         e["LD_LIBRARY_PATH"] = f"{p}/lib"
         e["PREFIX"] = str(p)
         e["HOME"] = str(p / "home")
@@ -147,6 +152,15 @@ def env(owner: str = "") -> dict:
             e["SSL_CERT_FILE"] = str(ca)
             e["GIT_SSL_CAINFO"] = str(ca)
             e["CURL_CA_BUNDLE"] = str(ca)
+        # Basis data terminfo ikut di aset. Tanpa ini `clear`, `less`, `vi`, dan
+        # program berkursor lainnya mengeluh "terminfo database is not
+        # accessible" walau TERM sudah benar.
+        ti = p / "share/terminfo"
+        if ti.is_dir():
+            e["TERMINFO"] = str(ti)
+            e["TERMINFO_DIRS"] = str(ti)
+        e["GIT_EXEC_PATH"] = str(p / "libexec/git-core")
+        e["GIT_TEMPLATE_DIR"] = str(p / "share/git-core/templates")
     e.setdefault("TERM", "xterm-256color")
     e["LANG"] = "C.UTF-8"
     # Batas folder kerja, dibaca oleh PENJARA.
