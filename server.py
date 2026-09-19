@@ -2059,6 +2059,11 @@ async def terminal_jalankan(request: Request):
     hasil = await asyncio.to_thread(
         s.jalankan, perintah, int(data.get("timeout") or 120))
     hasil["ok"] = bool(hasil.get("ok"))
+    # Penanda selesai adalah mekanisme internal Sesi.jalankan; ia tidak boleh
+    # ikut ke layar. Disaring di sini juga, bukan hanya di jalur SSE, karena UI
+    # mencetak keluaran dari balasan ini saat aliran SSE tidak aktif.
+    if isinstance(hasil.get("keluaran"), str):
+        hasil["keluaran"] = terminal.buang_tanda(hasil["keluaran"])
     return hasil
 
 
@@ -2079,13 +2084,25 @@ async def terminal_alir(request: Request):
 
     async def aliran():
         posisi = mulai
+        # Sisa baris yang belum lengkap dari potongan sebelumnya. Tanpa ini,
+        # keluaran yang datang setengah baris dikirim sebagai baris sendiri, dan
+        # penyaringan penanda selesai tidak bisa bekerja karena penandanya
+        # terpotong menjadi dua potongan.
+        sisa = ""
         try:
             while True:
                 if await request.is_disconnected():
                     break
                 teks, posisi = await asyncio.to_thread(s.tunggu_baru, kid, posisi, 20.0)
                 if teks:
-                    for baris in teks.split("\n"):
+                    potong = (sisa + teks).split("\n")
+                    # Potongan terakhir belum tentu baris utuh: tahan dulu.
+                    sisa = potong.pop()
+                    for baris in potong:
+                        # Penanda selesai adalah mekanisme internal; jangan
+                        # pernah sampai ke layar.
+                        if terminal.POLA_TANDA.match(baris.strip()):
+                            continue
                         yield f"data: {json.dumps({'baris': baris})}\n\n"
                 else:
                     yield ": tetap hidup\n\n"

@@ -3099,7 +3099,14 @@ function sambungTerminal() {
   terminalAliran.onmessage = (ev) => {
     let d = {};
     try { d = JSON.parse(ev.data); } catch (e) { return; }
-    if (typeof d.baris === "string" && d.baris !== "") terminalTulis(d.baris);
+    if (typeof d.baris === "string" && d.baris !== "") {
+      // Penanda selesai sudah disaring server, tetapi lapis kedua di sini murah
+      // dan menutup kasus server versi lama yang masih mengirimkannya (aplikasi
+      // yang belum dipasang ulang). Tanpa ini pengguna melihat baris
+      // __ASTROZ_SELESAI_... di layar terminal.
+      if (/^\s*__ASTROZ_SELESAI_[0-9a-f]{8}__:/.test(d.baris)) return;
+      terminalTulis(d.baris);
+    }
     if (d.cwd) terminalTanda(d.cwd);
   };
   // Kalau sambungan putus (layar tidur, server restart), sambungkan lagi setelah

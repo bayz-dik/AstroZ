@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import threading
@@ -38,6 +39,29 @@ SIMPAN_SETELAH_POTONG = 250_000
 
 TIMEOUT_BAWAAN = 120
 TIMEOUT_MAKS = 1800
+
+# Penanda selesai. Bentuknya sengaja aneh dan berisi hex acak supaya tidak
+# mungkin bentrok dengan keluaran perintah pengguna.
+#
+#   __ASTROZ_SELESAI_<hex>__:<kode>:<cwd>
+#
+# Dipakai Sesi.jalankan untuk tahu perintahnya benar-benar selesai, bukan hanya
+# karena keluarannya sedang sepi. Penanda ini TIDAK BOLEH sampai ke layar: ia
+# mekanisme internal, dan melihatnya di terminal membingungkan pengguna.
+POLA_TANDA = re.compile(r"^__ASTROZ_SELESAI_[0-9a-f]{8}__:.*$")
+
+
+def buang_tanda(teks: str) -> str:
+    """Membuang baris penanda selesai dari keluaran yang akan ditampilkan.
+
+    Dipakai di jalur tampilan (SSE dan balasan HTTP). Buffer internal TETAP
+    menyimpan penandanya, karena Sesi.jalankan membacanya dari sana; yang
+    disaring hanya yang dikirim ke layar.
+    """
+    if "__ASTROZ_SELESAI_" not in teks:
+        return teks
+    baris = teks.split("\n")
+    return "\n".join(b for b in baris if not POLA_TANDA.match(b.strip()))
 
 
 def _kandidat_prefix() -> list[pathlib.Path]:

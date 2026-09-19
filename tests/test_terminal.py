@@ -71,6 +71,46 @@ def test_terminfo_diarahkan_ke_prefix():
     assert terminal.env().get("TERMINFO") == str(p / "share/terminfo")
 
 
+def test_buang_tanda_membersihkan_penanda_selesai():
+    """Penanda selesai adalah mekanisme internal dan tidak boleh terlihat.
+
+    Bentuknya __ASTROZ_SELESAI_<hex>__:<kode>:<cwd> dan dipakai Sesi.jalankan
+    untuk tahu perintahnya benar-benar selesai. Kalau ikut tampil, pengguna
+    melihat baris acak setelah setiap perintah.
+    """
+    keluaran = "halo\n__ASTROZ_SELESAI_ab12cd34__:0:/data/kerja\n42"
+    hasil = terminal.buang_tanda(keluaran)
+    assert "__ASTROZ_SELESAI_" not in hasil
+    assert hasil == "halo\n42"
+
+
+def test_buang_tanda_tidak_menyentuh_keluaran_biasa():
+    keluaran = "total 4\ndrwxr-xr-x 2 root root 4096 Jan 1 00:00 ."
+    assert terminal.buang_tanda(keluaran) == keluaran
+    # Baris yang menyebut namanya tetapi BUKAN penanda (mis. sedang dicetak
+    # pengguna sendiri) tidak boleh hilang.
+    aneh = "echo __ASTROZ_SELESAI_x__ -> bukan penanda"
+    assert terminal.buang_tanda(aneh) == aneh
+
+
+def test_jalankan_tidak_mengembalikan_penanda(env_tercemar, tmp_path):
+    """Uji ujung ke ujung: perintah sungguhan, keluarannya bersih dari penanda."""
+    if terminal.prefix() is None:
+        pytest.skip("aset terminal tidak ada di mesin ini")
+    import config
+    asli = config.RUNTIME
+    config.RUNTIME = tmp_path / "runtime"
+    kerja = tmp_path / "kerja"
+    kerja.mkdir()
+    try:
+        hasil = terminal.jalankan("echo satu; echo dua", owner="uji", cwd=str(kerja))
+    finally:
+        config.RUNTIME = asli
+    assert hasil.get("ok"), hasil
+    assert "__ASTROZ_SELESAI_" not in hasil.get("keluaran", ""), hasil
+    assert "satu" in hasil["keluaran"] and "dua" in hasil["keluaran"]
+
+
 def test_python_benar_benar_berjalan_walau_env_aplikasi_tercemar(env_tercemar, tmp_path):
     """Uji ujung ke ujung: jalankan python3 SUNGGUHAN dari prefix aset.
 
