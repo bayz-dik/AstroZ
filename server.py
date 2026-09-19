@@ -1891,9 +1891,28 @@ def _nyalakan_router(port: int) -> dict:
             return {"ok": True, "port": port, "pid": proc.pid, "log": str(log)}
         if proc.poll() is not None:
             return {"ok": False, "error": f"9Router exited on its own (exit {proc.returncode})",
-                    "log": str(log)}
+                    "log": str(log), "log_ekor": _ekor_log_router(log)}
         time.sleep(0.4)
-    return {"ok": False, "error": "9Router was not ready within 60 seconds", "log": str(log)}
+    return {"ok": False, "error": "9Router was not ready within 60 seconds",
+            "log": str(log), "log_ekor": _ekor_log_router(log)}
+
+
+def _ekor_log_router(log: pathlib.Path, baris: int = 25) -> str:
+    """Beberapa baris terakhir log 9Router, untuk DITAMPILKAN ke pengguna.
+
+    Kenapa perlu: pesan "9Router exited on its own (exit 1)" tidak memberi tahu
+    apa pun tentang sebabnya, dan log-nya berada di jalur yang tidak mungkin
+    dibuka pengguna dari terminal (prefix aplikasi). Tanpa ini setiap kegagalan
+    gateway berhenti sebagai tebakan, dan itu sudah terjadi sekali.
+    """
+    try:
+        isi = log.read_text(errors="replace").splitlines()
+    except OSError:
+        return ""
+    # Buang baris kosong di ekor supaya yang tampil benar-benar informasi.
+    while isi and not isi[-1].strip():
+        isi.pop()
+    return "\n".join(isi[-baris:])
 
 
 def _pasang_router_otomatis() -> dict:
