@@ -72,7 +72,7 @@ function pasangFormMasuk() {
     const token = el("token-masuk").value.trim();
     const pesan = el("pesan-masuk");
     const tombol = el("tombol-masuk");
-    if (!token) { pesan.textContent = "Isi tokennya dulu."; return; }
+    if (!token) { pesan.textContent = "Isi sandinya dulu."; return; }
     tombol.disabled = true;
     tombol.textContent = "memeriksa";
     pesan.textContent = "";
@@ -442,6 +442,7 @@ const JALUR_IKON = {
   terminal: "M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 17V7A1.5 1.5 0 0 1 4 5.5ZM6.5 10l2.5 2.5L6.5 15M11.5 15.2h5",
   "titik-tiga": "M12 6.4h.01M12 12h.01M12 17.6h.01",
   hapus: "M5 7h14M9.5 7V5.2h5V7M7 7l.9 12.1h8.2L17 7M10.4 10.6v5.6M13.6 10.6v5.6",
+  stop: "M7.5 7.5h9v9h-9z",
   lain: "M12 6.4h.01M12 12h.01M12 17.6h.01",
 };
 
@@ -892,10 +893,22 @@ function gambarPesan(p) {
     if (p.tes === false) aksi.appendChild(buat("span", "waktu", "tes gagal"));
     if (p.ts) aksi.appendChild(buat("span", "waktu", waktu(p.ts)));
 
-    /* Baris aksi jawaban: salin, tanya ulang, sumber. Suka, tidak suka, dan
-       bacakan dihapus: ketiganya fitur umpan balik untuk pengembang model,
-       bukan untuk pengguna aplikasi ini. */
+    /* Baris aksi jawaban: hentikan (hanya saat berjalan), salin, tanya ulang,
+       sumber. Suka, tidak suka, dan bacakan dihapus: ketiganya fitur umpan balik
+       untuk pengembang model, bukan untuk pengguna aplikasi ini. */
     const aksiKiri = buat("div", "aksi-deret");
+    // Tombol hentikan ADA DI SINI, bukan hanya di dalam kotak aktivitas.
+    //
+    // Kenapa: kotak aktivitas butuh dua langkah (ketuk pesan, lalu cari
+    // tombolnya), dan pengguna tidak menemukannya. Satu tombol di baris aksi
+    // pesan yang sedang berjalan adalah satu ketukan, tepat di tempat mata
+    // sedang melihat statusnya.
+    if (p.status === "jalan" && p.tugas) {
+      const h = tombolAksi("stop", "Hentikan tugas ini",
+        () => hentikanTugas(p.tugas, h));
+      h.classList.add("aksi-hentikan");
+      aksiKiri.appendChild(h);
+    }
     aksiKiri.appendChild(tombolAksi("salin", "Salin jawaban ini", () => salinJawaban(p.teks || "")));
     aksiKiri.appendChild(tombolAksi("ulang", "Tanya ulang pesan ini", () => tanyaUlang(p)));
     if (p.tugas) aksiKiri.appendChild(tombolAksi("berkas", "Lihat proses kerja", () => { tampilkanKerja(p.tugas); }));
@@ -1861,7 +1874,11 @@ function gambarStrip() {
 }
 
 async function hentikanTugas(tid, tombol) {
-  if (tombol) { tombol.disabled = true; tombol.textContent = "menghentikan…"; }
+  // Tombol bisa berupa .aksi-ikon (berisi lambang, tanpa teks) atau tombol teks
+  // di kotak aktivitas. Menimpa textContent pada yang berisi lambang akan
+  // MENGHAPUS lambangnya, jadi keduanya dibedakan.
+  const teksAsli = tombol && !tombol.classList.contains("aksi-ikon") ? tombol.textContent : null;
+  if (tombol) { tombol.disabled = true; if (teksAsli !== null) tombol.textContent = "menghentikan…"; }
   try {
     await kirim(`/api/tasks/${tid}/hentikan`, {});
     pesanSingkat("Tugas dihentikan.");
@@ -1873,7 +1890,7 @@ async function hentikanTugas(tid, tombol) {
     if (kerjaTugas === tid) gambarKerja();
   } catch (e) {
     pesanSingkat("Tidak bisa menghentikan: " + e.message, true);
-    if (tombol) { tombol.disabled = false; tombol.textContent = "hentikan tugas ini"; }
+    if (tombol) { tombol.disabled = false; if (teksAsli !== null) tombol.textContent = teksAsli; }
   }
 }
 

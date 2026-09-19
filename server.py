@@ -82,6 +82,25 @@ def _token_aplikasi(root: pathlib.Path) -> str:
 def token_aplikasi() -> str:
     return _TOKEN_APLIKASI
 
+
+# Sandi masuk, dibaca dari config saat boot. Dibaca sekali, bukan per permintaan,
+# supaya file konfigurasi tidak disentuh di setiap percobaan masuk.
+_SANDI = ""
+
+
+def muat_sandi() -> str:
+    """Membaca sandi masuk dari config (boleh kosong)."""
+    global _SANDI
+    try:
+        _SANDI = str((config.load() or {}).get("sandi") or "").strip()
+    except Exception:
+        _SANDI = ""
+    return _SANDI
+
+
+def sandi_diatur() -> bool:
+    return bool(_SANDI)
+
 # ------------------------------------------------------------------ masuk
 
 # Nama cookie yang menyimpan token. Cookie dipakai supaya UI tidak perlu
@@ -197,7 +216,11 @@ async def gerbang_masuk(request: Request, call_next):
 
 @app.post("/api/masuk")
 async def masuk(payload: dict, request: Request):
-    """Tukar token dengan cookie. Token tidak dikembalikan lagi setelah ini.
+    """Tukar token (atau sandi) dengan cookie.
+
+    Dua cara masuk, dan keduanya menanam cookie berisi token yang sama:
+      - sandi dari `team.yaml` (kalau diatur) -> yang dipakai sehari-hari
+      - token akun / token aplikasi -> untuk skrip dan admin
 
     Cookie hanya ditulis kalau permintaannya datang dari halaman sendiri.
     Halaman UI memang terbuka, jadi tanpa pemeriksaan asal, situs lain bisa
@@ -209,7 +232,27 @@ async def masuk(payload: dict, request: Request):
     if asal and not _asal_sendiri(asal, request):
         return _tolak("permintaan masuk harus dari halaman AstroZ sendiri", 403)
     token = ((payload or {}).get("token") or "").strip()
-    u = users.verifikasi(token)
+    # Sandi (kalau diatur di team.yaml) diterima DI SINI, dan pengguna tidak perlu
+    # menempel token panjang. Cookie yang ditanam tetap token aplikasi, jadi
+    # seluruh pemeriksaan di bawahnya tidak berubah.
+    #
+    # Dibandingkan dengan hmac.compare_digest supaya waktu balasannya tidak
+    # membocorkan panjang awalan sandi yang benar.
+    if _SANDI and token and hmac.compare_digest(token, _SANDI):
+        token = _TOKEN_APLIKASI or token
+    # Token aplikasi JUGA diterima di sini, bukan hanya di _pengguna().
+    #
+    # Kenapa: _pengguna() sudah menerima token aplikasi sebagai identitas admin,
+    # tetapi endpoint ini hanya memakai users.verifikasi(). Akibatnya token
+    # aplikasi bekerja lewat header Authorization tetapi DITOLAK saat dipakai
+    # masuk dari peramban, dengan pesan "token tidak dikenali" -- padahal
+    # tokennya benar. Di aplikasi Android hal ini tidak terlihat karena Java
+    # menanam cookie-nya sendiri lewat WebView.
+    if token and _TOKEN_APLIKASI and hmac.compare_digest(token, _TOKEN_APLIKASI):
+        admin = users.ambil(users.admin_pertama()) or {"nama": "admin", "peran": "admin"}
+        u = {"nama": admin.get("nama", "admin"), "peran": "admin", "aktif": True}
+    else:
+        u = users.verifikasi(token)
     if not u:
         # Pesan sengaja tidak membedakan token salah dan akun mati.
         return _tolak("token tidak dikenali", 403)
@@ -436,6 +479,8 @@ def _siapkan_sesudah_boot() -> None:
         # perlu mengetik token apa pun. Dibuat sebelum langkah lain yang bisa
         # lama supaya aplikasi bisa masuk secepat mungkin.
         _token_aplikasi(pathlib.Path(config.ROOT))
+        # Sandi masuk dibaca setelahnya, dan hanya kalau diatur.
+        muat_sandi()
 
         nu = users.load()
         # Akun admin pertama dibuat di sini kalau belum ada akun sama sekali.

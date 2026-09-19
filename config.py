@@ -47,6 +47,16 @@ DEFAULTS: dict[str, Any] = {
         "vision_model": "",
     },
     "project_dir": str(pathlib.Path.home() / "AstroZ" / "workspace"),
+    # Sandi masuk UI. Kalau diisi, layar masuk menerima sandi ini saja dan TIDAK
+    # meminta token lagi -- supaya tidak perlu menempel token panjang.
+    #
+    # Peringatan yang harus disampaikan apa adanya: sandi ini memberi akses PENUH
+    # ke mesin, bukan cuma ke tampilan. Terminal di dalamnya menjalankan perintah
+    # sungguhan, dan server bind ke 0.0.0.0 sehingga bisa dijangkau host lain di
+    # WiFi yang sama. Jangan pakai sandi lemah di jaringan bersama.
+    #
+    # Kosong = hanya token yang diterima (perilaku lama).
+    "sandi": "",
     "workers": {
         "claude": {"enabled": True, "model": ""},
         "codex": {"enabled": True, "model": ""},

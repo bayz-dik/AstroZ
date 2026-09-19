@@ -498,6 +498,12 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 }
 .aksi-ikon:hover { background: var(--permukaan-hangat); color: var(--tinta); }
 .aksi-ikon.aktif { color: var(--aksen-teks); }
+/* Tombol hentikan memakai warna galat, bukan abu-abu seperti aksi lain: satu-
+   satunya tombol di baris itu yang mengubah keadaan pekerjaan, jadi ia harus
+   terbaca sebagai tindakan, bukan sekadar ikon tambahan. */
+.aksi-ikon.aksi-hentikan { color: var(--galat); }
+.aksi-ikon.aksi-hentikan:hover { background: var(--permukaan-hangat); color: var(--galat); }
+.aksi-ikon[disabled] { opacity: 0.45; cursor: default; }
 .cap {
   font-family: var(--font-mesin); font-size: 11px;
   border-radius: var(--radius-pil); padding: 2px 10px;
