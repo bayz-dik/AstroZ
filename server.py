@@ -101,6 +101,29 @@ def muat_sandi() -> str:
 def sandi_diatur() -> bool:
     return bool(_SANDI)
 
+
+# Simpanan sebentar untuk hitungan penyimpanan. Angkanya dipakai panel
+# Pengaturan, tidak berubah dalam hitungan detik, dan menelusuri ribuan berkas
+# di penyimpanan PROOT memang lambat (~20 detik). Tanpa simpanan ini, membuka
+# panel dua kali membayar ongkos yang sama dua kali.
+CACHE_DETIK = 60
+_storage_cache: dict = {"isi": None, "waktu": 0.0, "kunci": ""}
+
+
+def simpan_sandi(baru: str) -> None:
+    """Menulis `sandi` baru ke team.yaml, lalu memperbarui nilai di memori.
+
+    Ditulis lewat config.save() supaya bentuk berkasnya sama dengan jalur lain
+    (tulis ke .tmp lalu replace), jadi tidak ada keadaan setengah tertulis kalau
+    prosesnya mati di tengah.
+    """
+    global _SANDI
+    cfg = config.load()
+    cfg["sandi"] = str(baru or "").strip()
+    config.save(cfg)
+    _SANDI = cfg["sandi"]
+
+
 # ------------------------------------------------------------------ masuk
 
 # Nama cookie yang menyimpan token. Cookie dipakai supaya UI tidak perlu
@@ -214,6 +237,33 @@ async def gerbang_masuk(request: Request, call_next):
     return await call_next(request)
 
 
+@app.post("/api/sandi")
+async def ganti_sandi(payload: dict, request: Request):
+    """Mengganti sandi masuk dari UI.
+
+    Kenapa endpoint ini ada: pemiliknya bekerja hanya dari HP, sedangkan sandi
+    disimpan di team.yaml. Menyuruhnya menyunting YAML di HP sama saja dengan
+    tidak menyediakan cara mengganti sandi sama sekali.
+
+    Hanya admin, dan hanya dari halaman sendiri (sama seperti /api/masuk):
+    tanpa pemeriksaan asal, situs lain bisa mengganti sandi lewat peramban
+    korban lalu mengunci pemiliknya keluar dari mesinnya sendiri.
+    """
+    if not _admin_saja(request):
+        return _tolak("hanya admin yang boleh mengganti sandi", 403)
+    asal = (request.headers.get("origin") or "").strip()
+    if asal and not _asal_sendiri(asal, request):
+        return _tolak("permintaan ganti sandi harus dari halaman AstroZ sendiri", 403)
+    baru = str((payload or {}).get("sandi") or "").strip()
+    if len(baru) < 4:
+        return _tolak("sandi minimal 4 karakter", 400)
+    try:
+        await asyncio.to_thread(simpan_sandi, baru)
+    except Exception as e:
+        return _tolak(f"gagal menyimpan sandi: {type(e).__name__}: {e}", 500)
+    return {"ok": True, "diatur": sandi_diatur()}
+
+
 @app.post("/api/masuk")
 async def masuk(payload: dict, request: Request):
     """Tukar token (atau sandi) dengan cookie.
@@ -294,12 +344,37 @@ async def storage_pemakaian(request: Request):
     terlihat siapa menanggung berapa dan berkas besar bisa ditemukan sebelum
     perangkatnya penuh. Pengguna biasa hanya melihat pemakaiannya sendiri;
     daftar lengkap hanya untuk admin, karena menyebut nama orang lain.
+
+    Dua hal penting di sini, keduanya pernah salah:
+
+    1. Hitungannya dijalankan di thread (`asyncio.to_thread`). Sebelumnya ia
+       dipanggil langsung di dalam `async def`, jadi ia MEMBLOKIR event loop:
+       selama 20+ detik server tidak melayani permintaan lain sama sekali.
+       Gejalanya menyesatkan -- yang terlihat "lemot" bukan cuma panel
+       Penyimpanan, tetapi seluruh UI, termasuk permintaan yang tidak ada
+       hubungannya (mis. /api/state ikut jadi 25 detik).
+
+    2. Hasilnya disimpan sebentar (CACHE_DETIK). Menelusuri ribuan berkas di
+       penyimpanan PROOT memang lambat, dan angkanya tidak berubah dalam
+       hitungan detik. Permintaan kedua dalam rentang itu langsung dilayani.
     """
     u = _pengguna(request) or {}
     saya = (u.get("nama") or "admin").strip().lower()
-    semua = storage.pemakaian()
-    if u.get("peran") != "admin":
-        semua = {saya: semua.get(saya) or storage.pemakaian([saya])[saya]}
+    admin = u.get("peran") == "admin"
+
+    # Kunci cache dibedakan admin/pengguna: jawabannya berbeda, dan mencampurnya
+    # akan membocorkan daftar pemakaian pengguna lain ke akun biasa.
+    kunci = "admin" if admin else saya
+    sekarang = time.time()
+    if _storage_cache["isi"] is not None and (sekarang - _storage_cache["waktu"]) < CACHE_DETIK \
+            and _storage_cache["kunci"] == kunci:
+        semua = _storage_cache["isi"]
+    else:
+        semua = await asyncio.to_thread(storage.pemakaian)
+        _storage_cache.update({"isi": semua, "waktu": sekarang, "kunci": kunci})
+
+    if not admin:
+        semua = {saya: semua.get(saya) or (await asyncio.to_thread(storage.pemakaian, [saya]))[saya]}
     return {
         "ok": True,
         "pemakaian": semua,

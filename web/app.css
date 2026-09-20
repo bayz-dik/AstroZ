@@ -163,20 +163,8 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 .isi-tab[hidden] { display: none; }
 .isi-tab .kelompok { margin: 0; }
 
-/* Tab masuk/daftar: satu baris, garis bawah pada yang aktif. */
-.tab-masuk {
-  display: flex; gap: 4px; border-bottom: 1px solid var(--garis); margin-bottom: 4px;
-}
-.tab-masuk button {
-  background: transparent; border: 0; cursor: pointer; font: inherit;
-  font-size: 14px; color: var(--tinta-lembut); padding: 9px 10px;
-  border-bottom: 2px solid transparent; margin-bottom: -1px;
-  min-height: var(--tinggi-target);
-}
-.tab-masuk button[aria-selected="true"] {
-  color: var(--tinta); border-bottom-color: var(--tinta); font-weight: 500;
-}
-.token-baru { font-family: var(--font-mesin); font-size: 12px; }
+/* Gaya tab masuk/daftar dan kolom token (.tab-masuk, .token-baru) dihapus
+   bersama alur undangan: layar masuk sekarang hanya satu formulir sandi. */
 /* Lambang yang sama dengan kepala bar, hanya lebih besar. */
 .lambang-masuk {
   display: block; width: 44px; height: 40px; margin-bottom: 6px;
@@ -861,58 +849,9 @@ pre.isi-berkas {
 
 /* ---------------------------------------------------------------- terminal */
 
-/* Layar terminal: monospace, latar gelap tetap di tema terang maupun gelap.
-   Alasannya praktis: keluaran perintah panjang (log, npm, git) lebih mudah
-   dipindai pada latar gelap, dan itu yang diharapkan orang dari terminal. */
-.terminal-layar {
-  background: #17171A;
-  color: #E6E4DC;
-  border-radius: var(--radius-2);
-  padding: 12px 14px;
-  margin: 12px 0;
-  font-family: var(--font-mesin);
-  font-size: 12.5px;
-  line-height: 1.55;
-  height: 46vh;
-  min-height: 220px;
-  max-height: 560px;
-  overflow: auto;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-  box-shadow: var(--cincin);
-  scroll-behavior: smooth;
-}
-.terminal-layar:focus-visible { outline: 2px solid var(--fokus); outline-offset: 2px; }
-
-.terminal-baris-teks { margin: 0; }
-.terminal-baris-teks.perintah { color: #F0B27A; font-weight: 600; }
-.terminal-baris-teks.galat { color: #F09A9A; }
-.terminal-baris-teks.redup { color: #8E8C84; }
-.terminal-baris-teks.bantuan { color: #A8C7F0; }
-
-.terminal-baris {
-  display: flex; align-items: center; gap: 8px;
-  margin-top: 4px;
-}
-.terminal-tanda {
-  font-family: var(--font-mesin); font-size: 12px; color: var(--tinta-meta);
-  max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  flex: 0 0 auto;
-}
-.terminal-baris input {
-  flex: 1 1 auto; min-width: 0;
-  font-family: var(--font-mesin); font-size: 13px;
-  background: var(--permukaan-masuk); color: var(--tinta);
-  border: 0; border-radius: var(--radius-1);
-  padding: 10px 12px; min-height: var(--tinggi-target);
-}
-.terminal-baris input:disabled { opacity: 0.55; }
-.terminal-baris .tombol { flex: 0 0 auto; }
-
-@media (max-width: 560px) {
-  .terminal-layar { height: 40vh; font-size: 12px; }
-  .terminal-tanda { max-width: 12ch; }
-}
+/* Gaya layar terminal (monospace, latar gelap, 12 kelas) dihapus bersama panel
+   Terminalnya. Panel itu tidak lagi ada di UI: aplikasi Android sudah punya
+   terminal sungguhan sendiri, dan di HP sudah ada Termux. */
 
 /* ------------------------------------------------------------------ lapisan */
 

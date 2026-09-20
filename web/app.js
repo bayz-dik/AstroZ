@@ -53,19 +53,10 @@ function pasangFormMasuk() {
   const f = el("form-masuk");
   if (!f) return;
 
-  // Tab: masuk atau daftar. Yang ditampilkan hanya satu, supaya layar masuk
-  // tidak menumpuk dua formulir sekaligus di layar HP.
-  function tabmana(nama) {
-    const masuk = nama === "masuk";
-    el("tab-masuk").setAttribute("aria-selected", String(masuk));
-    el("tab-daftar").setAttribute("aria-selected", String(!masuk));
-    el("form-masuk").hidden = !masuk;
-    el("form-daftar").hidden = masuk;
-    el("hasil-daftar").hidden = true;
-    setTimeout(() => { const n = masuk ? el("token-masuk") : el("kode-undangan"); if (n) n.focus(); }, 60);
-  }
-  el("tab-masuk").addEventListener("click", () => tabmana("masuk"));
-  el("tab-daftar").addEventListener("click", () => tabmana("daftar"));
+  // Fokuskan kolom sandi begitu layar masuk tampil. Dulu ada fungsi tabmana()
+  // untuk berpindah antara tab "Masuk" dan "Punya kode undangan"; tabnya sudah
+  // dihapus bersama undangan, jadi tinggal satu formulir.
+  setTimeout(() => { const n = el("token-masuk"); if (n) n.focus(); }, 60);
 
   f.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -94,77 +85,9 @@ function pasangFormMasuk() {
     }
   });
 
-  // Daftar dengan kode undangan: akun dan token dibuat server, pendaftar
-  // menyalin tokennya sendiri. Admin tidak menyentuh token sama sekali.
-  const fd = el("form-daftar");
-  if (fd) {
-    fd.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const pesan = el("pesan-daftar");
-      const tombol = el("tombol-daftar");
-      const kode = el("kode-undangan").value.trim().toUpperCase();
-      const nama = el("nama-daftar").value.trim().toLowerCase();
-      if (!kode || !nama) { pesan.textContent = "Isi kode dan namanya."; return; }
-      tombol.disabled = true;
-      tombol.textContent = "membuat akun";
-      pesan.textContent = "";
-      try {
-        const d = await minta("/api/undangan/pakai", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ kode, nama }),
-        });
-        const token = (d.akun || {}).token || "";
-        el("token-baru").value = token;
-        el("form-daftar").hidden = true;
-        el("hasil-daftar").hidden = false;
-        el("kode-undangan").value = "";
-        el("nama-daftar").value = "";
-      } catch (err) {
-        pesan.textContent = err.message || "tidak bisa mendaftar";
-      } finally {
-        tombol.disabled = false;
-        tombol.textContent = "Buat akun";
-      }
-    });
-  }
-
-  const salin = el("salin-token");
-  if (salin) {
-    salin.addEventListener("click", async () => {
-      const t = el("token-baru").value;
-      try {
-        await navigator.clipboard.writeText(t);
-        pesanSingkat("Token disalin.");
-      } catch (e) {
-        // Clipboard bisa ditolak peramban; pilih teksnya supaya bisa disalin manual.
-        el("token-baru").select();
-        pesanSingkat("Tekan lama untuk menyalin tokennya.", true);
-      }
-    });
-  }
-
-  const langsung = el("masuk-sekarang");
-  if (langsung) {
-    langsung.addEventListener("click", async () => {
-      const t = el("token-baru").value;
-      langsung.disabled = true;
-      try {
-        const u = await kirimToken(t);
-        tampilkanGerbang(false);
-        keadaan.peran = u.peran || "user";
-        keadaan.saya = u.nama || "";
-        sembunyikanKhususAdmin();
-        await mulai();
-      } catch (err) {
-        el("pesan-daftar").textContent = err.message || "tidak bisa masuk";
-        el("hasil-daftar").hidden = true;
-        el("form-daftar").hidden = false;
-      } finally {
-        langsung.disabled = false;
-      }
-    });
-  }
+  // Blok pendaftaran (kode undangan -> token akun -> salin token) dihapus.
+  // Alurnya membuat token panjang yang harus disalin pengguna, dan itu justru
+  // yang bikin repot. Masuk sekarang hanya butuh sandi.
 }
 
 /* Menu yang menyangkut mesin pemilik (kunci API, pekerja, setelan) tidak
@@ -175,8 +98,6 @@ function sembunyikanKhususAdmin() {
   const admin = keadaan.peran === "admin";
   const kaki = el("kaki-pengaturan");
   if (kaki) kaki.hidden = !admin;
-  const blok = el("blok-admin");
-  if (blok) blok.hidden = !admin;
   // Pil model hanya berguna kalau daftar model boleh dibaca.
   const pil = el("pil-model");
   if (pil) pil.hidden = !admin;
@@ -184,104 +105,20 @@ function sembunyikanKhususAdmin() {
     const j = el("judul-bar");
     if (j) j.textContent = "AstroZ · " + keadaan.saya;
   }
-  // Bagian admin dimuat setelah perannya diketahui, bukan saat halaman dibuka.
-  if (admin) {
-    muatUndangan().catch(() => {});
-    muatAkun().catch(() => {});
-    muatStorage().catch(() => {});
-  }
+  // Pemakaian penyimpanan TIDAK dihitung di sini.
+
+  // Kenapa: menghitungnya menelusuri seluruh folder pengguna (7.400 entri di
+  // mesin ini) dan memakan ~13 detik. Dulu angka ini dihitung saat login, jadi
+  // SETIAP kali halaman dibuka atau disegarkan, permintaannya menahan halaman.
+  // Sekarang baru dihitung saat panel Pengaturan dibuka, karena hanya di sana
+  // angkanya terlihat.
 }
 
 /* ------------------------------------------------------------------ admin */
 
-/* Kelola undangan dan akun. Hanya tampil untuk admin; pengguna biasa tidak
-   melihat bloknya sama sekali, dan server tetap menolak kalau dipaksa. */
-async function muatUndangan() {
-  const wadah = el("daftar-undangan");
-  if (!wadah) return;
-  try {
-    const d = await ambil("/api/undangan");
-    wadah.replaceChildren();
-    const u = d.undangan || [];
-    if (!u.length) {
-      wadah.appendChild(buat("p", "kosong", "Belum ada kode undangan yang berlaku."));
-      return;
-    }
-    for (const k of u) {
-      const baris = buat("div", "baris-data");
-      const atas = buat("div", "atas");
-      atas.appendChild(buat("span", "nama", k.kode));
-      atas.appendChild(buat("span", "tanda-cap ada", k.peran));
-      baris.appendChild(atas);
-      const sisa = Math.max(0, Math.round(((k.kedaluwarsa || 0) * 1000 - Date.now()) / 1000));
-      const jam = Math.floor(sisa / 3600);
-      baris.appendChild(buat("div", "teks-kecil",
-        `dipakai ${k.dipakai}/${k.maks} · berlaku ${jam > 0 ? jam + " jam lagi" : Math.floor(sisa / 60) + " menit lagi"}`));
-      const b = buat("button", "tombol kecil garis", "batalkan");
-      b.type = "button";
-      b.addEventListener("click", async () => {
-        b.disabled = true;
-        try {
-          await kirim(`/api/undangan/${encodeURIComponent(k.kode)}`, {}, "DELETE");
-          pesanSingkat(`Kode ${k.kode} dibatalkan.`);
-          await muatUndangan();
-        } catch (e) {
-          pesanSingkat("Gagal membatalkan: " + e.message, true);
-        } finally {
-          b.disabled = false;
-        }
-      });
-      baris.appendChild(b);
-      wadah.appendChild(baris);
-    }
-  } catch (e) {
-    wadah.replaceChildren(buat("p", "kosong", "Daftar undangan tidak bisa dimuat: " + e.message));
-  }
-}
-
-async function muatAkun() {
-  const wadah = el("daftar-akun");
-  if (!wadah) return;
-  try {
-    const d = await ambil("/api/akun");
-    wadah.replaceChildren();
-    for (const a of d.akun || []) {
-      const baris = buat("div", "baris-data");
-      const atas = buat("div", "atas");
-      atas.appendChild(buat("span", "nama", a.nama));
-      atas.appendChild(buat("span", "tanda-cap " + (a.peran === "admin" ? "ada" : "tidak"), a.peran));
-      if (!a.aktif) atas.appendChild(buat("span", "tanda-cap tidak", "nonaktif"));
-      baris.appendChild(atas);
-      const deret = buat("div", "baris-aksi-pesan");
-      const bt = buat("button", "tombol kecil garis", "token baru");
-      bt.type = "button";
-      bt.addEventListener("click", async () => {
-        bt.disabled = true;
-        try {
-          const r = await kirim(`/api/akun/${encodeURIComponent(a.nama)}/token`, {});
-          // Token baru ditampilkan sekali di sini, lalu bisa disalin.
-          const _tb = baris.querySelector(".token-baru"); if (_tb) _tb.remove();
-          const kotak = buat("input", "token-baru");
-          kotak.readOnly = true;
-          kotak.value = (r.akun || {}).token || "";
-          kotak.style.marginTop = "6px";
-          baris.appendChild(kotak);
-          kotak.select();
-          pesanSingkat(`Token baru untuk ${a.nama} ditampilkan. Salin sekarang.`);
-        } catch (e) {
-          pesanSingkat("Gagal: " + e.message, true);
-        } finally {
-          bt.disabled = false;
-        }
-      });
-      deret.appendChild(bt);
-      baris.appendChild(deret);
-      wadah.appendChild(baris);
-    }
-  } catch (e) {
-    wadah.replaceChildren(buat("p", "kosong", "Daftar akun tidak bisa dimuat: " + e.message));
-  }
-}
+/* Pengelolaan akun dan undangan (kode undangan, daftar akun, terbitkan token)
+   dihapus dari UI. Di mesin satu pengguna, semuanya hanya menambah layar tanpa
+   pernah dipakai; masuk sudah cukup dengan sandi. Fungsi servernya tetap ada. */
 
 function ukuranManusia(n) {
   const b = Number(n) || 0;
@@ -294,6 +131,9 @@ function ukuranManusia(n) {
 async function muatStorage() {
   const wadah = el("daftar-storage");
   if (!wadah) return;
+  // Menelusuri ribuan berkas bisa memakan ~20 detik. Tanpa keterangan, panelnya
+  // terlihat rusak/kosong padahal sedang menghitung.
+  wadah.replaceChildren(buat("p", "kosong", "Menghitung pemakaian…"));
   try {
     const d = await ambil("/api/storage");
     wadah.replaceChildren();
@@ -323,29 +163,40 @@ async function muatStorage() {
   }
 }
 
+/* Ganti sandi dari UI.
+
+   Kenapa ini ada: pemiliknya bekerja hanya dari HP, dan sandi disimpan di
+   team.yaml. Menyuruhnya membuka dan menyunting berkas YAML di HP sama saja
+   dengan tidak menyediakan cara mengganti sandi. Endpoint server menulis
+   berkasnya sendiri, jadi UI tidak perlu tahu letaknya. */
 function pasangAdmin() {
-  const b = el("buat-undangan");
+  const b = el("simpan-sandi");
   if (b) {
     b.addEventListener("click", async () => {
+      const pesan = el("pesan-sandi");
+      const sandi = (el("sandi-baru").value || "").trim();
+      pesan.textContent = "";
+      if (!sandi) {
+        pesan.textContent = "Isi sandi barunya dulu. Mengosongkan berarti kembali ke token.";
+        return;
+      }
       b.disabled = true;
+      b.textContent = "menyimpan";
       try {
-        const maks = Math.max(1, Math.min(50, Number(el("undangan-maks").value) || 1));
-        const d = await kirim("/api/undangan", { peran: "user", maks });
-        const kode = (d.undangan || {}).kode || "";
-        pesanSingkat(`Kode undangan: ${kode} — kirim ke orangnya.`);
-        await muatUndangan();
+        await kirim("/api/sandi", { sandi });
+        el("sandi-baru").value = "";
+        pesan.textContent = "Sandi tersimpan. Pakai sandi ini saat masuk berikutnya.";
       } catch (e) {
-        pesanSingkat("Gagal membuat kode: " + e.message, true);
+        pesan.textContent = "Gagal menyimpan: " + e.message;
       } finally {
         b.disabled = false;
+        b.textContent = "Simpan sandi";
       }
     });
   }
-  const m = el("muat-undangan");
+  const m = el("muat-storage");
   if (m) {
-    m.addEventListener("click", async () => {
-      await Promise.all([muatUndangan(), muatAkun(), muatStorage()]);
-    });
+    m.addEventListener("click", () => { muatStorage().catch(() => {}); });
   }
 }
 
@@ -439,7 +290,6 @@ const JALUR_IKON = {
   pekerja: "M3.5 5.5h17v13h-17zM7.2 10l2.6 2.6L7.2 15.2M12.8 15.4h4",
   catatan: "M4 6.5h16M4 12h16M4 17.5h10",
   model: "M8.5 8.5h7v7h-7zM12 3.5V8.5M12 15.5v5M3.5 12h5M15.5 12h5M5.6 5.6 8.5 8.5M15.5 15.5l2.9 2.9M18.4 5.6 15.5 8.5M8.5 15.5l-2.9 2.9",
-  terminal: "M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 17V7A1.5 1.5 0 0 1 4 5.5ZM6.5 10l2.5 2.5L6.5 15M11.5 15.2h5",
   "titik-tiga": "M12 6.4h.01M12 12h.01M12 17.6h.01",
   hapus: "M5 7h14M9.5 7V5.2h5V7M7 7l.9 12.1h8.2L17 7M10.4 10.6v5.6M13.6 10.6v5.6",
   stop: "M7.5 7.5h9v9h-9z",
@@ -663,7 +513,6 @@ for (const b of document.querySelectorAll("[data-aksi]")) {
    daftar menu tidak pernah menumpuk panjang ke bawah. */
 const DAFTAR_MENU = [
   { alat: "obrolan", judul: "Riwayat percakapan", ikon: "riwayat" },
-  { alat: "terminal", judul: "Terminal", ikon: "terminal" },
   { alat: "skill", judul: "Skill", ikon: "skill" },
   { alat: "plugin", judul: "Plugin MCP", ikon: "plugin" },
   { alat: "capability", judul: "Pasang dari URL", ikon: "plugin" },
@@ -674,7 +523,6 @@ const DAFTAR_MENU = [
 ];
 const HALAMAN = {
   obrolan: "alat-obrolan",
-  terminal: "alat-terminal",
   skill: "alat-skill",
   plugin: "alat-plugin",
   capability: "alat-capability",
@@ -686,7 +534,6 @@ const HALAMAN = {
 };
 const JUDUL_HALAMAN = {
   obrolan: "Riwayat percakapan",
-  terminal: "Terminal",
   skill: "Skill",
   plugin: "Plugin MCP",
   capability: "Pasang dari URL",
@@ -767,7 +614,7 @@ function bukaHalaman(nama) {
   halamanSekarang = nama;
   pasangIkon(el("halaman"));
   if (nama === "skill") muatSkill();
-  if (nama === "terminal") muatTerminal();
+  if (nama === "pengaturan") muatStorage().catch(() => {});
   if (nama === "plugin") muatMcp();
   if (nama === "capability") muatCapability();
   if (nama === "pekerja") { muatPekerja(); muatPekerjaPasang(); }
@@ -2179,12 +2026,12 @@ async function muatPekerja() {
   }
 }
 
-function pada2(id, kejadian, fn) {
+function pada(id, kejadian, fn) {
   const n = el(id);
   if (n) n.addEventListener(kejadian, fn);
 }
 
-pada2("periksa-pekerja", "click", async (ev) => {
+pada("periksa-pekerja", "click", async (ev) => {
   ev.target.disabled = true;
   for (const w of keadaan.pekerja) {
     try { await kirim(`/api/workers/${w.key}/probe`, {}); } catch (e) {}
@@ -2194,7 +2041,7 @@ pada2("periksa-pekerja", "click", async (ev) => {
   pesanSingkat("Pemeriksaan pekerja selesai.");
 });
 
-pada2("terapkan-pekerja", "click", async () => {
+pada("terapkan-pekerja", "click", async () => {
   try { await kirim("/api/apply", { model: keadaan.modelSekarang }); pesanSingkat("Model diterapkan ke pekerja."); await muatPekerja(); }
   catch (e) { pesanSingkat("Gagal menerapkan model: " + e.message, true); }
 });
@@ -3008,196 +2855,6 @@ async function mulai() {
 
 pasangFormMasuk();
 
-/* ------------------------------------------------------------------ terminal */
-
-/* Terminal di UI memakai dua jalur yang berbeda, dan pemisahannya disengaja:
-
-   - Perintah yang hasilnya langsung ditampilkan (git clone, npm install, ls)
-     dikirim lewat POST /api/terminal dan dijalankan di shell pengguna yang
-     tetap hidup, supaya `cd` dan variabel bertahan antar perintah.
-   - Keluaran yang mengalir dibaca lewat SSE /api/terminal/alir, jadi perintah
-     panjang terlihat bergerak, bukan diam lalu muncul sekaligus.
-
-   Layar dibatasi jumlah barisnya: `npm install` bisa mengeluarkan ribuan baris
-   dan tanpa batas itu halaman akan melambat. */
-
-const terminalKeadaan = { tersedia: false, prefix: "", mode: "", alat: {}, siap: false };
-let terminalAliran = null;
-let terminalBaris = 0;
-const BATAS_BARIS_TERMINAL = 2000;
-
-function terminalTulis(teks, kelas) {
-  const layar = el("terminal-layar");
-  if (!layar) return;
-  const baris = buat("div", "terminal-baris-teks" + (kelas ? " " + kelas : ""), teks);
-  layar.appendChild(baris);
-  terminalBaris += 1;
-  // Buang dari atas, bukan dari bawah: yang dibaca pengguna adalah yang terbaru.
-  while (terminalBaris > BATAS_BARIS_TERMINAL && layar.firstChild) {
-    layar.removeChild(layar.firstChild);
-    terminalBaris -= 1;
-  }
-  layar.scrollTop = layar.scrollHeight;
-}
-
-function terminalTanda(jalur) {
-  const t = el("terminal-tanda");
-  if (!t) return;
-  // Tanda $ yang mengikuti folder kerja: tanpa ini pengguna tidak tahu di mana
-  // perintahnya dijalankan setelah beberapa kali `cd`.
-  const pendek = String(jalur || "").split("/").filter(Boolean).slice(-2).join("/");
-  t.textContent = pendek ? pendek + " $" : "$";
-}
-
-/* Menyalakan 9Router di dalam aplikasi, lalu melaporkan hasilnya.
-
-   Ini pengganti alur lama yang mengharuskan pengguna menjalankan 9Router
-   sendiri di Termux: sekarang server AstroZ yang menjalankannya memakai
-   libnode.so dari APK. Permintaan ini bisa memakan sampai 60 detik saat
-   pertama kali (Node harus menyala dan memuat basis datanya), jadi layarnya
-   diberi keterangan lebih dulu supaya tidak terlihat menggantung. */
-async function nyalakanRouter() {
-  terminalTulis("memeriksa gateway 9Router… (bisa sampai 60 detik)", "redup");
-  try {
-    const r = await ambil("/api/terminal?router=1");
-    const g = r.router || {};
-    if (g.ok && g.sudah_hidup) {
-      terminalTulis("9Router sudah hidup di port " + g.port, "bantuan");
-    } else if (g.ok) {
-      terminalTulis("9Router dinyalakan di port " + g.port + " (pid " + g.pid + ")", "bantuan");
-    } else {
-      terminalTulis("9Router gagal dinyalakan: " + (g.error || "sebab tidak diketahui"), "galat");
-      if (g.log) terminalTulis("log: " + g.log, "redup");
-    }
-  } catch (e) {
-    terminalTulis("tidak bisa memeriksa 9Router: " + e.message, "galat");
-  }
-}
-
-async function muatTerminal() {
-  try {
-    // Terminal disiapkan SAAT DIBUTUHKAN: 66 MB / 3000+ berkas. Kalau disiapkan
-    // saat boot, penyalinannya membuat server tidak menjawab dan halaman gagal
-    // dimuat. Permintaan pertama bisa memakan satu-dua menit; layarnya diberi
-    // keterangan supaya tidak terlihat menggantung.
-    el("terminal-keadaan").textContent = "menyiapkan terminal (sekali saja, bisa 1-2 menit)…";
-    const d = await ambil("/api/terminal?siapkan=1&router=1");
-    Object.assign(terminalKeadaan, d);
-    const alat = Object.entries(d.alat || {}).filter(([, ada]) => ada).map(([n]) => n);
-    const kurang = Object.entries(d.alat || {}).filter(([, ada]) => !ada).map(([n]) => n);
-    el("terminal-keadaan").textContent = d.tersedia
-      ? `Siap. Mode ${d.mode}. Tersedia: ${alat.join(", ")}` +
-        (kurang.length ? ` — belum ada: ${kurang.join(", ")}` : "")
-      : "Terminal tidak tersedia di lingkungan ini.";
-    terminalTanda(d.cwd);
-    if (d.tersedia) {
-      terminalTulis("Terminal siap. Folder kerja: " + d.cwd, "redup");
-      terminalTulis("Coba: git clone https://github.com/git/git.git lalu cd git && ls", "redup");
-      sambungTerminal();
-      // 9Router dinyalakan APLIKASI, bukan Termux: server AstroZ yang
-      // menjalankannya memakai libnode.so dari APK. Ini yang membuat pengguna
-      // tidak perlu menyiapkan apa pun di luar aplikasi.
-      nyalakanRouter();
-    }
-    el("terminal-input").disabled = !d.tersedia;
-    el("terminal-jalan").disabled = !d.tersedia;
-  } catch (e) {
-    el("terminal-keadaan").textContent = "Terminal tidak bisa dimuat: " + e.message;
-  }
-}
-
-function sambungTerminal() {
-  if (terminalAliran) return;
-  try {
-    terminalAliran = new EventSource("/api/terminal/alir");
-  } catch (e) {
-    return;
-  }
-  terminalAliran.onmessage = (ev) => {
-    let d = {};
-    try { d = JSON.parse(ev.data); } catch (e) { return; }
-    if (typeof d.baris === "string" && d.baris !== "") {
-      // Penanda selesai sudah disaring server, tetapi lapis kedua di sini murah
-      // dan menutup kasus server versi lama yang masih mengirimkannya (aplikasi
-      // yang belum dipasang ulang). Tanpa ini pengguna melihat baris
-      // __ASTROZ_SELESAI_... di layar terminal.
-      if (/^\s*__ASTROZ_SELESAI_[0-9a-f]{8}__:/.test(d.baris)) return;
-      terminalTulis(d.baris);
-    }
-    if (d.cwd) terminalTanda(d.cwd);
-  };
-  // Kalau sambungan putus (layar tidur, server restart), sambungkan lagi setelah
-  // jeda. EventSource sebenarnya sudah mencoba sendiri, tetapi tidak saat
-  // server mati total, dan itu justru kasus yang sering terjadi di HP.
-  terminalAliran.onerror = () => {
-    terminalAliran.close();
-    terminalAliran = null;
-    setTimeout(() => { if (!el("alat-terminal").hidden || !el("halaman").hidden) sambungTerminal(); }, 3000);
-  };
-}
-
-async function terminalJalankanPerintah(perintah) {
-  if (!perintah.trim()) return;
-  terminalTulis("$ " + perintah, "perintah");
-  const tombol = el("terminal-jalan");
-  tombol.disabled = true;
-  tombol.textContent = "Berjalan…";
-  try {
-    const d = await kirim("/api/terminal", { perintah, timeout: 600 });
-    if (d.cwd) terminalTanda(d.cwd);
-    // Keluaran biasanya sudah tampil lewat aliran SSE; cetak hanya kalau aliran
-    // tidak menyampaikannya, supaya tidak ada baris kembar.
-    const teks = String(d.keluaran || "");
-    if (teks && !terminalAliran) {
-      for (const b of teks.replace(/\n$/, "").split("\n")) terminalTulis(b);
-    }
-    if (!d.ok) {
-      terminalTulis(`[selesai dengan kode ${d.kode}${d.error ? ": " + d.error : ""}]`, "galat");
-    }
-  } catch (e) {
-    terminalTulis("gagal: " + e.message, "galat");
-  } finally {
-    tombol.disabled = false;
-    tombol.textContent = "Jalankan";
-    el("terminal-input").focus();
-  }
-}
-
-/* Pemasangan penangan di bawah ini dijaga: kalau HTML yang dimuat masih versi
-   lama (cache browser), elemennya belum ada dan tanpa penjagaan satu galat akan
-   menghentikan sisa skrip. */
-function pada(id, kejadian, fn) {
-  const n = el(id);
-  if (n) n.addEventListener(kejadian, fn);
-}
-
-pada("terminal-form", "submit", (ev) => {
-  ev.preventDefault();
-  const inp = el("terminal-input");
-  const p = inp.value;
-  inp.value = "";
-  terminalJalankanPerintah(p);
-});
-
-pada("terminal-bersih", "click", () => {
-  el("terminal-layar").replaceChildren();
-  terminalBaris = 0;
-  kirim("/api/terminal/bersihkan", {}).catch(() => {});
-});
-
-pada("terminal-stop", "click", async () => {
-  await kirim("/api/terminal/hentikan", {}).catch(() => {});
-  terminalTulis("[shell dihentikan. Perintah berikutnya menyalakannya lagi.]", "redup");
-});
-
-pada("terminal-bantuan", "click", async () => {
-  const d = await kirim("/api/terminal", { perintah: "astroz --help", timeout: 60 }).catch(() => null);
-  if (d && d.keluaran) {
-    for (const b of String(d.keluaran).replace(/\n$/, "").split("\n")) terminalTulis(b, "bantuan");
-  } else {
-    terminalTulis("Perintah astroz tidak tersedia di lingkungan ini.", "redup");
-  }
-});
 
 // Pencarian model yang lebih lengkap ada di lembar bawah; tombol ini yang
 // menghubungkan panel model dengan lembar itu, supaya tidak ada dua tempat

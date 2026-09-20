@@ -30,8 +30,10 @@ sudah terlanjur dihitung akan menunjuk jalur lama.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import shutil
+import stat
 import time
 
 import config
@@ -104,42 +106,101 @@ def ukuran(nama: str | None) -> int:
     return total
 
 
+def _telusuri(d: pathlib.Path) -> dict:
+    """Satu penelusuran folder pengguna: total, bagiannya, dan jumlah berkas.
+
+    `os.scandir`, bukan `pathlib.rglob`. Diukur pada folder admin di mesin ini
+    (6.932 berkas, 88 MB): rglob 20 detik, scandir 6 detik. rglob membuat satu
+    objek Path per berkas dan menanyakan jenisnya lewat jalur yang mahal,
+    sedangkan scandir mengembalikan Direntry yang sudah membawa hasil lstat
+    dari readdir.
+
+    Dua hal yang mudah salah di sini:
+
+    1. Jenis entri ditentukan dari `e.stat(follow_symlinks=False)`, BUKAN dari
+       `e.is_file()`. Di proot ini readdir melaporkan d_type = DT_LNK untuk
+       berkas BIASA, sehingga pemeriksaan yang membaca d_type menandai 107
+       berkas `.git/objects/...` sebagai symlink dan menghilangkannya dari
+       hitungan (98.061.574 -> 84.147.914 byte, selisih ~14 MB tanpa pesan).
+       lstat adalah satu-satunya cara yang benar di lingkungan ini.
+
+    2. Satu berkas yang gagal dibaca (repo git sedang ditulis) tidak boleh
+       menggagalkan seluruh hitungan, jadi OSError per entri dilewati.
+    """
+    hasil = {"total": 0, "workspace": 0, "cadangan": 0, "berkas": 0}
+    tumpuk: list[tuple[str, tuple[str, ...]]] = [(str(d), ())]
+    while tumpuk:
+        cur, rel = tumpuk.pop()
+        try:
+            with os.scandir(cur) as it:
+                for e in it:
+                    try:
+                        st = e.stat(follow_symlinks=False)
+                    except OSError:
+                        continue
+                    jenis = st.st_mode
+                    if stat.S_ISLNK(jenis):
+                        continue
+                    jalur_rel = rel + (e.name,)
+                    if stat.S_ISDIR(jenis):
+                        tumpuk.append((e.path, jalur_rel))
+                    elif stat.S_ISREG(jenis):
+                        ukuran_berkas = st.st_size
+                        hasil["total"] += ukuran_berkas
+                        hasil["berkas"] += 1
+                        if jalur_rel[0] == "workspace":
+                            hasil["workspace"] += ukuran_berkas
+                        elif jalur_rel[0] == "cadangan":
+                            hasil["cadangan"] += ukuran_berkas
+        except OSError:
+            # Folder bisa hilang di tengah penelusuran.
+            continue
+    return hasil
+
+
 def pemakaian(semua: list[str] | None = None) -> dict:
     """Pemakaian per pengguna, untuk ditampilkan di UI.
 
     Tidak ada batas yang ditegakkan: ini hitungan, bukan kuota. Tujuannya supaya
     terlihat siapa menanggung berapa, dan supaya berkas besar bisa ditemukan
     sebelum perangkatnya penuh.
+
+    Satu penelusuran per pengguna, bukan tiga. Versi sebelumnya menelusuri
+    `workspace`, lalu `cadangan`, lalu seluruh folder pengguna untuk `total` --
+    dan penelusuran terakhir itu MELEWATI ULANG workspace. Di mesin ini
+    workspace berisi 7.400 entri (folder .venv dan repo hasil uji git), jadi
+    satu permintaan UI memakan ~31 detik dan halaman terasa menggantung saat
+    dibuka. Sekarang satu penelusuran menghitung total sekaligus memilah
+    bagiannya.
+
+    Yang lebih lambat lagi adalah `pathlib.rglob`; lihat `_telusuri`.
     """
     hasil = {}
     for nama in (semua if semua is not None else daftar_pengguna()):
         d = folder(nama)
-        rinci: dict[str, object] = {"total": 0, "workspace": 0, "tasks": 0, "sessions": 0, "events": 0, "cadangan": 0}
+        rinci: dict[str, object] = {"total": 0, "workspace": 0, "tasks": 0, "sessions": 0, "events": 0, "cadangan": 0, "berkas": 0}
         if d.is_dir():
-            rinci["workspace"] = _ukuran_pohon(d / "workspace")
-            rinci["cadangan"] = _ukuran_pohon(d / "cadangan")
+            rinci.update(_telusuri(d))
             for kunci, berkas in (("tasks", "tasks.json"), ("sessions", "sessions.json"), ("events", "events.jsonl")):
                 try:
                     rinci[kunci] = (d / berkas).stat().st_size
                 except OSError:
                     rinci[kunci] = 0
-            rinci["total"] = _ukuran_pohon(d)
         rinci["folder"] = str(d)
         hasil[nama] = rinci
     return hasil
 
 
 def _ukuran_pohon(d: pathlib.Path) -> int:
+    """Ukuran satu folder, dalam byte.
+
+    `pemakaian()` tidak memakainya (ia menelusuri sekali untuk semuanya),
+    tetapi fungsi ini tetap ada karena berguna untuk mengukur satu folder saja
+    tanpa menghitung seluruh akun, dan karena tes lama memakainya.
+    """
     if not d.is_dir():
         return 0
-    total = 0
-    for p in d.rglob("*"):
-        try:
-            if p.is_file() and not p.is_symlink():
-                total += p.stat().st_size
-        except OSError:
-            continue
-    return total
+    return _telusuri(d)["total"]
 
 
 def hapus(nama: str | None) -> bool:

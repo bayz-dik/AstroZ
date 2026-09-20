@@ -22,12 +22,10 @@
     <span class="lambang-masuk" id="lambang-masuk" aria-hidden="true"></span>
     <h1>Masuk AstroZ</h1>
 
-    <!-- Dua tab: masuk (sudah punya token) dan daftar (punya kode undangan). -->
-    <div class="tab-masuk" role="tablist" aria-label="Masuk atau daftar">
-      <button type="button" role="tab" id="tab-masuk" aria-selected="true">Masuk</button>
-      <button type="button" role="tab" id="tab-daftar" aria-selected="false">Punya kode undangan</button>
-    </div>
-
+    <!-- Satu cara masuk saja: sandi. Tab "kode undangan" dihapus bersama
+         undangan dan token akun, karena UI ini dipakai satu orang di mesinnya
+         sendiri. Menyediakan alur pendaftaran yang tidak pernah dipakai hanya
+         menambah layar dan kebingungan. -->
     <form id="form-masuk" class="isi-tab">
       <p class="catatan">Masukkan sandi untuk masuk. Sandi diatur di team.yaml.</p>
       <label class="sr" for="token-masuk">Sandi</label>
@@ -35,28 +33,6 @@
       <button type="submit" class="tombol penuh" id="tombol-masuk">Masuk</button>
       <p class="pesan-masuk" id="pesan-masuk" role="alert"></p>
     </form>
-
-    <form id="form-daftar" class="isi-tab" hidden>
-      <p class="catatan">Isi kode undangan dari admin dan pilih nama. Akun dan tokenmu dibuat otomatis.</p>
-      <label class="sr" for="kode-undangan">Kode undangan</label>
-      <input id="kode-undangan" placeholder="kode undangan, misalnya K7M2QP4X" autocapitalize="characters" required>
-      <label class="sr" for="nama-daftar">Nama</label>
-      <input id="nama-daftar" placeholder="nama kamu (huruf kecil, tanpa spasi)" autocapitalize="none" required>
-      <button type="submit" class="tombol penuh" id="tombol-daftar">Buat akun</button>
-      <p class="pesan-masuk" id="pesan-daftar" role="alert"></p>
-    </form>
-
-    <!-- Hasil pendaftaran: token ditampilkan SEKALI di sini. -->
-    <div class="isi-tab" id="hasil-daftar" hidden>
-      <p class="catatan">Akunmu siap. Salin token ini sekarang, karena hanya ditampilkan sekali.</p>
-      <label class="sr" for="token-baru">Token akunmu</label>
-      <input id="token-baru" readonly>
-      <div class="kelompok">
-        <button type="button" class="tombol kecil" id="salin-token">Salin token</button>
-        <button type="button" class="tombol kecil" id="masuk-sekarang">Masuk sekarang</button>
-      </div>
-      <p class="catatan">Simpan di tempat aman. Kalau hilang, minta admin menerbitkan yang baru.</p>
-    </div>
   </div>
 </div>
 
@@ -262,24 +238,20 @@
       <div class="daftar" id="daftar-sesi"></div>
     </section>
 
-    <section class="panel" id="alat-terminal" hidden>
-      <h2>Terminal</h2>
-      <p class="catatan" id="terminal-keadaan">Memeriksa terminal…</p>
-      <p class="catatan">Shell sungguhan di perangkat ini. Perintah dijalankan apa adanya: <code>git clone</code>, <code>npm install</code>, <code>curl</code>, dan skrip apa pun. Folder kerjamu sendiri; <code>cd</code> bertahan antar perintah. Ketik <code>astroz --help</code> untuk mengendalikan AstroZ dari sini.</p>
-      <div class="terminal-layar" id="terminal-layar" role="log" aria-live="polite" tabindex="0"></div>
-      <form class="terminal-baris" id="terminal-form" autocomplete="off">
-        <label class="sr" for="terminal-input">Perintah</label>
-        <span class="terminal-tanda" id="terminal-tanda" aria-hidden="true">$</span>
-        <input id="terminal-input" placeholder="git clone https://github.com/…" spellcheck="false"
-               autocapitalize="off" autocorrect="off">
-        <button type="submit" class="tombol kecil" id="terminal-jalan">Jalankan</button>
-      </form>
-      <div class="kelompok">
-        <button type="button" class="tombol kecil garis" id="terminal-bersih">Bersihkan</button>
-        <button type="button" class="tombol kecil garis" id="terminal-stop">Hentikan shell</button>
-        <button type="button" class="tombol kecil garis" id="terminal-bantuan">Perintah astroz</button>
-      </div>
-    </section>
+    <!-- Panel Terminal dihapus.
+
+         Terminal di UI ini tidak punya alasan hidup: aplikasi Android sudah
+         membawa terminal sungguhan sendiri (TerminalShellActivity), dan di HP
+         sudah ada Termux. Yang tersisa hanyalah kekurangan yang tidak bisa
+         ditambal: bukan TTY, tidak ada warna, tidak ada Tab, tidak bisa Ctrl-C
+         sungguhan, dan perintah yang menunggu masukan akan menggantung.
+
+         Sebab lain: membuka panel ini memicu penyalinan aset 102 MB dan
+         menyalakan 9Router, jadi halaman terasa lemot saat dibuka.
+
+         Endpoint /api/terminal tetap ada di server karena masih dipakai fitur
+         lain (Pekerja menjalankan perintah, dan /api/terminal?router=1 dipakai
+         untuk menyalakan gateway). Yang dihapus hanya layarnya di UI. -->
 
     <!-- Parkir panel halaman. Isinya dipindah ke #badan-halaman saat menunya
          dibuka, lalu dikembalikan ke sini saat halamannya ditutup. -->
@@ -361,26 +333,25 @@
     <section class="panel" id="alat-pengaturan" hidden>
       <h2>Pengaturan</h2>
 
-      <!-- Kelola akun dan undangan. Hanya admin yang melihat bagian ini;
-           app.js menyembunyikannya untuk pengguna biasa. -->
-      <div id="blok-admin">
-        <h3>Undangan</h3>
-        <p class="catatan">Buat kode pendek, kirim ke orangnya. Dia mendaftar sendiri di layar masuk dan tokennya dibuat otomatis, jadi kamu tidak perlu menyentuh token sama sekali.</p>
-        <label class="sr" for="undangan-maks">Berapa orang boleh memakai kode ini</label>
-        <input id="undangan-maks" type="number" min="1" max="50" value="1" placeholder="jumlah pemakai">
-        <div class="kelompok">
-          <button type="button" class="tombol kecil" id="buat-undangan">Buat kode undangan</button>
-          <button type="button" class="tombol kecil garis" id="muat-undangan">Muat ulang</button>
-        </div>
-        <div id="daftar-undangan"></div>
+      <!-- Dulu di sini ada blok "Undangan" dan "Akun": membuat kode undangan,
+           lalu menerbitkan token baru per akun. Dihapus karena UI ini dipakai
+           satu orang di mesinnya sendiri, dan menyuruh pengguna mengurus token
+           panjang bertentangan dengan masuk pakai sandi. Pengelolaan akun tetap
+           ada di server (dan diuji), hanya tidak lagi dipajang di sini. -->
+      <h3>Sandi</h3>
+      <p class="catatan">Sandi untuk masuk ke UI ini. Disimpan di team.yaml di mesin ini, bukan di peramban. Kalau dikosongkan, masuk kembali memakai token akun.</p>
+      <label class="sr" for="sandi-baru">Sandi baru</label>
+      <input id="sandi-baru" type="password" autocomplete="new-password" placeholder="sandi baru">
+      <div class="kelompok">
+        <button type="button" class="tombol kecil" id="simpan-sandi">Simpan sandi</button>
+      </div>
+      <p class="pesan-masuk" id="pesan-sandi" role="alert"></p>
 
-        <h3 style="margin-top:22px">Akun</h3>
-        <p class="catatan">Siapa saja yang punya akses. Token hanya muncul sekali saat akun dibuat; kalau hilang, terbitkan yang baru dari sini.</p>
-        <div id="daftar-akun"></div>
-
-        <h3 style="margin-top:22px">Penyimpanan</h3>
-        <p class="catatan">Tiap akun menanggung berkasnya sendiri: percakapan, tugas, catatan, dan folder kerja. Menghapus akun menghapus penyimpanannya. Tidak ada batas ukuran, jadi angka ini untuk melihat siapa memakai berapa.</p>
-        <div id="daftar-storage"></div>
+      <h3 style="margin-top:22px">Penyimpanan</h3>
+      <p class="catatan">Tiap akun menanggung berkasnya sendiri: percakapan, tugas, catatan, dan folder kerja. Tidak ada batas ukuran, jadi angka ini untuk melihat siapa memakai berapa.</p>
+      <div id="daftar-storage"></div>
+      <div class="kelompok">
+        <button type="button" class="tombol kecil garis" id="muat-storage">Muat ulang</button>
       </div>
 
       <h3 style="margin-top:22px">Tema</h3>

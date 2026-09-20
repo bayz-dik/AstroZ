@@ -78,10 +78,18 @@ proot ini `ss` tidak melaporkan socket yang listening, jadi pemeriksaan berbasis
 | Bagian | Isi |
 |---|---|
 | Chat | pesanmu dan jawaban AstroZ. Pesanmu blok berlatar hangat, jawaban AstroZ teks polos. Progres kerja tidak ditulis di sini, hanya satu tombol kecil untuk membukanya |
-| Menu alat | dibuka dari tombol garis tiga di kiri atas: Obrolan, Proses kerja, Plugin MCP, Skill dari GitHub, Pekerja, Berkas dan tes, Catatan kejadian, Model |
+| Masuk | satu formulir, satu kolom sandi. Sandi diatur di `team.yaml` (dan bisa diganti dari Pengaturan). Tidak ada pendaftaran, kode undangan, atau token yang harus disalin: UI ini dipakai di mesin sendiri |
+| Menu alat | dibuka dari tombol garis tiga di kiri atas: Riwayat percakapan, Skill, Plugin MCP, Pasang dari URL, Pekerja, Berkas dan tes, Catatan kejadian, Model. Pengaturan ada di kaki menu |
 | Menu titik tiga | aksi untuk percakapan yang sedang dibuka: lihat proses kerja, ganti nama, salin percakapan, tema |
 | Strip kerja | kotak kecil di bawah bar yang muncul sendiri selama ada tugas berjalan: pekerja mana yang sedang mengerjakan, sudah berapa lama, dan langkah terakhirnya kalau diketuk |
 | Panel kerja | keadaan tugas terakhir, berkas yang berubah, dan langkah-langkahnya. Kolom tetap di 1280px ke atas, lembar geser di bawahnya |
+| Pengaturan | ganti sandi masuk, dan pemakaian penyimpanan per akun (dihitung saat panelnya dibuka, bukan saat masuk) |
+
+Terminal TIDAK ada di UI ini, dan itu disengaja: aplikasi Android sudah membawa
+terminal sungguhan sendiri, dan di HP sudah ada Termux. Terminal di dalam halaman
+web bukan TTY, jadi tidak ada warna, tidak ada Tab, dan perintah yang menunggu
+masukan akan menggantung. Endpoint `/api/terminal` tetap ada karena dipakai
+pekerja dan untuk menyalakan gateway.
 
 Di layar 1280px ke atas keduanya tampil bersamaan: chat dan panel kerja. Di
 bawah 1280px panel kerja jadi lembar geser supaya kolom chat tidak diperas, dan
@@ -211,6 +219,9 @@ jadi tidak ada tes yang menulis setelan atau kunci pengguna.
 ## API
 
 ```
+POST   /api/masuk                    masuk: {token} berisi sandi ATAU token akun
+POST   /api/keluar                   hapus cookie sesi
+POST   /api/sandi                    ganti sandi masuk: {sandi} (admin, dari halaman sendiri)
 GET    /api/state                    ringkasan gateway, pekerja, tugas, proyek
 GET    /api/sessions                 daftar percakapan
 POST   /api/sessions                 percakapan baru
@@ -235,6 +246,7 @@ GET    /api/project/tree, /api/project/file?path=
 GET    /api/git, /api/git/diff       POST /api/git/commit
 POST   /api/test                     jalankan tes
 POST   /api/config                   ubah folder kerja atau setelan alur
+GET    /api/storage                  pemakaian penyimpanan per akun
 ```
 
 ## Catatan teknis
