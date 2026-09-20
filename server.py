@@ -653,9 +653,22 @@ async def _bg_health() -> None:
 
 
 # ------------------------------------------------------------------ static
+
+# Header untuk aset UI. Tanpa ini server tidak mengirim Cache-Control sama sekali,
+# dan itu pernah membuat perbaikan tampilan TIDAK PERNAH terlihat di HP: peramban
+# menyimpan `app.css` lama dan tidak pernah memeriksa ulang, sehingga pengguna
+# melihat desain lama berhari-hari sementara berkas di server sudah baru.
+#
+# `no-cache` BUKAN "jangan simpan": artinya "simpan, tapi tanyakan dulu ke server
+# setiap kali". Dengan ETag, pertanyaan itu dijawab 304 tanpa badan kalau berkasnya
+# tidak berubah, jadi tidak ada ongkos tambahan yang berarti, sementara perubahan
+# selalu terlihat pada muat ulang berikutnya.
+HEADER_UI = {"Cache-Control": "no-cache"}
+
+
 @app.get("/")
 async def index():
-    return FileResponse(WEB / "index.html")
+    return FileResponse(WEB / "index.html", headers=HEADER_UI)
 
 
 @app.get("/manifest.webmanifest")
@@ -2418,13 +2431,17 @@ async def terminal_astroz(request: Request):
 
 @app.get("/{path:path}")
 async def static_files(path: str):
-    """Serve the UI's own assets (one HTML file, one stylesheet, one script)."""
+    """Serve the UI's own assets (one HTML file, one stylesheet, one script).
+
+    Semua jawaban di sini memakai `Cache-Control: no-cache` supaya peramban
+    selalu memeriksa ulang. Lihat penjelasan di HEADER_UI.
+    """
     if path.startswith("api/"):
         return JSONResponse({"ok": False, "error": "unknown endpoint"}, status_code=404)
     if not path or path == "/":
-        return FileResponse(WEB / "index.html")
+        return FileResponse(WEB / "index.html", headers=HEADER_UI)
     target = (WEB / path).resolve()
     if WEB.resolve() in target.parents and target.is_file():
-        return FileResponse(target)
+        return FileResponse(target, headers=HEADER_UI)
     return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
 

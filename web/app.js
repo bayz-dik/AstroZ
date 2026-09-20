@@ -464,7 +464,9 @@ for (const m of [layar.alat, layar.aktivitas]) m.addEventListener("change", () =
 susun();
 
 el("buka-alat").addEventListener("click", () => { bukaMenu(); });
-el("buka-sesi").addEventListener("click", () => { bukaMenu("obrolan"); });
+// ikon riwayat di bar dihapus dari header; riwayat tetap bisa dibuka dari
+// menu garis tiga (DAFTAR_MENU). Elemen tidak ada -> hanya lewati.
+if (el("buka-sesi")) el("buka-sesi").addEventListener("click", () => bukaMenu("obrolan"));
 el("tombol-plus").addEventListener("click", () => bukaLembar("lembar-plus"));
 el("pil-model").addEventListener("click", () => { bukaLembar("lembar-model"); muatModelLembar(); });
 el("aksi-gambar").addEventListener("click", () => el("berkas-gambar").click());
@@ -523,6 +525,7 @@ const DAFTAR_MENU = [
   { alat: "berkas", judul: "Berkas dan tes", ikon: "berkas" },
   { alat: "catatan", judul: "Catatan kejadian", ikon: "catatan" },
   { alat: "model", judul: "Model", ikon: "model" },
+  { alat: "pengaturan", judul: "Pengaturan", ikon: "gerigi" },
 ];
 const HALAMAN = {
   obrolan: "alat-obrolan",
@@ -544,7 +547,10 @@ const JUDUL_HALAMAN = {
 function gambarMenu() {
   const nav = el("nav-alat");
   nav.replaceChildren();
+  const admin = keadaan.peran === "admin";
   for (const m of DAFTAR_MENU) {
+    // Pengaturan hanya untuk admin (sama seperti entri menu titik-titik).
+    if (m.alat === "pengaturan" && !admin) continue;
     const b = buat("button");
     b.type = "button";
     b.dataset.alat = m.alat;
@@ -1142,38 +1148,9 @@ function sesiBaru() {
 }
 el("sesi-baru").addEventListener("click", sesiBaru);
 
-/* Navigasi bawah ala mockup: empat tab tetap. "Chat" menutup semua lembar dan
-   kembali ke percakapan (plus percakapan baru kalau memang belum ada), tab
-   lain membuka lembar/halaman yang sama dengan mekanisme menu garis tiga --
-   satu mekanisme, bukan dua, supaya tidak ada keadaan yang bisa berbeda.
-   Setelan hanya untuk admin: pengguna biasa tidak melihat tabnya sama
-   sekali, sama seperti menu titik-titik. */
-function gambarNavBawah() {
-  const nav = el("nav-bawah");
-  if (!nav) return;
-  const admin = keadaan.peran === "admin";
-  for (const b of nav.querySelectorAll("button")) {
-    if (b.dataset.nav === "pengaturan") b.hidden = !admin;
-  }
-}
-for (const b of document.querySelectorAll("#nav-bawah [data-nav]")) {
-  b.addEventListener("click", () => {
-    const nama = b.dataset.nav;
-    for (const x of document.querySelectorAll("#nav-bawah [data-nav]")) {
-      x.setAttribute("aria-current", String(x === b));
-    }
-    tutupSemuaLembar();
-    if (el("halaman") && !el("halaman").hidden) tutupHalaman();
-    if (nama === "chat") {
-      if (!keadaan.sesi) sesiBaru();
-      el("tulis").focus();
-      return;
-    }
-    if (nama === "obrolan") { bukaMenu("obrolan"); return; }
-    if (nama === "alat") { bukaMenu(); return; }
-    if (nama === "pengaturan") { bukaMenu("pengaturan"); return; }
-  });
-}
+/* Nav bawah dihapus (22 Sep 2026): acuan "chatgpt redesign total.html" tidak
+   punya tab bar bawah. Riwayat dan Setelan kembali ke menu garis tiga --
+   pengaturan lewat data-aksi="pengaturan", riwayat lewat DAFTAR_MENU. */
 
 /* Keluar: hapus cookie token di server, lalu tampilkan layar masuk lagi.
    Sebelumnya endpoint /api/keluar ada di server tetapi tidak ada tombolnya,
@@ -2890,7 +2867,7 @@ async function mulai() {
   keadaan.peran = akun.pengguna.peran || "user";
   keadaan.saya = akun.pengguna.nama || "";
   sembunyikanKhususAdmin();
-  gambarNavBawah();
+  gambarMenu();   // peran sudah diketahui: entri Pengaturan ikut masuk/keluar
   // Yang menahan tampilan awal hanya dua hal: daftar percakapan dan model.
   // Sisanya (berkas, catatan, plugin, skill) dimuat di latar belakang, jadi
   // halaman skill yang lambat tidak menahan percakapan muncul.

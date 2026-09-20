@@ -4,6 +4,13 @@ team.yaml
 # Token CLI 9Router (machine-specific).
 .9r_token
 
+# Token aplikasi UI (tertulis di akar repo, dibuat saat server pertama jalan).
+# Membedakan `9r_token` (titik di awal) dari `app_token.txt`: pola di atas hanya
+# menyembunyikan yang berawalan titik, sedangkan berkas ini tidak -- sehingga
+# kalau tidak ditulis di sini, token yang setara kunci masuk perangkat ikut
+# ter-commit dan siapa pun yang membaca repo bisa masuk sebagai admin.
+app_token.txt
+
 # Keadaan runtime: feed event, daftar tugas, hasil probe, cache model.
 runtime/
 
@@ -49,3 +56,4 @@ artifacts/
 # Editor.
 .vscode/
 .idea/
+router-home/

@@ -246,7 +246,8 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
   font-family: var(--font-judul); font-size: 17px; font-weight: 600;
   letter-spacing: -0.015em;
   margin-left: 4px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 42vw;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 24vw;   /* pil model butuh ruang di sebelahnya */
 }
 /* Lambang aplikasi di kepala bar. Bentuknya sama dengan lambang di kepala menu
    dan di layar kosong: satu berkas, tiga ukuran, tidak ada gambar kembar. */
@@ -380,10 +381,9 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 
 .alur {
   flex: 1; overflow-y: auto;
-  /* Dasar besar: composer + disclaimer + nav bawah menutupi kaki kolom, jadi
-     pesan terakhir harus bisa naik DI ATASnya (uji visual 20 Sep 2026:
-     baris terakhir terpotong di belakang panel bawah dengan padding 20px). */
-  padding: 8px 16px 168px;
+  /* Composer + disclaimer menutupi kaki kolom (nav bawah sudah dihapus):
+     pesan terakhir harus bisa naik di atasnya (uji visual 20 Sep 2026). */
+  padding: 8px 16px 120px;
   scroll-behavior: smooth;
 }
 .alur .kolom { max-width: var(--lebar-baca); margin: 0 auto; }
@@ -629,33 +629,12 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 /* ---------------------------------------------------------------- kotak tulis */
 
 /* ------------------------------------------------------------------- nav bawah
-   Tab bar ala mockup: empat tab tetap yang selalu terlihat di kaki layar.
-   Kertas tembus pandang + blur seperti bar atas, lapisan atasnya garis halus. */
-.nav-bawah {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
-  display: flex; justify-content: space-around; align-items: center;
-  min-height: 60px;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  background: color-mix(in srgb, var(--kertas) 90%, transparent);
-  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-  border-top: 1px solid var(--garis);
-}
-.nav-bawah button {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 2px; min-width: 56px; min-height: 48px;
-  background: transparent; border: 0; cursor: pointer;
-  color: var(--tinta-meta); font-size: 11px;
-}
-.nav-bawah button:hover { color: var(--tinta); }
-.nav-bawah button[aria-current="true"] { color: var(--tinta); font-weight: 600; }
-.nav-bawah button[hidden] { display: none; }
-/* Ruang kaki halaman: nav bawah menutupi bagian bawah, jadi isi yang bisa
-   digulir diberi lapisan dalam (padding-bottom) yang cukup. */
-.chat { padding-bottom: 60px; }
+   DIHAPUS (22 Sep 2026): acuan mockup tidak punya tab bar bawah, dan item
+   Riwayat/Setelan kembali ke menu garis tiga. Aturan .nav-bawah dibuang
+   seluruhnya supaya tidak ada spesifisitas yang tertinggal. */
 
-/* deret chip di atas kotak ketik: model + ukuran tugas, pil kecil yang bisa
-   digulir mendatar kalau labelnya panjang. Tempatnya mengikuti mockup:
-   chips "Search/Reason/Canvas" di atas pil isian. */
+/* deret chip di atas kotak ketik: ukuran tugas (model sudah pindah ke pil
+   tengah header). Bisa digulir mendatar kalau labelnya panjang. */
 .deret-chip {
   display: flex; gap: 6px; align-items: center;
   max-width: var(--lebar-baca); margin: 0 auto 6px;
@@ -674,6 +653,19 @@ select.chip-select { appearance: none; -webkit-appearance: none; width: auto; }
   text-align: center; font-size: 11px; color: var(--tinta-meta);
   margin: 6px 0 0; max-width: none;
 }
+
+/* Pil model di TENGAH header, seperti "ChatGPT 4o" di acuan: latar lembut,
+   bentuk pil, panah kecil. Tepat setelah judul merek, menempel padanya. */
+.pil-tengah {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--permukaan-hangat); border: 0; cursor: pointer;
+  border-radius: var(--radius-pil); padding: 0 12px; min-height: 32px;
+  font-size: 13px; font-weight: 500; color: var(--tinta);
+  max-width: 44vw; margin-left: 10px; overflow: hidden; flex: none;
+}
+.pil-tengah #pil-model-teks { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pil-tengah .panah-pil { font-size: 11px; color: var(--tinta-meta); flex: none; }
+.pil-tengah:hover { background: color-mix(in oklab, var(--permukaan-hangat), var(--tinta) 6%); }
 
 .tulis {
   border-top: 1px solid var(--garis);
@@ -1252,7 +1244,11 @@ pre.isi-berkas {
 @media (max-width: 560px) {
   .alur { padding: 4px 12px 16px; }
   .tulis { padding-left: 10px; padding-right: 10px; }
-  .judul-bar { max-width: 34vw; font-size: 16px; }
+  .judul-bar { max-width: 30vw; font-size: 16px; }
+  /* Di HP sempit label teks disembunyikan (mockup: "Chat Workspace" hidden
+     sm:inline) supaya pil model tidak terdesak; logonya yang mewakili merek. */
+  .judul-bar { display: none; }
+  .pil-tengah { max-width: 44vw; font-size: 12px; padding: 0 10px; margin-left: 6px; }
   .kosong-hero h1 { font-size: 26px; }
   .pesan.aku .isi-pesan { padding: 10px 14px; }
   .kejadian { grid-template-columns: 12px 46px 1fr; gap: 6px; }

@@ -40,23 +40,25 @@
      aria-hidden padanya saat layar masuk tampil. Tanpa itu, pembaca layar
      masih "melihat" isi aplikasi di belakang gerbang. -->
 <div class="app" id="app">
-  <!-- Kepala ala mockup "chatgpt redesign total": menu di kiri, merek, lalu
-       riwayat + percakapan baru + menu akun di kanan. Pil model pindah ke
-       deret chip di atas kotak ketik, sesuai tempat chip di mockup. -->
+  <!-- Kepala ala mockup: menu di kiri, logo + label merek, PIL MODEL di
+       TENGAH dengan panah kecil (seperti "ChatGPT 4o"), kanan: pensil
+       percakapan baru + titik tiga. Riwayat dan Setelan tinggal di menu
+       garis tiga, sesuai acuan yang tidak punya tab bar bawah. -->
   <header class="bar">
     <button type="button" class="ikon" id="buka-alat" aria-label="Menu" title="Menu" aria-haspopup="dialog">
       <span class="garis-tiga" aria-hidden="true"><i></i><i></i><i></i></span>
     </button>
     <span class="lambang-bar" id="lambang-bar" aria-hidden="true"></span>
     <span class="judul-bar" id="judul-bar">AstroZ</span>
-    <span class="sisa"></span>
-    <button type="button" class="ikon" id="buka-sesi" aria-label="Riwayat percakapan" title="Riwayat percakapan" aria-haspopup="dialog">
-      <span data-ikon="riwayat" data-ukuran="20" aria-hidden="true"></span>
+    <button type="button" class="pil-tengah" id="pil-model" aria-haspopup="dialog" title="Ganti model">
+      <span id="pil-model-teks">memuat model</span>
+      <span class="panah-pil" aria-hidden="true">▾</span>
     </button>
+    <span class="sisa"></span>
     <button type="button" class="ikon" id="sesi-baru" aria-label="Percakapan baru" title="Percakapan baru">
       <span data-ikon="pensil" data-ukuran="20" aria-hidden="true"></span>
     </button>
-    <button type="button" class="ikon ikon-akun" id="buka-titik" aria-label="Menu percakapan ini" title="Menu" aria-haspopup="menu" aria-expanded="false">
+    <button type="button" class="ikon" id="buka-titik" aria-label="Menu percakapan ini" title="Menu" aria-haspopup="menu" aria-expanded="false">
       <span data-ikon="titik-tiga" data-ukuran="20" aria-hidden="true"></span>
     </button>
     <!-- Lambang tiap baris mengikuti namanya: pensil untuk nama, peniti untuk
@@ -101,10 +103,10 @@
            perlu tahu tata letaknya berubah. -->
       <form class="tulis" id="form-tulis">
         <div class="lampir" id="lampiran" hidden></div>
+        <!-- Model sudah di pil tengah header. Ukuran tugas: di layar lebar
+             tampil sebagai chip tunggal di sini, di layar sempit pindah ke
+             lembar "+" (pilih-ukuran), sama seperti sebelumnya. -->
         <div class="deret-chip">
-          <button type="button" class="chip" id="pil-model" aria-haspopup="dialog" title="Ganti model">
-            <span id="pil-model-teks">memuat model</span>
-          </button>
           <label class="sr" for="ukuran">Ukuran tugas</label>
           <select id="ukuran" class="chip chip-select" title="Ukuran tugas">
             <option value="auto">otomatis</option>
@@ -205,16 +207,9 @@
   </div>
 </div>
 
-<!-- Navigasi bawah ala mockup: empat tab tetap yang selalu terlihat.
-     Chat menutup semuanya dan kembali ke percakapan, Riwayat dan Alat
-     membuka lembar yang sama dengan menu garis tiga (satu mekanisme, bukan
-     dua), Setelan khusus admin. -->
-<nav class="nav-bawah" id="nav-bawah" aria-label="Navigasi utama">
-  <button type="button" data-nav="chat" aria-current="true"><span data-ikon="chat" data-ukuran="20" aria-hidden="true"></span><span class="label">Chat</span></button>
-  <button type="button" data-nav="obrolan"><span data-ikon="riwayat" data-ukuran="20" aria-hidden="true"></span><span class="label">Riwayat</span></button>
-  <button type="button" data-nav="alat"><span data-ikon="berkas" data-ukuran="20" aria-hidden="true"></span><span class="label">Alat</span></button>
-  <button type="button" data-nav="pengaturan"><span data-ikon="gerigi" data-ukuran="20" aria-hidden="true"></span><span class="label">Setelan</span></button>
-</nav>
+<!-- Nav bawah dihapus atas permintaan pengguna (22 Sep 2026): acuan
+     "chatgpt redesign total.html" tidak punya tab bar bawah. Riwayat dan
+     Setelan kembali ke menu garis tiga. -->
 
 <div class="tirai" id="tirai"></div>
 
