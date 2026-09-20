@@ -338,37 +338,46 @@
            satu orang di mesinnya sendiri, dan menyuruh pengguna mengurus token
            panjang bertentangan dengan masuk pakai sandi. Pengelolaan akun tetap
            ada di server (dan diuji), hanya tidak lagi dipajang di sini. -->
-      <h3>Sandi</h3>
-      <p class="catatan">Sandi untuk masuk ke UI ini. Disimpan di team.yaml di mesin ini, bukan di peramban. Kalau dikosongkan, masuk kembali memakai token akun.</p>
-      <label class="sr" for="sandi-baru">Sandi baru</label>
-      <input id="sandi-baru" type="password" autocomplete="new-password" placeholder="sandi baru">
-      <div class="kelompok">
-        <button type="button" class="tombol kecil" id="simpan-sandi">Simpan sandi</button>
-      </div>
-      <p class="pesan-masuk" id="pesan-sandi" role="alert"></p>
-
-      <h3 style="margin-top:22px">Penyimpanan</h3>
-      <p class="catatan">Tiap akun menanggung berkasnya sendiri: percakapan, tugas, catatan, dan folder kerja. Tidak ada batas ukuran, jadi angka ini untuk melihat siapa memakai berapa.</p>
-      <div id="daftar-storage"></div>
-      <div class="kelompok">
-        <button type="button" class="tombol kecil garis" id="muat-storage">Muat ulang</button>
+      <div class="kartu">
+        <h3>Sandi</h3>
+        <p class="catatan">Sandi untuk masuk ke UI ini. Disimpan di team.yaml di mesin ini, bukan di peramban. Kalau dikosongkan, masuk kembali memakai token akun.</p>
+        <label class="sr" for="sandi-baru">Sandi baru</label>
+        <input id="sandi-baru" type="password" autocomplete="new-password" placeholder="sandi baru">
+        <div class="kelompok">
+          <button type="button" class="tombol kecil" id="simpan-sandi">Simpan sandi</button>
+        </div>
+        <p class="pesan-masuk" id="pesan-sandi" role="alert"></p>
       </div>
 
-      <h3 style="margin-top:22px">Tema</h3>
-      <p class="catatan">Warna tampilan. Pilihannya disimpan di peramban ini, bukan di server.</p>
-      <div class="pilih-tema" role="group" aria-label="Tema">
-        <button type="button" class="tombol kecil garis" data-pilih-tema="terang">Terang</button>
-        <button type="button" class="tombol kecil garis" data-pilih-tema="gelap">Gelap</button>
+      <div class="kartu">
+        <h3>Penyimpanan</h3>
+        <p class="catatan">Tiap akun menanggung berkasnya sendiri: percakapan, tugas, catatan, dan folder kerja. Tidak ada batas ukuran, jadi angka ini untuk melihat siapa memakai berapa.</p>
+        <div id="daftar-storage"></div>
+        <div class="kelompok">
+          <button type="button" class="tombol kecil garis" id="muat-storage">Muat ulang</button>
+        </div>
       </div>
-      <h3 style="margin-top:20px">Pengembang</h3>
-      <p class="catatan">Dibuat oleh Bayu Andika. Ketuk lambangnya untuk membuka profil.</p>
-      <div class="dev-deret" id="dev-deret">
+
+      <div class="kartu">
+        <h3>Tema</h3>
+        <p class="catatan">Warna tampilan. Pilihannya disimpan di peramban ini, bukan di server.</p>
+        <div class="pilih-tema" role="group" aria-label="Tema">
+          <button type="button" class="tombol kecil garis" data-pilih-tema="terang">Terang</button>
+          <button type="button" class="tombol kecil garis" data-pilih-tema="gelap">Gelap</button>
+        </div>
+      </div>
+
+      <div class="kartu">
+        <h3>Pengembang</h3>
+        <p class="catatan">Dibuat oleh Bayu Andika. Ketuk lambangnya untuk membuka profil.</p>
+        <div class="dev-deret" id="dev-deret">
         <a class="dev" href="https://github.com/bayz-dik" target="_blank" rel="noreferrer noopener" aria-label="GitHub bayz-dik" title="GitHub: bayz-dik">
           <span class="dev-lambang" data-merek="github" aria-hidden="true"></span>
         </a>
         <a class="dev" href="https://www.instagram.com/bayydka" target="_blank" rel="noreferrer noopener" aria-label="Instagram bayydka" title="Instagram: bayydka">
           <span class="dev-lambang" data-merek="instagram" aria-hidden="true"></span>
         </a>
+        </div>
       </div>
     </section>
   </div>
