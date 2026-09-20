@@ -306,23 +306,40 @@ MODEL=<id-model> ./tests/smoke.sh
 
 ## Catatan tampilan
 
-Arah tampilan sekarang mengikuti rumah terracotta ala Claude Code. Aturan
-lengkapnya di `design-systems/claude-code/DESIGN.md`, nilai tokennya di
-`design-systems/claude-code/tokens.css`, dan asal setiap nilai di
-`design-systems/claude-code/source/evidence.md`.
+Arah tampilan sekarang mengikuti MindStudio (mindstudio.ai). Aturan, alasan, dan
+cara mengukur ulang nilainya ada di `design-systems/mindstudio/DESIGN.md`;
+nilai tokennya ada di blok `:root` dan `[data-tema="gelap"]` di `web/app.css`.
 
-Dua sumber yang dipakai:
+Semua angka diambil dari situs HIDUP lewat computed style di browser sungguhan,
+bukan dari melihat gambar atau menebak dari nama kelas:
 
-- `design-systems/claude/` dari repo [nexu-io/open-design](https://github.com/nexu-io/open-design)
-  (Apache-2.0): kanvas perkamen, aksen terracotta, netral serba hangat,
-  kedalaman memakai cincin `0 0 0 1px`, radius 8/12/16px, tanpa gradien.
-- Palet Claude Code yang dibaca langsung dari binari `@anthropic-ai/claude-code`
-  yang terpasang di mesin ini (aksen `#D97757`, hijau `#69DB7C`, kuning
-  `#FFC107`, merah `#FF6B80`, latar gelap keluarga `rgb(38,38,38)`).
+| Peran | Nilai | Diukur dari |
+|---|---|---|
+| latar halaman | `#FAFAFA` | `--color-neutral-50` dan `background-color: body` |
+| teks utama | `#060606` | `--color-neutral-950` dan `color: body` |
+| SEMUA garis | `#E0E0E0` | `--color-neutral-200` dan `border-bottom: header` |
+| aksen tunggal | `#0069FF` | `--color-brand-500` dan latar tombol "Get Started" |
+| radius kartu/tombol | 12px | `--radius-card: .75rem` dan `border-radius` tombol |
+| kepala | `sticky`, `blur(16px)`, garis 1px | kelas `sticky top-0 bg-neutral-50/80 backdrop-blur-lg` |
+| judul | Inter 600, `letter-spacing` negatif | `font-family`/`font-weight` pada `h1` |
+| huruf | Inter (teks DAN judul) | `--font-sans` dan `h1` — MindStudio tidak memakai serif |
 
-Hurufnya Fraunces (judul), Inter (teks), JetBrains Mono (angka dan kode),
-ketiganya lisensi OFL dan disimpan sendiri di `web/fonts/` supaya UI tetap
-sama tanpa internet.
+Yang diganti dari arah sebelumnya (Claude Code), dan alasannya:
+
+- kanvas perkamen `#FAF9F5` -> `#FAFAFA`; arang hangat `#262624` -> `#060606`
+- aksen terracotta `#C96442` -> biru `#0069FF`
+- judul serif Fraunces bobot 500 -> Inter bobot 600, rapat. Fraunces dibuang dari
+  `fonts.css`: memuat huruf yang tidak dipakai hanya menambah berat.
+- kedalaman cincin `0 0 0 1px` -> garis 1px + bayangan tipis MindStudio
+
+Dua nilai MindStudio TIDAK dipakai apa adanya karena gagal kontras 4.5:1, dan
+keduanya diganti dengan nilai sekeluarga yang lolos: teks meta `#787878` (4.23
+di `#FAFAFA`) menjadi `#6B6B6B` (5.11), dan hijau selesai `#24A270` (3.11)
+menjadi `#1B7A54` (5.08).
+
+Hurufnya Inter (SEMUA teks, termasuk judul) dan JetBrains Mono (angka dan kode),
+keduanya lisensi OFL dan disimpan sendiri di `web/fonts/` supaya UI tetap sama
+tanpa internet. Fraunces sudah dibuang bersama arah serif yang lama.
 
 Angka kontras dihitung dengan rumus WCAG, lalu diperiksa ulang di browser
 sungguhan dengan menelusuri setiap simpul teks yang benar-benar tampil

@@ -1,46 +1,58 @@
-/* AstroZ. Arah: ruang kerja hangat ala Claude Code.
-   Token dan alasannya ada di design-systems/claude-code/. */
+/* AstroZ. Arah: ruang kerja bersih ala MindStudio (mindstudio.ai).
+   Nilai token dan cara mengukurnya ada di design-systems/mindstudio/DESIGN.md.
+
+   Tiga hal yang membentuk arah ini, dan ketiganya harus dipertahankan:
+   - netral abu hampir tanpa warna: latar #fafafa, permukaan #ffffff, SEMUA
+     garis #e0e0e0
+   - SATU aksen biru #0069ff; tidak ada warna kedua
+   - Inter untuk semua teks termasuk judul (bukan serif), bobot 600, rapat
+
+   Angka kontras di bawah dihitung dengan rumus WCAG. Yang tidak lolos 4.5:1
+   diganti dengan nilai sekeluarga yang lolos: meta terang #6b6b6b (bukan
+   #787878 yang hanya 4.23), hijau selesai #1b7a54 (bukan #24a270 yang 3.11). */
 
 :root {
   /* permukaan */
-  --kertas: #FAF9F5;
+  --kertas: #FAFAFA;
   --permukaan: #FFFFFF;
-  --permukaan-hangat: #E8E6DC;
-  --permukaan-masuk: #F0EEE6;   /* kotak isian, sedikit beda dari latar */
+  --permukaan-hangat: #F0F0F0;
+  --permukaan-masuk: #F0F0F0;   /* kotak isian, sedikit beda dari latar */
 
   /* teks */
-  --tinta: #141413;
-  --tinta-2: #3D3D3A;
-  --tinta-lembut: #5E5D59;
-  --tinta-meta: #6A6963;   /* 5.23 di kertas, 4.77 di baris percakapan terpilih */
+  --tinta: #060606;         /* 19.41 di kertas */
+  --tinta-2: #404040;       /* 9.93 */
+  --tinta-lembut: #585858;  /* 6.82 */
+  --tinta-meta: #6B6B6B;    /* 5.11 di kertas, 4.68 di permukaan lembut */
 
   /* garis */
-  --garis: #E8E6DC;
-  --garis-kuat: #8E8C84;
+  --garis: #E0E0E0;
+  --garis-kuat: #C3C3C3;
 
   /* aksen dan keadaan */
-  --aksen: #C96442;
-  --aksen-teks: #A8492F;
-  --aksen-isi: #B4553A;   /* aksen yang dipakai sebagai latar tombol: teks gading di atasnya 4.63 */
-  --aksen-atas: #FAF9F5;
-  --selesai: #146C2E;
-  --jalan: #A8492F;
-  --galat: #B53333;
-  --fokus: #2563EB;
+  --aksen: #0069FF;
+  --aksen-teks: #0055CC;  /* 6.34 di kertas: aman untuk teks aksen */
+  --aksen-isi: #0069FF;   /* latar tombol: teks putih di atasnya 4.70 */
+  --aksen-atas: #FFFFFF;
+  --selesai: #1B7A54;     /* 5.08; hijau MindStudio #24a270 hanya 3.11 */
+  --jalan: #A16207;       /* 4.72 */
+  --galat: #C81E1E;       /* 5.50 */
+  --fokus: #0069FF;
 
-  /* bentuk */
+  /* bentuk. MindStudio memakai 12px untuk tombol, kartu, dan isian. */
   --radius-1: 8px;
   --radius-2: 12px;
-  --radius-3: 16px;
-  --radius-4: 22px;
+  --radius-3: 12px;
+  --radius-4: 16px;
   --radius-pil: 9999px;
   --cincin: 0 0 0 1px var(--garis);
   --cincin-kuat: 0 0 0 1px var(--garis-kuat);
-  --naik: 0 4px 24px rgba(0, 0, 0, 0.05);
-  --sorot: rgba(201, 100, 66, 0.08);
+  --naik: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  --naik-tipis: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+  --sorot: rgba(0, 105, 255, 0.08);
 
-  /* huruf */
-  --font-judul: Fraunces, Georgia, "Times New Roman", serif;
+  /* huruf. Inter untuk SEMUA teks, termasuk judul: itu yang membuat tampilannya
+     sama dengan MindStudio, yang tidak memakai serif sama sekali. */
+  --font-judul: Inter, "Helvetica Neue", Arial, system-ui, sans-serif;
   --font-teks: Inter, "Helvetica Neue", Arial, system-ui, sans-serif;
   --font-mesin: "JetBrains Mono", ui-monospace, Menlo, monospace;
 
@@ -48,38 +60,42 @@
   --lebar-alat: 292px;
   --lebar-aktivitas: 368px;
   --lebar-baca: 720px;
+  --lebar-isi: 1152px;   /* lebar isi maksimum MindStudio */
   --tinggi-target: 44px;
   --gerak-cepat: 150ms;
-  --luncur: cubic-bezier(0.2, 0, 0, 1);
+  --luncur: cubic-bezier(0.4, 0, 0.2, 1);
 
   color-scheme: light;
 }
 
+/* Tema gelap dibangun dari skala netral MindStudio yang sama (#060606 / #1a1a1a
+   / #282828 / #404040), jadi tetap satu keluarga dengan tema terang. */
 [data-tema="gelap"] {
-  --kertas: #262624;
-  --permukaan: #30302E;
-  --permukaan-hangat: #3E332E;
-  --permukaan-masuk: #30302E;
+  --kertas: #060606;
+  --permukaan: #1A1A1A;
+  --permukaan-hangat: #282828;
+  --permukaan-masuk: #282828;
 
-  --tinta: #F5F4ED;
-  --tinta-2: #D8D6CF;
-  --tinta-lembut: #B0AEA5;
-  --tinta-meta: #A2A099;   /* 5.79 di arang gelap, 4.89 di baris terpilih */
+  --tinta: #FAFAFA;         /* 19.41 di kertas */
+  --tinta-2: #D0D0D0;       /* 13.0 */
+  --tinta-lembut: #A0A0A0;  /* 7.75 di kertas, 6.66 di permukaan */
+  --tinta-meta: #909090;    /* 6.35 di kertas, 5.45 di permukaan */
 
-  --garis: #3E3E3B;
-  --garis-kuat: #7C7A73;
+  --garis: #404040;
+  --garis-kuat: #6B6B6B;
 
-  --aksen: #D97757;
-  --aksen-teks: #E08B6E;
-  --aksen-isi: #D97757;
-  --aksen-atas: #262624;
-  --selesai: #69DB7C;
-  --jalan: #FFC107;
-  --galat: #FF6B80;
-  --fokus: #3898EC;
+  --aksen: #4D9CFF;         /* 7.25 di kertas, 6.23 di permukaan */
+  --aksen-teks: #4D9CFF;
+  --aksen-isi: #0069FF;     /* teks putih di atasnya tetap 4.70 */
+  --aksen-atas: #FFFFFF;
+  --selesai: #43D598;       /* 10.82 */
+  --jalan: #FBBF24;         /* 12.14 */
+  --galat: #FF6B80;         /* 7.40 */
+  --fokus: #4D9CFF;
 
-  --naik: 0 4px 24px rgba(0, 0, 0, 0.35);
-  --sorot: rgba(217, 119, 87, 0.12);
+  --naik: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.5);
+  --naik-tipis: 0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 1px 2px -1px rgba(0, 0, 0, 0.4);
+  --sorot: rgba(77, 156, 255, 0.14);
 
   color-scheme: dark;
 }
@@ -118,11 +134,16 @@ button, a, [role="tab"], .baris-aksi, .nav-alat button, .pohon button {
 button:focus:not(:focus-visible), [role="tab"]:focus:not(:focus-visible) { outline: none; }
 ::selection { background: var(--sorot); }
 
-h1, h2, h3 { margin: 0; font-family: var(--font-judul); font-weight: 500; line-height: 1.2; }
+/* Bobot judul 600 dan rapat, seperti MindStudio (--text-heading-*: 600, dan
+   letter-spacing negatif kecil). Sebelumnya 500 dengan Fraunces. */
+h1, h2, h3 {
+  margin: 0; font-family: var(--font-judul); font-weight: 600; line-height: 1.2;
+  letter-spacing: -0.015em;
+}
 /* Judul ikut menyesuaikan layar, sama seperti teks isi. */
-h1 { font-size: clamp(20px, 1.1vw + 17px, 26px); }
-h2 { font-size: clamp(15px, 0.35vw + 14px, 17px); }
-h3 { font-size: clamp(14px, 0.3vw + 13px, 15.5px); }
+h1 { font-size: clamp(20px, 1.1vw + 17px, 26px); letter-spacing: -0.02em; }
+h2 { font-size: clamp(15px, 0.35vw + 14px, 17px); letter-spacing: -0.01em; }
+h3 { font-size: clamp(14px, 0.3vw + 13px, 15.5px); letter-spacing: -0.01em; }
 
 p { margin: 0 0 10px; max-width: 68ch; }
 button, input, select, textarea { font: inherit; color: inherit; }
@@ -200,8 +221,14 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
      supaya deret lambang kanan tidak mepet ke tepi layar. */
   padding: 8px 16px 8px 4px; min-height: 52px;
   border-bottom: 1px solid var(--garis);
-  background: var(--kertas);
-  position: relative;
+  /* Kepala MENEMPEL dan tembus pandang dengan blur, seperti MindStudio:
+     `sticky top-0 border-b bg-neutral-50/80 backdrop-blur-lg`. Di aplikasi
+     percakapan efeknya lebih dari hiasan: saat isi digulir, teks lewat di
+     belakang kepala dan tetap terbaca sebagai lapisan, bukan terpotong. */
+  background: color-mix(in srgb, var(--kertas) 80%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  position: sticky; top: 0; z-index: 30;
 }
 /* Bar tidak ikut menyusut di dalam kolom flex: tanpa ini, satu isi yang panjang
    bisa memerasnya sampai tingginya tinggal beberapa piksel. */
@@ -210,7 +237,8 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 /* Judul bar: nama aplikasi, jadi ditulis dengan huruf judul. Lebarnya dibatasi
    supaya deret lambang di kanan tidak pernah terdesak keluar layar. */
 .judul-bar {
-  font-family: var(--font-judul); font-size: 17px; font-weight: 500;
+  font-family: var(--font-judul); font-size: 17px; font-weight: 600;
+  letter-spacing: -0.015em;
   margin-left: 4px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 42vw;
 }
@@ -402,7 +430,7 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
   position: fixed; inset: 0; z-index: 55;
   display: flex; align-items: flex-start; justify-content: center;
   padding: clamp(12px, 6vh, 72px) 12px 12px;
-  background: rgba(20, 20, 19, 0.32);
+  background: rgba(6, 6, 6, 0.32);
 }
 .tirai-kerja[hidden] { display: none; }
 .lembar-kerja {
@@ -456,7 +484,7 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
   font-family: var(--font-mesin); font-size: 11px; line-height: 1;
 }
 .lambang-sumber svg { display: block; }
-.lambang-sumber.huruf { background: var(--aksen-isi); color: #FFF7F3; box-shadow: none; }
+.lambang-sumber.huruf { background: var(--aksen-isi); color: #FFFFFF; box-shadow: none; }
 .menu-sumber {
   position: fixed; z-index: 60;
   background: var(--permukaan); border-radius: var(--radius-2);
@@ -855,7 +883,7 @@ pre.isi-berkas {
 
 /* ------------------------------------------------------------------ lapisan */
 
-.tirai { position: fixed; inset: 0; background: rgba(20, 20, 19, 0.45); z-index: 40; display: none; }
+.tirai { position: fixed; inset: 0; background: rgba(6, 6, 6, 0.45); z-index: 40; display: none; }
 .tirai.tampil { display: block; }
 
 .lembar {
