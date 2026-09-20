@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#FAF9F5">
+<meta name="theme-color" content="#F9F9F9">
 <meta name="description" content="AstroZ: satu kotak untuk memerintah, empat CLI koding untuk mengerjakan.">
 <title>AstroZ</title>
 <!-- Huruf disimpan sendiri di /fonts, tidak ada permintaan ke Google. -->
@@ -36,11 +36,14 @@
   </div>
 </div>
 
-<div class="app">
+<!-- Elemen dengan id "app": dulu tidak ada, padahal tampilkanGerbang() memasang
+     aria-hidden padanya saat layar masuk tampil. Tanpa itu, pembaca layar
+     masih "melihat" isi aplikasi di belakang gerbang. -->
+<div class="app" id="app">
+  <!-- Kepala ala mockup "chatgpt redesign total": menu di kiri, merek, lalu
+       riwayat + percakapan baru + menu akun di kanan. Pil model pindah ke
+       deret chip di atas kotak ketik, sesuai tempat chip di mockup. -->
   <header class="bar">
-    <!-- Menu di paling kiri, lalu judul. Riwayat dan menu percakapan di kanan
-         memakai lambang saja, jadi barisnya tidak makan tempat di layar HP.
-         Percakapan baru tinggal di kaki menu, berdampingan dengan pengaturan. -->
     <button type="button" class="ikon" id="buka-alat" aria-label="Menu" title="Menu" aria-haspopup="dialog">
       <span class="garis-tiga" aria-hidden="true"><i></i><i></i><i></i></span>
     </button>
@@ -50,7 +53,10 @@
     <button type="button" class="ikon" id="buka-sesi" aria-label="Riwayat percakapan" title="Riwayat percakapan" aria-haspopup="dialog">
       <span data-ikon="riwayat" data-ukuran="20" aria-hidden="true"></span>
     </button>
-    <button type="button" class="ikon" id="buka-titik" aria-label="Menu percakapan ini" title="Menu percakapan ini" aria-haspopup="menu" aria-expanded="false">
+    <button type="button" class="ikon" id="sesi-baru" aria-label="Percakapan baru" title="Percakapan baru">
+      <span data-ikon="pensil" data-ukuran="20" aria-hidden="true"></span>
+    </button>
+    <button type="button" class="ikon ikon-akun" id="buka-titik" aria-label="Menu percakapan ini" title="Menu" aria-haspopup="menu" aria-expanded="false">
       <span data-ikon="titik-tiga" data-ukuran="20" aria-hidden="true"></span>
     </button>
     <!-- Lambang tiap baris mengikuti namanya: pensil untuk nama, peniti untuk
@@ -59,6 +65,8 @@
       <button type="button" role="menuitem" data-aksi="ganti-nama"><span data-ikon="pensil" aria-hidden="true"></span> Ganti nama percakapan</button>
       <button type="button" role="menuitem" data-aksi="sematkan"><span data-ikon="sematkan" aria-hidden="true"></span> Sematkan percakapan</button>
       <button type="button" role="menuitem" data-aksi="bagikan"><span data-ikon="salin" aria-hidden="true"></span> Salin percakapan ini</button>
+      <button type="button" role="menuitem" id="menu-titik-pengaturan" data-aksi="pengaturan"><span data-ikon="gerigi" aria-hidden="true"></span> Pengaturan</button>
+      <button type="button" role="menuitem" id="menu-titik-keluar"><span data-ikon="keluar" aria-hidden="true"></span> Keluar</button>
       <button type="button" role="menuitem" data-aksi="kerja"><span data-ikon="kerja" aria-hidden="true"></span> Lihat proses kerja</button>
     </div>
   </header>
@@ -87,31 +95,35 @@
         <p class="catatan" id="sapaan-kecil">Siap mengerjakan. Tulis perintah di kotak bawah.</p>
       </div>
 
+      <!-- Kotak ketik ala mockup: deret chip di atas (model, ukuran tugas),
+           lalu pil isian berisi tombol +, teks, dan tombol kirim bulat gelap.
+           Semua id tetap sama dengan versi sebelumnya supaya app.js tidak
+           perlu tahu tata letaknya berubah. -->
       <form class="tulis" id="form-tulis">
         <div class="lampir" id="lampiran" hidden></div>
-        <div class="kotak-isian">
-          <label class="sr" for="tulis">Pesan untuk tim</label>
-          <textarea id="tulis" rows="1" placeholder="Mengobrol dengan AstroZ..." autocomplete="off"></textarea>
-          <div class="deret">
-            <button type="button" class="ikon-bulat" id="tombol-plus" aria-label="Tambah lampiran, plugin, atau skill" title="Tambah" aria-haspopup="dialog">
-              <span aria-hidden="true">+</span>
-            </button>
-            <button type="button" class="pil" id="pil-model" aria-haspopup="dialog" title="Ganti model">
-              <span id="pil-model-teks">memuat model</span>
-            </button>
-            <span class="sisa"></span>
-            <label class="sr" for="ukuran">Ukuran tugas</label>
-            <select id="ukuran" class="ukuran" title="Ukuran tugas">
-              <option value="auto">otomatis</option>
-              <option value="small">cepat</option>
-              <option value="medium">sedang</option>
-              <option value="large">besar</option>
-            </select>
-            <button class="kirim" type="submit" id="kirim" aria-label="Kirim pesan">
-              <span aria-hidden="true">↑</span>
-            </button>
-          </div>
+        <div class="deret-chip">
+          <button type="button" class="chip" id="pil-model" aria-haspopup="dialog" title="Ganti model">
+            <span id="pil-model-teks">memuat model</span>
+          </button>
+          <label class="sr" for="ukuran">Ukuran tugas</label>
+          <select id="ukuran" class="chip chip-select" title="Ukuran tugas">
+            <option value="auto">otomatis</option>
+            <option value="small">cepat</option>
+            <option value="medium">sedang</option>
+            <option value="large">besar</option>
+          </select>
         </div>
+        <div class="kotak-isian">
+          <button type="button" class="ikon-bulat" id="tombol-plus" aria-label="Tambah lampiran, plugin, atau skill" title="Tambah" aria-haspopup="dialog">
+            <span aria-hidden="true">+</span>
+          </button>
+          <label class="sr" for="tulis">Pesan untuk tim</label>
+          <textarea id="tulis" rows="1" placeholder="Tanya AstroZ..." autocomplete="off"></textarea>
+          <button class="kirim" type="submit" id="kirim" aria-label="Kirim pesan">
+            <span aria-hidden="true">↑</span>
+          </button>
+        </div>
+        <p class="catatan-kirim">AstroZ bisa keliru. Periksa hal penting.</p>
       </form>
     </main>
 
@@ -193,6 +205,17 @@
   </div>
 </div>
 
+<!-- Navigasi bawah ala mockup: empat tab tetap yang selalu terlihat.
+     Chat menutup semuanya dan kembali ke percakapan, Riwayat dan Alat
+     membuka lembar yang sama dengan menu garis tiga (satu mekanisme, bukan
+     dua), Setelan khusus admin. -->
+<nav class="nav-bawah" id="nav-bawah" aria-label="Navigasi utama">
+  <button type="button" data-nav="chat" aria-current="true"><span data-ikon="chat" data-ukuran="20" aria-hidden="true"></span><span class="label">Chat</span></button>
+  <button type="button" data-nav="obrolan"><span data-ikon="riwayat" data-ukuran="20" aria-hidden="true"></span><span class="label">Riwayat</span></button>
+  <button type="button" data-nav="alat"><span data-ikon="berkas" data-ukuran="20" aria-hidden="true"></span><span class="label">Alat</span></button>
+  <button type="button" data-nav="pengaturan"><span data-ikon="gerigi" data-ukuran="20" aria-hidden="true"></span><span class="label">Setelan</span></button>
+</nav>
+
 <div class="tirai" id="tirai"></div>
 
 <!-- kotak aktivitas pekerja: muncul dari strip "sedang dikerjakan", tidak
@@ -210,7 +233,7 @@
 
 <!-- Menu garis tiga. Halaman pertama cuma daftar menu; tiap menu membuka
      halamannya sendiri di lembar yang sama, jadi tidak ada daftar panjang yang
-     menumpuk di bawah daftar menu. Pengaturan tinggal di kaki lembar, terpisah
+     menumpuk di bawah daftar menu. Pengaturan ada di menu titik-titik bar atas,
      dari daftar fitur. -->
 <div class="lembar kiri" id="lembar-alat" aria-hidden="true" role="dialog" aria-label="Menu">
   <div class="kepala">
@@ -257,73 +280,89 @@
          dibuka, lalu dikembalikan ke sini saat halamannya ditutup. -->
     <div id="badan-alat" hidden>
 
-    <section class="panel" id="alat-skill" hidden>
-      <h2>Skill terpasang</h2>
-      <p class="catatan">Skill yang sudah masuk ke folder pekerja. Pekerja memakainya sendiri saat tugasnya cocok.</p>
-      <label class="sr" for="cari-skill-terpasang">Cari skill</label>
-      <input id="cari-skill-terpasang" type="search" placeholder="cari nama skill atau paket">
-      <p class="catatan" id="jumlah-skill-terpasang" style="margin-top:10px"></p>
-      <div id="daftar-skill-terpasang"></div>
 
-      <h2 style="margin-top:24px">Pasang dari GitHub</h2>
-      <p class="catatan">Clone satu repo skill, lalu semuanya otomatis tertaut ke folder skill keempat pekerja.</p>
-      <label class="sr" for="repo-skill">Repo skill</label>
-      <input id="repo-skill" placeholder="misalnya: anthropics/skills atau tautan penuh">
-      <button type="button" class="tombol kecil" id="pasang-skill" style="margin-top:8px">Pasang skill</button>
-      <pre class="isi-berkas" id="log-skill" style="margin-top:10px" hidden></pre>
-
-      <h2 style="margin-top:24px" id="judul-paket-skill">Paket skill</h2>
-      <div id="daftar-skill"></div>
-
-      <h2 style="margin-top:24px">Skill bawaan repo</h2>
-      <p class="catatan">Skill yang ikut ter-clone bersama AstroZ. Pekerja memakainya sendiri, tanpa dipasang lagi dari sini.</p>
-      <div id="daftar-skill-bawaan"></div>
-
-      <h2 style="margin-top:24px" id="judul-sumber-skill">Sumber yang sering dipakai</h2>
-      <div id="daftar-marketplace"></div>
-    </section>
-
-    <section class="panel" id="alat-plugin" hidden>
-      <p class="catatan">Satu plugin ditulis ke konfigurasi keempat pekerja. Dari situ pekerja bisa memakai alat luar.</p>
-      <div id="daftar-mcp"></div>
-      <div class="kelompok">
-        <button type="button" class="tombol kecil garis" id="muat-mcp">Muat ulang</button>
-        <button type="button" class="tombol kecil" id="buka-pasang-plugin">Pasang dari perintah atau tautan</button>
-      </div>
-      <h2 style="margin-top:18px">Siap dipasang</h2>
-      <div id="daftar-mcp-siap"></div>
-    </section>
 
     <!-- Pasang dari URL: satu pintu untuk plugin Claude, Codex, Hermes, dan
          server MCP. Pratinjau dulu supaya yang tidak kompatibel terlihat
          sebelum dipasang, bukan sesudah. -->
-    <section class="panel" id="alat-capability" hidden>
-      <h2>Pasang dari URL</h2>
-      <p class="catatan">Tempel tautan repo GitHub, tautan folder di dalam repo, atau jalur paket di mesin ini. AstroZ mendeteksi jenisnya lebih dulu, lalu menunjukkan isinya sebelum memasang apa pun.</p>
-      <label class="sr" for="cap-url">Tautan atau jalur paket</label>
-      <input id="cap-url" placeholder="https://github.com/pemilik/repo atau /jalur/paket">
-      <label class="sr" for="cap-sub">Folder plugin di dalam repo (boleh kosong)</label>
-      <input id="cap-sub" placeholder="folder di dalam repo, misalnya integrations/claude-code-plugin">
-      <div class="kelompok">
-        <button type="button" class="tombol kecil" id="cap-pratinjau">Pratinjau</button>
-        <button type="button" class="tombol kecil garis" id="cap-muat">Muat ulang daftar</button>
-      </div>
-      <p class="catatan" id="cap-status"></p>
-      <div id="cap-hasil"></div>
 
-      <h2 style="margin-top:24px">Sudah dipasang</h2>
-      <div id="cap-terpasang"></div>
-    </section>
-
+    <!-- Panel "Pekerja": SATU menu untuk semua yang berhubungan dengan
+         pekerja. Dulu Skill, Plugin MCP, dan Pasang dari URL menjadi tiga
+         menu terpisah padahal semuanya memasang sesuatu ke pekerja; digabung
+         di sini sebagai tiga tab (Pekerja / Skill / Plugin), jadi daftar
+         menu pendek dan pengguna tidak perlu menebak bedanya. -->
     <section class="panel" id="alat-pekerja" hidden>
-      <h2>Pekerja</h2>
-      <p class="catatan">Empat CLI koding yang mengerjakan tugas. Yang belum terpasang bisa dipasang dari sini.</p>
-      <div class="kelompok">
-        <button type="button" class="tombol kecil garis" id="periksa-pekerja">Periksa semua</button>
-        <button type="button" class="tombol kecil garis" id="terapkan-pekerja">Pakai model ini di pekerja</button>
+      <div class="segmen segmen-kecil" role="tablist" aria-label="Bagian pekerja">
+        <button type="button" role="tab" data-tab-pekerja="pekerja" aria-selected="true">Pekerja</button>
+        <button type="button" role="tab" data-tab-pekerja="skill" aria-selected="false">Skill</button>
+        <button type="button" role="tab" data-tab-pekerja="plugin" aria-selected="false">Plugin</button>
       </div>
-      <div id="daftar-pekerja"></div>
-      <div id="daftar-pasang"></div>
+      <div class="isi-tab-pekerja">
+        <section class="panel" id="tab-pekerja-utama" hidden>
+          <h2>Pekerja</h2>
+          <p class="catatan">Empat CLI koding yang mengerjakan tugas. Yang belum terpasang bisa dipasang dari sini.</p>
+          <div class="kelompok">
+            <button type="button" class="tombol kecil garis" id="periksa-pekerja">Periksa semua</button>
+            <button type="button" class="tombol kecil garis" id="terapkan-pekerja">Pakai model ini di pekerja</button>
+          </div>
+          <div id="daftar-pekerja"></div>
+          <div id="daftar-pasang"></div>
+        </section>
+
+        <section class="panel" id="tab-pekerja-skill" hidden>
+          <h2>Skill terpasang</h2>
+          <p class="catatan">Skill yang sudah masuk ke folder pekerja. Pekerja memakainya sendiri saat tugasnya cocok.</p>
+          <label class="sr" for="cari-skill-terpasang">Cari skill</label>
+          <input id="cari-skill-terpasang" type="search" placeholder="cari nama skill atau paket">
+          <p class="catatan" id="jumlah-skill-terpasang" style="margin-top:10px"></p>
+          <div id="daftar-skill-terpasang"></div>
+
+          <h2 style="margin-top:24px">Pasang dari GitHub</h2>
+          <p class="catatan">Clone satu repo skill, lalu semuanya otomatis tertaut ke folder skill keempat pekerja.</p>
+          <label class="sr" for="repo-skill">Repo skill</label>
+          <input id="repo-skill" placeholder="misalnya: anthropics/skills atau tautan penuh">
+          <button type="button" class="tombol kecil" id="pasang-skill" style="margin-top:8px">Pasang skill</button>
+          <pre class="isi-berkas" id="log-skill" style="margin-top:10px" hidden></pre>
+
+          <h2 style="margin-top:24px" id="judul-paket-skill">Paket skill</h2>
+          <div id="daftar-skill"></div>
+
+          <h2 style="margin-top:24px">Skill bawaan repo</h2>
+          <p class="catatan">Skill yang ikut ter-clone bersama AstroZ. Pekerja memakainya sendiri, tanpa dipasang lagi dari sini.</p>
+          <div id="daftar-skill-bawaan"></div>
+
+          <h2 style="margin-top:24px" id="judul-sumber-skill">Sumber yang sering dipakai</h2>
+          <div id="daftar-marketplace"></div>
+        </section>
+
+        <section class="panel" id="tab-pekerja-plugin" hidden>
+          <h2>Plugin MCP</h2>
+          <p class="catatan">Satu plugin ditulis ke konfigurasi keempat pekerja. Dari situ pekerja bisa memakai alat luar.</p>
+          <div id="daftar-mcp"></div>
+          <div class="kelompok">
+            <button type="button" class="tombol kecil garis" id="muat-mcp">Muat ulang</button>
+            <button type="button" class="tombol kecil" id="buka-pasang-plugin">Pasang dari perintah atau tautan</button>
+          </div>
+          <h2 style="margin-top:18px">Siap dipasang</h2>
+          <div id="daftar-mcp-siap"></div>
+
+          <h2 style="margin-top:24px">Pasang dari URL</h2>
+          <p class="catatan">Tempel tautan repo GitHub, tautan folder di dalam repo, atau jalur paket di mesin ini. AstroZ mendeteksi jenisnya lebih dulu, lalu menunjukkan isinya sebelum memasang apa pun.</p>
+          <label class="sr" for="cap-url">Tautan atau jalur paket</label>
+          <input id="cap-url" placeholder="https://github.com/pemilik/repo atau /jalur/paket">
+          <label class="sr" for="cap-sub">Folder plugin di dalam repo (boleh kosong)</label>
+          <input id="cap-sub" placeholder="folder di dalam repo, misalnya integrations/claude-code-plugin">
+          <div class="kelompok">
+            <button type="button" class="tombol kecil" id="cap-pratinjau">Pratinjau</button>
+            <button type="button" class="tombol kecil garis" id="cap-muat">Muat ulang daftar</button>
+          </div>
+          <p class="catatan" id="cap-status"></p>
+          <div id="cap-hasil"></div>
+
+          <h2 style="margin-top:24px">Sudah dipasang</h2>
+          <div id="cap-terpasang"></div>
+        </section>
+      </div>
     </section>
 
     <section class="panel" id="alat-aktivitas" hidden>
@@ -382,24 +421,6 @@
     </section>
   </div>
   </div>
-  <div class="kaki" id="kaki-alat">
-    <!-- Label teks, bukan cuma lambang. Sebelumnya di sini hanya gerigi tanpa
-         tulisan: di layar HP tooltip tidak pernah muncul, jadi orang tidak
-         menemukan menu Pengaturan sama sekali. Keluar juga ada di sini karena
-         endpoint /api/keluar sudah lama ada tanpa tombolnya. -->
-    <button type="button" class="ikon-kaki" id="kaki-pengaturan" data-alat="pengaturan" aria-label="Pengaturan" title="Pengaturan">
-      <span data-ikon="gerigi" data-ukuran="19" aria-hidden="true"></span>
-      <span class="teks-kaki">Pengaturan</span>
-    </button>
-    <button type="button" class="ikon-kaki" id="kaki-keluar" aria-label="Keluar" title="Keluar">
-      <span data-ikon="keluar" data-ukuran="19" aria-hidden="true"></span>
-      <span class="teks-kaki">Keluar</span>
-    </button>
-    <button type="button" class="ikon-kaki" id="sesi-baru" aria-label="Percakapan baru" title="Percakapan baru">
-      <span data-ikon="bubble" data-ukuran="19" aria-hidden="true"></span>
-      <span class="teks-kaki">Baru</span>
-    </button>
-  </div>
 </div>
 
 <!-- halaman satu layar. Menu garis tiga hanya memuat daftar; isi tiap menu
@@ -426,9 +447,9 @@
   <div class="isi-lembar">
     <button type="button" class="baris-aksi" id="aksi-gambar"><span data-ikon="gambar" data-ukuran="20" aria-hidden="true"></span> Gambar<span class="petunjuk">PNG, JPEG, WebP, GIF</span></button>
     <button type="button" class="baris-aksi" id="aksi-berkas"><span data-ikon="file" data-ukuran="20" aria-hidden="true"></span> File<span class="petunjuk">teks, kode, PDF</span></button>
-    <!-- Ukuran tugas. Di layar sempit pemilihnya di baris kotak tulis
-         disembunyikan supaya barisnya muat, jadi pilihannya disediakan di
-         sini. Keduanya mengubah pilihan yang sama, tidak ada nilai kembar. -->
+    <!-- Ukuran tugas. Di layar sempit pemilihnya di deret chip disembunyikan
+         supaya barisnya muat, jadi pilihannya disediakan di sini. Keduanya
+         mengubah pilihan yang sama, tidak ada nilai kembar. -->
     <div class="pilih-ukuran" role="group" aria-label="Ukuran tugas">
       <span class="judul-ukuran">Ukuran tugas</span>
       <div class="deret-ukuran" id="deret-ukuran">

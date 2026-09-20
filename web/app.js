@@ -92,12 +92,13 @@ function pasangFormMasuk() {
 
 /* Menu yang menyangkut mesin pemilik (kunci API, pekerja, setelan) tidak
    ditampilkan ke pengguna biasa: menampilkannya hanya menghasilkan pesan
-   "hanya admin" saat ditekan. Pengaturan ada di kaki menu, bukan di daftar nav,
+   "hanya admin" saat ditekan. Pengaturan ada di menu titik-titik bar atas,
    jadi keduanya harus ditangani. */
 function sembunyikanKhususAdmin() {
   const admin = keadaan.peran === "admin";
-  const kaki = el("kaki-pengaturan");
-  if (kaki) kaki.hidden = !admin;
+  // "Pengaturan" pindah ke menu titik-titik di bar atas (lembar kaki dihapus).
+  const setelan = el("menu-titik-pengaturan");
+  if (setelan) setelan.hidden = !admin;
   // Pil model hanya berguna kalau daftar model boleh dibaca.
   const pil = el("pil-model");
   if (pil) pil.hidden = !admin;
@@ -498,6 +499,7 @@ for (const b of document.querySelectorAll("[data-aksi]")) {
     if (aksi === "ganti-nama") return bukaLembar("lembar-nama");
     if (aksi === "bagikan") return salinPercakapan();
     if (aksi === "sematkan") return sematkanPercakapan();
+    if (aksi === "pengaturan") return bukaHalaman("pengaturan");
     if (aksi === "kerja") {
       const tid = stripData[0] ? stripData[0].id : kerjaTugas;
       if (!tid) { pesanSingkat("Belum ada pekerjaan di percakapan ini."); return; }
@@ -511,11 +513,12 @@ for (const b of document.querySelectorAll("[data-aksi]")) {
 /* Menu garis tiga memuat daftar saja. Riwayat dibuka di dalam lembar ini
    karena daftarnya pendek; yang lain membuka halaman satu layar sendiri, jadi
    daftar menu tidak pernah menumpuk panjang ke bawah. */
+/* Dulu Skill, Plugin MCP, dan Pasang dari URL menjadi tiga menu terpisah
+   padahal semuanya memasang sesuatu ke pekerja. Sekarang satu menu "Pekerja"
+   dengan tiga tab di dalamnya, supaya daftar menu pendek dan pengguna tidak
+   perlu menebak bedanya. */
 const DAFTAR_MENU = [
   { alat: "obrolan", judul: "Riwayat percakapan", ikon: "riwayat" },
-  { alat: "skill", judul: "Skill", ikon: "skill" },
-  { alat: "plugin", judul: "Plugin MCP", ikon: "plugin" },
-  { alat: "capability", judul: "Pasang dari URL", ikon: "plugin" },
   { alat: "pekerja", judul: "Pekerja", ikon: "pekerja" },
   { alat: "berkas", judul: "Berkas dan tes", ikon: "berkas" },
   { alat: "catatan", judul: "Catatan kejadian", ikon: "catatan" },
@@ -523,9 +526,6 @@ const DAFTAR_MENU = [
 ];
 const HALAMAN = {
   obrolan: "alat-obrolan",
-  skill: "alat-skill",
-  plugin: "alat-plugin",
-  capability: "alat-capability",
   pekerja: "alat-pekerja",
   berkas: "alat-aktivitas",
   catatan: "alat-aktivitas",
@@ -534,9 +534,6 @@ const HALAMAN = {
 };
 const JUDUL_HALAMAN = {
   obrolan: "Riwayat percakapan",
-  skill: "Skill",
-  plugin: "Plugin MCP",
-  capability: "Pasang dari URL",
   pekerja: "Pekerja",
   berkas: "Berkas dan tes",
   catatan: "Catatan kejadian",
@@ -613,11 +610,17 @@ function bukaHalaman(nama) {
   el("halaman").setAttribute("aria-hidden", "false");
   halamanSekarang = nama;
   pasangIkon(el("halaman"));
-  if (nama === "skill") muatSkill();
   if (nama === "pengaturan") muatStorage().catch(() => {});
-  if (nama === "plugin") muatMcp();
-  if (nama === "capability") muatCapability();
-  if (nama === "pekerja") { muatPekerja(); muatPekerjaPasang(); }
+  if (nama === "pekerja") {
+    // Satu halaman memuat tiga bagian (pekerja, skill, plugin). Semua daftar
+    // dimuat sekaligus di sini supaya pindah tab tidak menunggu jaringan.
+    pindahTabPekerja("pekerja");
+    muatPekerja();
+    muatPekerjaPasang();
+    muatSkill();
+    muatMcp();
+    muatCapability();
+  }
   if (nama === "berkas") { muatBerkas(); muatGit(); }
   if (nama === "model") muatModel();
   el("tutup-halaman").focus();
@@ -639,12 +642,24 @@ function tutupHalaman() {
   susun();
 }
 
+/* Tab di dalam halaman Pekerja: Pekerja / Skill / Plugin. Tab ini bagian dari
+   satu panel, bukan tiga halaman, jadi cukup menampilkan-menyembunyikan
+   sub-panelnya. */
+function pindahTabPekerja(nama) {
+  for (const b of document.querySelectorAll("[data-tab-pekerja]")) {
+    b.setAttribute("aria-selected", String(b.dataset.tabPekerja === nama));
+  }
+  for (const p of document.querySelectorAll("#alat-pekerja .isi-tab-pekerja > .panel")) {
+    p.hidden = p.id !== ("tab-pekerja-" + (nama === "pekerja" ? "utama" : nama));
+  }
+}
+for (const b of document.querySelectorAll("[data-tab-pekerja]")) {
+  b.addEventListener("click", () => pindahTabPekerja(b.dataset.tabPekerja));
+}
+
 el("tutup-halaman").addEventListener("click", tutupHalaman);
 el("kembali-alat").addEventListener("click", () => bukaMenu());
 for (const b of document.querySelectorAll("[data-tutup-halaman]")) b.addEventListener("click", tutupHalaman);
-for (const b of document.querySelectorAll("#kaki-alat [data-alat]")) {
-  b.addEventListener("click", () => bukaHalaman(b.dataset.alat));
-}
 for (const b of document.querySelectorAll("#tab-alat [role=tab]")) {
   b.addEventListener("click", () => pindahTab(b.dataset.panel));
 }
@@ -702,9 +717,20 @@ function gambarSemuaPesan() {
 function gambarPesan(p) {
   const baris = buat("article", `pesan ${p.peran} ${p.status || ""}`);
   baris.dataset.no = p.no || "";
-  baris.appendChild(buat("div", "dari", p.peran === "aku" ? "Kamu" : "AstroZ"));
+  // Avatar bulat ala mockup (label teks "Kamu/AstroZ" disembunyikan CSS-nya,
+  // tetap dibuat supaya pembaca layar tetap tahu siapa pengirimnya).
+  const dari = buat("div", "dari", p.peran === "aku" ? "Kamu" : "AstroZ");
+  // Dua inisial berbeda supaya tidak ambigu siapa pengirimnya (saran uji
+  // visual 20 Sep 2026: kedua avatar sama-sama "A").
+  const avatar = buat("span", "avatar-kecil" + (p.peran === "aku" ? " cahaya" : ""),
+    p.peran === "aku" ? "K" : "A");
+  avatar.setAttribute("aria-hidden", "true");
+  baris.appendChild(avatar);
+  baris.appendChild(dari);
 
-  if (p.lampiran) baris.appendChild(buat("div", "lampiran", "lampiran: " + String(p.lampiran).split("/").pop()));
+  const badan = buat("div", "badan-pesan");
+  baris.appendChild(badan);
+  if (p.lampiran) badan.appendChild(buat("div", "lampiran", "lampiran: " + String(p.lampiran).split("/").pop()));
 
   const isi = buat("div", "isi-pesan", p.teks || (p.status === "jalan" ? "sedang dikerjakan" : ""));
   if (p.status === "jalan" && p.peran === "astroz") isi.classList.add("shimmer");
@@ -720,7 +746,7 @@ function gambarPesan(p) {
     isi.addEventListener("click", buka);
     isi.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); buka(); } });
   }
-  baris.appendChild(isi);
+  badan.appendChild(isi);
 
   const aksi = buat("div", "baris-aksi-pesan");
   if (p.peran === "astroz") {
@@ -765,7 +791,7 @@ function gambarPesan(p) {
   } else if (p.ts) {
     aksi.appendChild(buat("span", "waktu", waktu(p.ts)));
   }
-  baris.appendChild(aksi);
+  badan.appendChild(aksi);
   return baris;
 }
 
@@ -1116,6 +1142,39 @@ function sesiBaru() {
 }
 el("sesi-baru").addEventListener("click", sesiBaru);
 
+/* Navigasi bawah ala mockup: empat tab tetap. "Chat" menutup semua lembar dan
+   kembali ke percakapan (plus percakapan baru kalau memang belum ada), tab
+   lain membuka lembar/halaman yang sama dengan mekanisme menu garis tiga --
+   satu mekanisme, bukan dua, supaya tidak ada keadaan yang bisa berbeda.
+   Setelan hanya untuk admin: pengguna biasa tidak melihat tabnya sama
+   sekali, sama seperti menu titik-titik. */
+function gambarNavBawah() {
+  const nav = el("nav-bawah");
+  if (!nav) return;
+  const admin = keadaan.peran === "admin";
+  for (const b of nav.querySelectorAll("button")) {
+    if (b.dataset.nav === "pengaturan") b.hidden = !admin;
+  }
+}
+for (const b of document.querySelectorAll("#nav-bawah [data-nav]")) {
+  b.addEventListener("click", () => {
+    const nama = b.dataset.nav;
+    for (const x of document.querySelectorAll("#nav-bawah [data-nav]")) {
+      x.setAttribute("aria-current", String(x === b));
+    }
+    tutupSemuaLembar();
+    if (el("halaman") && !el("halaman").hidden) tutupHalaman();
+    if (nama === "chat") {
+      if (!keadaan.sesi) sesiBaru();
+      el("tulis").focus();
+      return;
+    }
+    if (nama === "obrolan") { bukaMenu("obrolan"); return; }
+    if (nama === "alat") { bukaMenu(); return; }
+    if (nama === "pengaturan") { bukaMenu("pengaturan"); return; }
+  });
+}
+
 /* Keluar: hapus cookie token di server, lalu tampilkan layar masuk lagi.
    Sebelumnya endpoint /api/keluar ada di server tetapi tidak ada tombolnya,
    jadi satu-satunya cara berhenti memakai token adalah menghapus cookie
@@ -1125,8 +1184,8 @@ el("sesi-baru").addEventListener("click", sesiBaru);
    sebagian keadaan di memori. Terukur: tanpa muat ulang, panel yang sudah
    tergambar (daftar skill berikut jalur paketnya) masih menampilkan isi milik
    pengguna sebelumnya sampai halaman disegarkan sendiri. */
-el("kaki-keluar").addEventListener("click", async () => {
-  const b = el("kaki-keluar");
+el("menu-titik-keluar").addEventListener("click", async () => {
+  const b = el("menu-titik-keluar");
   b.disabled = true;
   try {
     await kirim("/api/keluar", {});
@@ -2831,6 +2890,7 @@ async function mulai() {
   keadaan.peran = akun.pengguna.peran || "user";
   keadaan.saya = akun.pengguna.nama || "";
   sembunyikanKhususAdmin();
+  gambarNavBawah();
   // Yang menahan tampilan awal hanya dua hal: daftar percakapan dan model.
   // Sisanya (berkas, catatan, plugin, skill) dimuat di latar belakang, jadi
   // halaman skill yang lambat tidak menahan percakapan muncul.
