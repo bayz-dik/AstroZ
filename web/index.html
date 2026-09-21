@@ -14,6 +14,18 @@
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
+<!-- Lapisan latar (permintaan pengguna 21 Sep 2026, acuan "Glassmorphism.jpg").
+     Kaca tanpa apa pun di belakangnya tidak terlihat seperti kaca: blur hanya
+     mengaburkan warna rata, dan hasilnya sama saja dengan latar putih biasa.
+     Di sini ada tiga bentuk logam buram yang diblur oleh setiap permukaan
+     kaca di atasnya. Murni hiasan: aria-hidden, pointer-events:none, dan
+     z-index -1 supaya berada DI BAWAH seluruh isi aplikasi. -->
+<div class="latar" aria-hidden="true">
+  <i class="b1"></i>
+  <i class="b2"></i>
+  <i class="b3"></i>
+</div>
+
 <a class="lewati" href="#tulis">Lewati ke kotak pesan</a>
 
 <!-- Layar masuk. Halaman UI sendiri terbuka tanpa token supaya layar ini bisa

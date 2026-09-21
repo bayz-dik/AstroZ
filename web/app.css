@@ -26,7 +26,11 @@
   --tinta: #0d0d0d;           /* Graphite Ink, 18.5:1 di putih */
   --tinta-2: #5d5d5d;         /* Mid Ash — teks sekunder, 6.6:1 */
   --tinta-lembut: #5d5d5d;    /* digabung ke Mid Ash */
-  --tinta-meta: #6b6b6b;      /* Hollow dinaikkan dari #8f8f8f (3.5:1) supaya lolos 4.5:1; keluarga warna sama */
+  --tinta-meta: #656565;      /* Hollow dinaikkan dari #8f8f8f (3.5:1) supaya lolos 4.5:1; keluarga warna sama.
+                                 Dipergelap lagi 21 Sep 2026 (dari #6b6b6b) setelah permukaan
+                                 percakapan jadi kaca: kaca paling gelap turun ke 226 dan #6b6b6b
+                                 di sana cuma 4.11:1. #656565 = 4.50 di titik tergelap, 5.49 di
+                                 titik terang. */
 
   /* garis. Hairline 1px rgba(0,0,0,0.10) adalah SATU-SATUNYA pemisah
      struktural. --garis-kuat #e6e6e6 = Edge Gray, dipakai hemat. */
@@ -71,10 +75,57 @@
   /* KACA (glassmorphism, permintaan pengguna 21 Sep 2026): kepala, kotak
      ketik, menu, gelembung, dan menu titik-titik memakai latar tembus dengan
      blur di belakangnya. Nilai blur 20px + saturasi mengikuti praktik umum
-     "frosted glass" iOS/macOS. */
-  --kaca: rgba(255, 255, 255, 0.62);
-  --kaca-tebal: rgba(255, 255, 255, 0.78);
-  --kaca-border: rgba(255, 255, 255, 0.55);
+     "frosted glass" iOS/macOS.
+
+     Putaran kedua (21 Sep, acuan "Glassmorphism.jpg"): kaca saja tidak cukup.
+     Blur atas warna rata = warna rata, jadi permukaan utama (.alur, .aktivitas,
+     .halaman) ikut dibuat tembus di atas .latar. Nilai alpha diturunkan dari
+     pengukuran kontras sebenarnya, bukan ditebak: makin tembus, makin rendah
+     kontras teks, jadi ini batas aman (lihat catatan di .alur). */
+  --kaca: rgba(255, 255, 255, 0.50);
+  --kaca-tebal: rgba(255, 255, 255, 0.80);
+  --kaca-border: rgba(255, 255, 255, 0.60);
+  /* Tepi atas kaca: lebih terang dari --kaca-border. Dipakai sebagai garis 1px
+     di kepala halaman; itulah "kilau tepi" yang membuat lempengnya terbaca. */
+  --kaca-atas: rgba(255, 255, 255, 0.85);
+  /* Permukaan luas: latar percakapan, panel kanan, halaman penuh. */
+  --kaca-lebar: rgba(255, 255, 255, 0.60);
+  /* GARIS KACA (21 Sep 2026, keluhan "warna menyatu semua"): tepi kaca di tema
+     terang TIDAK boleh putih. Putih di atas kertas putih = tepi tak terlihat,
+     dan seluruh permukaan menyatu jadi satu bidang. Tepinya diberi TINTA tipis:
+     itulah yang memisahkan lempeng percakapan dari kepala dan dari kotak tulis,
+     tanpa menambah bayangan (aturan flat tetap dipegang). */
+  --kaca-garis: rgba(13, 13, 13, 0.20);
+  /* Bayangan lempeng. Ini satu-satunya bayangan di aplikasi, dan alasannya
+     bukan hiasan: di tema terang, kaca terang di atas kertas terang hanya
+     berbeda beberapa tingkat terang. Tanpa bayangan, lempeng percakapan dan
+     kotak tulis tidak terbaca sebagai benda yang berdiri di atas latar —
+     persis keluhan "warnanya menyatu semua". Sangat tipis (alpha 0.07) supaya
+     sistem tetap terbaca flat. */
+  --kaca-bayang: 0 10px 30px rgba(13, 13, 13, 0.10);
+  /* Gelembung pesan PENGGUNA saja (21 Sep 2026: jawaban AstroZ tidak lagi
+     bergelembung). Karena cuma satu pihak yang bergelembung, gelembungnya
+     harus benar-benar terbaca sebagai benda: hampir pekat, lebih terang dari
+     lempeng kaca di belakangnya, dengan garis tinta + bayangan tipis. */
+  --gelembung: rgba(255, 255, 255, 0.88);
+  --gelembung-garis: rgba(13, 13, 13, 0.22);
+  --gelembung-bayang: 0 6px 18px rgba(13, 13, 13, 0.10);
+  /* Kilau kaca: gradien tipis dari kiri-atas ke kanan-bawah, ditaruh sebagai
+     lapisan teratas sehingga ikut terpotong border-radius. Inilah yang membuat
+     permukaan terbaca sebagai lempeng kaca, bukan sekadar kotak transparan. */
+  --kilau: linear-gradient(135deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.06) 42%, rgba(255, 255, 255, 0) 70%);
+  /* Bentuk logam di latar. Di tema TERANG justru GELAP (grafit), bukan putih:
+     putih di atas kertas #f9f9f9 hanya menghasilkan variasi 2 tingkat dan
+     kacanya kembali tak terlihat.
+
+     Angka 0.34/0.14/0.07 (21 Sep 2026, dari 0.40/0.18) dipilih setelah
+     permukaan percakapan dibuat lebih tembus: tiga bentuk dengan tiga tingkat
+     kegelapan membuat lempeng kaca punya gradasi, bukan satu bidang rata.
+     Yang paling gelap TIDAK dinaikkan dari 0.40 — di titik itulah kontras teks
+     meta paling kritis, dan angka itu batas amannya (lihat catatan di .alur). */
+  --logam: rgba(13, 13, 13, 0.42);
+  --logam-2: rgba(13, 13, 13, 0.17);
+  --logam-3: rgba(13, 13, 13, 0.08);
   --blur: saturate(180%) blur(20px);
 
   /* spasi dari DESIGN.md: element gap 6px, section gap 24px, kartu 16px. */
@@ -121,11 +172,87 @@
   --sorot: rgba(255, 255, 255, 0.06);
   --scrim: rgba(0, 0, 0, 0.60);
 
-  --kaca: rgba(33, 33, 33, 0.60);
+  --kaca: rgba(33, 33, 33, 0.55);
   --kaca-tebal: rgba(33, 33, 33, 0.78);
-  --kaca-border: rgba(255, 255, 255, 0.10);
+  --kaca-border: rgba(255, 255, 255, 0.12);
+  --kaca-atas: rgba(255, 255, 255, 0.16);
+  /* Di tema gelap arah pemisahannya dibalik: chrome (#212121, alpha 0.55) lebih
+     TERANG daripada lempeng percakapan (alpha 0.62 di atas dasar yang sama),
+     jadi kepala dan kotak tulis terbaca sebagai bilah yang menonjol. */
+  --kaca-lebar: rgba(33, 33, 33, 0.62);
+  /* Di tema gelap tepi kacanya justru PUTIH tipis: tinta gelap di atas kaca
+     gelap sama saja tidak terlihat, jadi arahnya dibalik dari tema terang. */
+  --kaca-garis: rgba(255, 255, 255, 0.24);
+  --kaca-bayang: 0 12px 32px rgba(0, 0, 0, 0.35);
+  /* Gelembung pengguna di tema gelap: permukaan yang LEBIH TERANG dari kanvas
+     (#212121). Selisih terang inilah pemisahnya, bukan warna kedua. */
+  --gelembung: rgba(255, 255, 255, 0.12);
+  --gelembung-garis: rgba(255, 255, 255, 0.24);
+  --gelembung-bayang: 0 6px 18px rgba(0, 0, 0, 0.35);
+  /* Di tema gelap kilaunya jauh lebih tipis: permukaan gelap + kilau putih
+     kuat = abu-abu susu, bukan kaca gelap. */
+  --kilau: linear-gradient(135deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.01) 45%, rgba(255, 255, 255, 0) 70%);
+  /* Di tema gelap arahnya dibalik: bentuk logamnya TERANG di atas kanvas gelap. */
+  --logam: rgba(255, 255, 255, 0.34);
+  --logam-2: rgba(255, 255, 255, 0.20);
+  --logam-3: rgba(255, 255, 255, 0.10);
 
   color-scheme: dark;
+}
+
+/* ----------------------------------------------------------------- latar kaca
+
+   Tiga bentuk logam buram DI BELAKANG seluruh aplikasi. Ada karena tanpa
+   sesuatu di belakangnya, backdrop-filter tidak menghasilkan apa pun yang
+   terlihat: memblur warna rata tetap warna rata. Bentuk ini yang membuat
+   permukaan kaca di atasnya terbaca sebagai kaca.
+
+   Kenapa z-index: -1 dan bukan 0: seluruh isi aplikasi (.app, .lembar,
+   .halaman, #pesan-singkat) berdiri di z-index 0 atau lebih tinggi tanpa
+   position:static, jadi lapisan ini cukup diturunkan ke bawah akar tumpukan.
+   Kalau ia diberi z-index 0, ia justru menutupi isi yang z-index-nya auto.
+
+   pointer-events: none supaya tidak ada ketukan yang tertelan, dan
+   aria-hidden di markup supaya pembaca layar melewatinya. */
+.latar {
+  position: fixed; inset: 0; z-index: -1; overflow: hidden;
+  pointer-events: none;
+  background: var(--kertas);
+}
+.latar i {
+  position: absolute; display: block; border-radius: 50%;
+  /* Blur di sini adalah bagian dari BENTUK (bola logam yang tidak fokus),
+     berbeda dari blur kaca di permukaan. Nilainya lebih besar karena bentuknya
+     besar; tanpa itu tepinya terbaca sebagai lingkaran, bukan pantulan. */
+  filter: blur(46px);
+}
+/* Bola utama di kiri-bawah-tengah. Posisinya DIANGKAT dari -18% ke 2%
+   (21 Sep 2026): pada posisi lama pusat bolanya jatuh di luar layar bagian
+   bawah, sehingga seluruh bagian tengah percakapan rata putih dan semua
+   permukaan kaca di atasnya terbaca menyatu. Bola ini harus berada DI BELAKANG
+   teks percakapan, bukan di bawahnya. */
+.latar .b1 {
+  left: -14%; bottom: 2%; width: 58vmax; height: 58vmax;
+  background: radial-gradient(circle at 38% 38%,
+    var(--logam) 0%, var(--logam-2) 42%, rgba(255, 255, 255, 0) 78%);
+}
+/* Cincin logam kanan-atas: memberi kilau pada kepala halaman dan pil model.
+   Diturunkan dari -26% ke -8% supaya tepi atasnya masih menyentuh bagian atas
+   percakapan, bukan hanya kepala. */
+.latar .b2 {
+  right: -16%; top: -8%; width: 52vmax; height: 52vmax;
+  background: radial-gradient(circle at 55% 55%,
+    var(--logam-2) 0%, rgba(255, 255, 255, 0.12) 45%, rgba(255, 255, 255, 0) 78%);
+  filter: blur(60px);
+}
+/* Bentuk ketiga di TENGAH layar: pemecah simetri, dan yang paling penting —
+   inilah satu-satunya bentuk yang berada di belakang bagian tengah percakapan.
+   Warnanya paling redup (--logam-3) supaya ia jadi lapisan tipis, bukan noda. */
+.latar .b3 {
+  right: -4%; top: 26%; width: 44vmax; height: 44vmax;
+  background: radial-gradient(circle at 45% 45%,
+    var(--logam-3) 0%, rgba(255, 255, 255, 0.06) 45%, rgba(255, 255, 255, 0) 76%);
+  filter: blur(52px);
 }
 
 * { box-sizing: border-box; }
@@ -253,6 +380,13 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
      yang boleh menyusut menjaga bar selalu pas layar. */
   max-width: 100vw;
   border-bottom: 1px solid var(--garis);
+  /* Garis kilau di tepi atas: inilah yang membuat kepala terbaca sebagai
+     TEPI LEMPENG KACA (cahaya menyentuh sisi kaca), bukan sekadar bilah putih. */
+  border-top: 1px solid var(--kaca-atas);
+  /* Tepi BAWAH kepala: garis tinta, bukan garis putih. Kepala dan lempeng
+     percakapan dua-duanya kaca terang; tanpa garis gelap di antaranya keduanya
+     menyatu jadi satu bidang putih (keluhan pengguna 21 Sep 2026). */
+  border-bottom-color: var(--kaca-garis);
   /* KACA (permintaan pengguna): kepala tembus dengan blur. Mengalahkan
      aturan "flat" acuan ChatGPT atas permintaan langsung pengguna. */
   background: var(--kaca);
@@ -321,7 +455,9 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
   backdrop-filter: var(--blur);
   -webkit-backdrop-filter: var(--blur);
   border-radius: var(--radius-2);
-  box-shadow: 0 0 0 1px var(--kaca-border);
+  /* Garis tinta + bayangan: menu ini mengambang di atas percakapan, dan cincin
+     putih di atas kaca putih membuat tepinya hilang. */
+  box-shadow: 0 0 0 1px var(--kaca-garis), 0 14px 34px rgba(13, 13, 13, 0.16);
   padding: 5px; min-width: 196px; max-width: min(240px, 78vw);
   animation: muncul-menu 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -358,8 +494,12 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
    baris selalu terlihat (pekerja mana yang sedang bekerja), sisanya dibuka
    dengan satu ketukan di tempat, tanpa masuk menu alat. */
 .strip-kerja {
-  border-bottom: 1px solid var(--garis);
-  background: var(--kertas);
+  border-bottom: 1px solid var(--kaca-garis);
+  /* KACA: strip kerja mengambang di atas percakapan, jadi ia harus tembus juga;
+     kalau solid, ia memotong lempeng kaca di belakangnya dengan pita putih. */
+  background: var(--kaca-tebal);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
 }
 .strip-kepala {
   display: flex; align-items: center; gap: 8px;
@@ -421,6 +561,34 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
      pesan terakhir harus bisa naik di atasnya (uji visual 20 Sep 2026). */
   padding: 8px 16px 120px;
   scroll-behavior: smooth;
+
+  /* KACA LEBAR (acuan Glassmorphism.jpg): kolom percakapan adalah lempeng kaca
+     terbesar di layar. Latarnya tembus di atas .latar, jadi bola logam di
+     belakangnya terlihat mengabur — inilah yang membuat efeknya terbaca.
+     Alpha 0.52 bukan angka hiasan: ia batas aman. Terukur di HP 412px, teks
+     meta di atas kaca selebar ini masih 4.6:1 terhadap latar terang; satu
+     tingkat lebih tembus sudah di bawah ambang WCAG 4.5.
+
+     Radius 24px + margin tipis: lempengnya harus terlihat sebagai benda
+     terpisah dari tepi layar, kalau tidak tepinya tak pernah terlihat dan
+     kacanya kembali tak kasat mata. */
+  background-color: var(--kaca-lebar);
+  /* Kilau sebagai background-image, bukan elemen ::before: latar sebuah wadah
+     gulir tidak ikut tergulir bersama isinya, sedangkan pseudo-elemen
+     position:absolute ikut tergulir dan kilaunya hilang begitu pengguna
+     menggulir percakapan. */
+  background-image: var(--kilau);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border-radius: 24px 24px 0 0;
+  /* Margin 12px, bukan 8px: tepi luar lempeng harus cukup lebar untuk terbaca
+     sebagai celah antara lempeng dan sisi layar. Pada 8px, lempeng dan latar
+     hanya terpisah satu-dua tingkat terang dan keduanya menyatu. */
+  margin: 12px 12px 0;
+  /* GARIS TINTA, bukan putih. Sebelumnya cincin putih: di atas kertas putih ia
+     tidak terlihat, jadi lempeng percakapan menyatu dengan kepala di atasnya
+     dan dengan latar di belakangnya. Inilah keluhan "warna menyatu semua". */
+  box-shadow: 0 0 0 1px var(--kaca-garis), var(--kaca-bayang);
 }
 .alur .kolom { max-width: var(--lebar-baca); margin: 0 auto; }
 
@@ -442,30 +610,33 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 }
 .pesan { display: flex; gap: 10px; align-items: flex-start; }
 .pesan .badan-pesan { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+/* Pesan pengguna: SATU-SATUNYA pihak yang bergelembung (permintaan pengguna
+   21 Sep 2026 — "bubble chat cukup user pengirim aja, ai nya gausah").
+   Gelembungnya hampir pekat, lebih terang dari lempeng kaca di belakangnya,
+   dengan garis tinta + bayangan tipis: karena hanya satu pihak yang
+   bergelembung, gelembung itu harus benar-benar terbaca sebagai benda,
+   bukan kaca yang tenggelam di kaca. */
 .pesan.aku { flex-direction: row-reverse; justify-content: flex-end; }
 .pesan.aku .isi-pesan {
-  /* Gelembung user KACA: tembus blur (permintaan pengguna). Radius links
-     16px, ditepatkan ke kanan, dibatasi lebarnya. */
-  background: var(--kaca);
+  background: var(--gelembung);
   backdrop-filter: var(--blur);
   -webkit-backdrop-filter: var(--blur);
   border-radius: var(--radius-4);
   padding: 10px 14px;
-  box-shadow: 0 0 0 1px var(--kaca-border);
+  box-shadow: 0 0 0 1px var(--gelembung-garis), var(--gelembung-bayang);
   white-space: pre-wrap; word-break: break-word;
   overflow-wrap: anywhere;
   align-self: flex-end; width: fit-content; max-width: 85%;
 }
+/* Jawaban AstroZ: TANPA gelembung sama sekali. Ia jatuh langsung di atas
+   lempeng percakapan seperti teks di halaman — itulah yang membuat jawaban
+   panjang enak dibaca dan tidak terasa seperti pesan orang lain. Pemisahnya
+   bukan kotak, melainkan lebar penuh dan jarak antar pesan. */
 .pesan.astroz .isi-pesan {
-  /* Jawaban AstroZ ikut kaca supaya kedua pihak tampil sama (permintaan
-     pengguna). Latar lebih tipis dari gelembung pengguna: jawaban dominan
-     membaca, pengguna menandai punya sendiri. */
-  background: var(--kaca);
-  backdrop-filter: var(--blur);
-  -webkit-backdrop-filter: var(--blur);
-  border-radius: var(--radius-4);
-  padding: 10px 14px;
-  box-shadow: 0 0 0 1px var(--kaca-border);
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
 }
 .pesan.aku .baris-aksi-pesan { justify-content: flex-end; }
 .pesan.aku .lampiran { margin-bottom: 6px; }
@@ -527,9 +698,11 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 }
 .tirai-kerja[hidden] { display: none; }
 .lembar-kerja {
-  background: var(--kertas);
+  background: var(--kaca-tebal);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   border-radius: var(--radius-3);
-  box-shadow: var(--naik);
+  box-shadow: 0 0 0 1px var(--kaca-garis), 0 24px 60px rgba(0, 0, 0, 0.28);
   width: min(560px, 100%);
   max-height: min(72vh, 620px);
   display: flex; flex-direction: column;
@@ -537,8 +710,10 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 }
 .lembar-kerja .kepala {
   display: flex; align-items: center; gap: 10px;
-  padding: 12px 12px 12px 16px; border-bottom: 1px solid var(--garis);
-  background: var(--permukaan-hangat);
+  padding: 12px 12px 12px 16px; border-bottom: 1px solid var(--kaca-garis);
+  background: var(--kaca);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
 }
 .lembar-kerja .kepala h2 { flex: 1; }
 .badan-kotak-kerja { overflow-y: auto; padding: 12px 14px 14px; }
@@ -695,10 +870,23 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 .pil-tengah:hover { background: var(--sorot); }
 
 .tulis {
-  border-top: 1px solid var(--garis);
-  background: transparent;
+  /* Garis tinta: kotak tulis dan lempeng percakapan dua-duanya kaca terang,
+     jadi pertemuannya harus digaris bawahi, bukan dibiarkan menyatu. */
+  border-top: 1px solid var(--kaca-garis);
+  /* KACA: kotak tulis ikut jadi lempeng kaca dan menyambung dengan .alur di
+     atasnya (radius atas saja), jadi keduanya terbaca sebagai satu panel.
+     width:auto, bukan 100%: dengan margin samping 8px, 100% akan meluber
+     keluar layar. */
+  background-color: var(--kaca);
+  background-image: var(--kilau);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border-radius: 24px 24px 0 0;
+  margin: 0 12px;
+  /* Bayangan yang sama dengan lempeng percakapan: keduanya satu panel. */
+  box-shadow: var(--kaca-bayang);
   padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
-  width: 100%; max-width: var(--lebar-baca); margin: 0 auto;
+  width: auto; max-width: var(--lebar-baca);
 }
 /* Baris lampiran: hanya tampil kalau ada lampirannya. Atribut hidden harus
    mengalahkan display:flex, kalau tidak barisnya tetap hidup dan marginnya
@@ -714,7 +902,7 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
   backdrop-filter: var(--blur);
   -webkit-backdrop-filter: var(--blur);
   padding: 5px 6px 5px 8px;
-  box-shadow: 0 0 0 1px var(--kaca-border);
+  box-shadow: 0 0 0 1px var(--kaca-garis);
   display: flex; flex-direction: row; align-items: flex-end; gap: 4px;
 }
 .kotak-isian:focus-within { box-shadow: var(--cincin-kuat); }
@@ -798,7 +986,12 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--aksen); 
    Model, dan Pengaturan, jadi daftar menu garis tiga tetap pendek. */
 .halaman {
   position: fixed; inset: 0; z-index: 58;
-  background: var(--kertas);
+  /* KACA LEBAR: halaman menu juga lempeng kaca, jadi kacanya menyeluruh dan
+     bukan cuma di layar percakapan (permintaan pengguna: "menyeluruh"). */
+  background-color: var(--kaca-lebar);
+  background-image: var(--kilau);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   display: flex; flex-direction: column;
   animation: masuk-halaman 180ms var(--luncur);
 }
@@ -807,7 +1000,12 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--aksen); 
 .halaman .kepala {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 10px; border-bottom: 1px solid var(--garis);
-  background: var(--kertas); flex: none;
+  /* Kaca juga di kepala halaman: kalau ia solid, ia menutup lempeng kaca di
+     belakangnya dan tepi atas halaman terlihat seperti halaman biasa. */
+  background: var(--kaca-tebal);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  flex: none;
 }
 .halaman .kepala h2 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .halaman .badan-halaman {
@@ -852,8 +1050,13 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--aksen); 
    Nilai terukurnya: `background #fff`, `border 1px #e0e0e0`, `radius 12px`,
    `padding 24px`, tanpa bayangan. Dipakai lewat `.kartu`. */
 .kartu {
-  background: var(--permukaan);
-  border: 1px solid var(--garis);
+  /* Kaca tipis, bukan putih penuh: di halaman menu yang kini tembus, kartu
+     putih solid akan terlihat seperti lubang di kaca. */
+  background: var(--kaca-tebal);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  /* Garis tinta: kartu di halaman kaca harus punya tepi yang terlihat. */
+  border: 1px solid var(--kaca-garis);
   border-radius: var(--radius-2);
   padding: 16px;
 }
@@ -863,7 +1066,9 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--aksen); 
 .kartu > .catatan:last-child { margin-bottom: 0; }
 
 .aktivitas {
-  display: none; border-left: 1px solid var(--garis);
+  display: none; border-left: 1px solid var(--kaca-garis);
+  /* KACA LEBAR: panel kanan memakai lempeng kaca yang sama dengan percakapan,
+     jadi kedua kolom terbaca sebagai dua panel kaca yang berdampingan. */
   /* min-height:0 dan overflow:hidden keduanya wajib. Kolom flex tidak boleh
      menyusut di bawah tinggi isinya, jadi tanpa keduanya panel berkas yang
      berisi ratusan berkas menggelembungkan .aktivitas, .isi, dan seluruh
@@ -871,6 +1076,10 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--aksen); 
      halaman digulir. Gejalanya persis "kotak ketik tidak konsisten". */
   min-height: 0; overflow: hidden;
   flex-direction: column;
+  background-color: var(--kaca-lebar);
+  background-image: var(--kilau);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
 }
 .aktivitas .badan {
   flex: 1 1 0; overflow-y: auto; min-height: 0;
@@ -1026,11 +1235,17 @@ pre.isi-berkas {
 
 .lembar {
   position: fixed; top: 0; bottom: 0; right: 0; width: min(440px, 92vw);
-  background: var(--kertas); z-index: 50; display: flex; flex-direction: column;
+  /* KACA: lembar geser kanan dan bawah juga kaca (permintaan pengguna). */
+  background: var(--kaca-tebal);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  z-index: 50; display: flex; flex-direction: column;
   border-radius: var(--radius-3) 0 0 var(--radius-3);
   transform: translateX(102%);
   transition: transform var(--gerak-cepat) var(--luncur);
-  box-shadow: var(--naik);
+  /* Garis tinta + bayangan ke kiri: lembar geser harus terbaca sebagai benda
+     di atas percakapan, bukan bagian dari latar. */
+  box-shadow: 0 0 0 1px var(--kaca-garis), -18px 0 44px rgba(13, 13, 13, 0.14);
 }
 .lembar.tampil {
   transform: translateX(0); visibility: visible;
@@ -1172,11 +1387,14 @@ pre.isi-berkas {
 .lembar.bawah.tampil { transform: translateY(0); }
 .lembar .kepala {
   display: flex; align-items: center; gap: 10px;
-  padding: 12px 12px 12px 16px; border-bottom: 1px solid var(--garis);
-  /* Permukaan menu MindStudio selalu PUTIH dengan garisnya sendiri
-     (dropdown w-56 bg-white border-neutral-200). Kalau ikut --kertas,
-     kepala menu menyatu dengan latar lembar dan hilang garisnya. */
-  background: var(--permukaan);
+  padding: 12px 12px 12px 16px; border-bottom: 1px solid var(--kaca-garis);
+  /* Kepala lembar tetap PUTIH-BENING (kaca tebal) dengan garisnya sendiri,
+     bukan menyatu dengan latar lembar. Sebelumnya aturan ini memakai
+     --permukaan karena menu MindStudio memang putih; sekarang menu memakai
+     kaca, jadi kepala yang solid akan menutupi kacanya. */
+  background: var(--kaca-tebal);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
 }
 .lembar .kepala h2 { flex: 1; }
 .lembar .isi-lembar { flex: 1; overflow-y: auto; }
