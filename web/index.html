@@ -3,13 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#F9F9F9">
+<meta name="theme-color" content="#f9f9f9">
 <meta name="description" content="AstroZ: satu kotak untuk memerintah, empat CLI koding untuk mengerjakan.">
 <title>AstroZ</title>
-<!-- Huruf disimpan sendiri di /fonts, tidak ada permintaan ke Google. -->
+<!-- Huruf: SISTEM sesuai DESIGN.md ChatGPT. Tidak ada webfont, tidak ada
+     permintaan jaringan untuk tipografi. Berkas fonts.css/fonts/ dibiarkan di
+     repo untuk perbandingan riwayat tapi tidak lagi dimuat. -->
 <link rel="icon" type="image/png" sizes="192x192" href="/logo-192.png">
 <link rel="apple-touch-icon" href="/logo-512.png">
-<link rel="stylesheet" href="/fonts.css">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
@@ -103,18 +104,6 @@
            perlu tahu tata letaknya berubah. -->
       <form class="tulis" id="form-tulis">
         <div class="lampir" id="lampiran" hidden></div>
-        <!-- Model sudah di pil tengah header. Ukuran tugas: di layar lebar
-             tampil sebagai chip tunggal di sini, di layar sempit pindah ke
-             lembar "+" (pilih-ukuran), sama seperti sebelumnya. -->
-        <div class="deret-chip">
-          <label class="sr" for="ukuran">Ukuran tugas</label>
-          <select id="ukuran" class="chip chip-select" title="Ukuran tugas">
-            <option value="auto">otomatis</option>
-            <option value="small">cepat</option>
-            <option value="medium">sedang</option>
-            <option value="large">besar</option>
-          </select>
-        </div>
         <div class="kotak-isian">
           <button type="button" class="ikon-bulat" id="tombol-plus" aria-label="Tambah lampiran, plugin, atau skill" title="Tambah" aria-haspopup="dialog">
             <span aria-hidden="true">+</span>
@@ -125,7 +114,9 @@
             <span aria-hidden="true">↑</span>
           </button>
         </div>
-        <p class="catatan-kirim">AstroZ bisa keliru. Periksa hal penting.</p>
+<!-- Deret chip ukuran dan disclaimer "AstroZ bisa keliru" DIHAPUS atas
+             permintaan pengguna: keduanya menutupi kotak ketik. Pemilih
+             ukuran tugas sekarang hanya di lembar "+". -->
       </form>
     </main>
 
@@ -401,18 +392,9 @@
         </div>
       </div>
 
-      <div class="kartu">
-        <h3>Pengembang</h3>
-        <p class="catatan">Dibuat oleh Bayu Andika. Ketuk lambangnya untuk membuka profil.</p>
-        <div class="dev-deret" id="dev-deret">
-        <a class="dev" href="https://github.com/bayz-dik" target="_blank" rel="noreferrer noopener" aria-label="GitHub bayz-dik" title="GitHub: bayz-dik">
-          <span class="dev-lambang" data-merek="github" aria-hidden="true"></span>
-        </a>
-        <a class="dev" href="https://www.instagram.com/bayydka" target="_blank" rel="noreferrer noopener" aria-label="Instagram bayydka" title="Instagram: bayydka">
-          <span class="dev-lambang" data-merek="instagram" aria-hidden="true"></span>
-        </a>
-        </div>
-      </div>
+      <!-- Kartu "Pengembang" dihapus atas permintaan pengguna:
+             nama pemilik tidak dipajang di Pengaturan. -->
+      
     </section>
   </div>
   </div>

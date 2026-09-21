@@ -1,163 +1,28 @@
-# MindStudio.ai — acuan desain (DIUKUR dari situs hidup)
+# Acuan desain AstroZ: ChatGPT "graphite ink on paper"
 
-Sumber: https://www.mindstudio.ai/ — diukur 20 Sep 2026 lewat computed style di
-browser sungguhan (Chrome/CDP), bukan perkiraan dari melihat gambar.
+Arah MindStudio DIGANTI 21 Sep 2026. Acuan aktif sekarang: spesifikasi ChatGPT
+yang diukur pihak lain dan diberikan sebagai berkas (4 berkas di
+`design-systems/chatgpt/` — DESIGN.md, tokens.json, theme.css, variables.css;
+salinan asli di /mnt/sdcard/Download/GPT/).
 
-Cara mengukur ulang kalau perlu: buka situsnya, lalu baca
-`getComputedStyle(document.documentElement)` untuk variabel `--color-*`, dan
-`getComputedStyle` pada `header`, `h1`, `a.bg-brand-500`, dan `footer`.
+Baca `design-systems/chatgpt/DESIGN.md` untuk aturan lengkapnya. Ringkasan
+yang paling menentukan (semuanya sudah dipatuhi `web/app.css`):
 
-## 1. Warna
+- Akromatik total: sidebar #f9f9f9, kanvas #ffffff, tinta grafit #0d0d0d.
+  Tidak ada warna kedua. Makna dibawa bobot (600/500/400), tonal, dan garis.
+- Huruf SISTEM (-apple-system/system-ui/Segoe UI/Roboto). Nol webfont —
+  fonts.css tidak lagi dimuat oleh index.html.
+- Radius: 10px (tombol/kartu/isian/nav), 16px (gelembung/links), pil hanya
+  untuk chip. Tidak ada teks >24px; 24px/600 adalah tier display tunggal.
+- Elevasi: garis rambut 1px rgba(0,0,0,0.10), BUKAN drop shadow. Flat.
+- Hover: selubung #0000000d, bukan perubahan warna. Scrim: #00000080.
+- Spasi: elemen 6px, bagian 24px, kartu 16px. Kepala TIDAK blur.
 
-### Netral (tulang punggung seluruh tampilan)
-| Token | Nilai | Dipakai untuk |
-|---|---|---|
-| neutral-50 | `#fafafa` | latar halaman |
-| neutral-100 | `#f0f0f0` | permukaan lembut, isian |
-| neutral-200 | `#e0e0e0` | SEMUA garis |
-| neutral-300 | `#c3c3c3` | garis tombol sekunder |
-| neutral-400 | `#a0a0a0` | teks nonaktif |
-| neutral-500 | `#787878` | teks meta |
-| neutral-600 | `#585858` | teks nav, teks lembut |
-| neutral-700 | `#404040` | teks kuat sekunder |
-| neutral-800 | `#282828` | garis di latar gelap |
-| neutral-900 | `#1a1a1a` | permukaan gelap |
-| neutral-950 | `#060606` | teks utama, latar gelap penuh |
+Dua nilai yang disesuaikan dari spesifikasi demi kontras (pola yang sama
+dengan putaran MindStudio: ukur, ganti yang gagal, tulis alasannya):
 
-### Biru brand (satu-satunya aksen)
-| Token | Nilai | Catatan |
-|---|---|---|
-| brand-50 | `#e6f0ff` | latar pilihan lembut |
-| brand-100 | `#b3d4ff` | |
-| brand-300 | `#4d9cff` | |
-| brand-400 | `#1a80ff` | |
-| brand-500 | `#0069ff` | tombol utama, aksen, fokus |
-| brand-600 | `#0055cc` | hover tombol utama |
-| brand-700 | `#004099` | |
-| brand-900 | `#001a40` | |
+- `--tinta-meta` terang: #8f8f8f (Hollow, 3.5:1) -> #6b6b6b (5.06 di #f9f9f9)
+- `--tinta-meta` gelap: #8f8f8f (4.6) -> #ababab (4.95 di permukaan #2f2f2f)
 
-### Hijau aksen (dipakai hemat, untuk "berhasil"/"hidup")
-`accent-50 #e9f9f2` · `accent-400 #43d598` · `accent-600 #24a270` · `accent-700 #1b7a54`
-
-### Latar gelap
-Bagian gelap memakai `#0a0a0a` (hero berkabut) dan `#060606` (footer/section),
-teks putih.
-
-## 2. Huruf
-
-- Teks & judul: **Inter** (`--font-sans`, `--font-display`). Diukur: `h1`
-  memakai Inter, bukan font judul terpisah.
-- Kode/angka: **JetBrains Mono** (`--font-mono`).
-- Ada `--font-franie` (Franie) untuk display, tetapi `h1` di halaman ini tetap
-  Inter. Franie proprietary, tidak perlu dikejar.
-- Bobot: 400 teks, 500 tombol, 600 judul. Tidak ada 700+ di antarmuka.
-
-### Skala (diukur dari elemen nyata)
-| Peran | Ukuran | Line-height | Letter-spacing | Bobot |
-|---|---|---|---|---|
-| display-lg (h1 besar) | 72px | 1.05 | -0.03em | 600 |
-| display (h1) | 60px | 1.08 | -0.025em | 600 |
-| display-sm | 48px | 1.1 | -0.02em | 600 |
-| heading-lg (h2) | 36px | 1.15 | -0.015em | 600 |
-| heading (h2 kecil) | 30px | 1.2 | -0.01em | 600 |
-| heading-sm (h3) | 24px | 1.25 | -0.01em | 600 |
-| body-lg | 18px | 1.6 | normal | 400 |
-| body | 16px | 1.6 | normal | 400 |
-| body-sm | 14px | 1.5 | normal | 400 |
-| caption | 12px | 1.5 | normal | 400 |
-
-## 3. Bentuk
-
-| Token | Nilai |
-|---|---|
-| radius-sm | 4px |
-| radius-md | 6px |
-| radius-lg | 8px |
-| radius-xl | **12px** (tombol, kartu, isian) |
-| radius-card | 12px |
-| shadow-sm | `0 1px 3px 0 #0000001a, 0 1px 2px -1px #0000001a` |
-| shadow-lg (menu/kartu naik) | `0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a` |
-| blur (kepala menempel) | 16px (`backdrop-blur-lg`) |
-
-## 4. Jarak
-
-- Satuan dasar 4px (`--spacing: .25rem`).
-- Padding section: `96px 0` (`--spacing-section: 6rem`), versi kecil 64px.
-- Lebar isi maksimum: **1152px** (`--container-content: 72rem`).
-- Padding mendatar wadah: 24px.
-- Jarak antar kartu: 32px (`gap-8`); rapat 16px (`gap-4`).
-
-## 5. Komponen (nilai terukur)
-
-### Kepala (header)
-```
-position: sticky; top: 0; z-index: 50
-background: rgba(250,250,250,.8) + backdrop-filter: blur(16px)
-border-bottom: 1px solid #e0e0e0
-tinggi: 54px
-wadah: max-width 1152px, padding 10px 24px, flex, space-between
-```
-- Tautan nav: 14px / 400 / `#585858`, hover -> `#060606`, transisi warna.
-- Logo: SVG lockup, tinggi 17px.
-
-### Tombol utama
-```
-background #0069ff; color #fff; radius 12px; font 14px/500 (nav) atau 16px/500
-padding 6px 14px (nav), 12px 24px (hero); hover background #0055cc
-transition 200ms cubic-bezier(.4,0,.2,1)
-```
-### Tombol sekunder
-```
-background #fff; color #060606; border 1px solid #c3c3c3; radius 12px
-font 16px/500; padding 12px 24px
-```
-### Kartu
-```
-background #fff; border 1px solid #e0e0e0; radius 12px
-shadow-lg (kartu mengambang/menu)
-```
-### Menu turun
-```
-w-56 (224px); bg #fff; border 1px solid #e0e0e0; radius 12px
-padding 4px 0; item 8px 16px; shadow-lg
-```
-### Footer
-```
-background #060606; color #fafafa; border-top 1px solid #282828
-```
-### Kisi
-`grid-cols-4 gap-8` di desktop (4 x 252px + 32px), 1 kolom di HP.
-
-## 6. Gerak
-
-- Durasi bawaan 150ms; tombol 200ms.
-- Kurva: `cubic-bezier(.4,0,.2,1)` (ease-out standar).
-- Tidak ada animasi hias. Hanya transisi warna/latar dan `pulse` 2s untuk
-  penanda "sedang jalan".
-
-## 7. Yang HARUS sama saat diadaptasi ke AstroZ
-
-1. Latar `#fafafa`, permukaan `#ffffff`, SEMUA garis `#e0e0e0`.
-2. Satu aksen saja: biru `#0069ff`. Tidak ada terracotta, tidak ada warna kedua.
-3. Inter untuk semua teks, TERMASUK judul (bukan serif). Judul 600, rapat
-   (`-0.01em` sampai `-0.03em`).
-4. Radius 12px untuk tombol/kartu/isian.
-5. Kepala menempel dengan blur + garis bawah 1px.
-6. Kedalaman lewat GARIS + bayangan tipis, bukan bayangan tebal.
-7. Teks utama `#060606`, teks lembut `#585858`, meta `#787878`.
-
-## 8. Padanan tema gelap (dari skala netral MindStudio sendiri)
-
-MindStudio memakai bagian gelap `#060606` / `#0a0a0a`. Tema gelap AstroZ dibangun
-dari skala yang sama supaya tetap satu keluarga:
-
-| Peran | Terang | Gelap |
-|---|---|---|
-| latar | `#fafafa` | `#060606` |
-| permukaan | `#ffffff` | `#1a1a1a` |
-| permukaan lembut | `#f0f0f0` | `#282828` |
-| garis | `#e0e0e0` | `#404040` |
-| teks | `#060606` | `#fafafa` |
-| teks lembut | `#585858` | `#a0a0a0` |
-| meta | `#787878` | `#787878` |
-| aksen | `#0069ff` | `#4d9cff` |
+Hasil audit kontras seluruh elemen berteks di browser (CDP), 412px, semua
+bagian menu: 0 gagal di tema terang dan gelap (ambang WCAG 4.5, teks besar 3.0).

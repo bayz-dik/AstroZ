@@ -353,7 +353,7 @@ function pakaiTema(nama) {
     b.setAttribute("aria-pressed", String(b.dataset.pilihTema === nama));
   }
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", nama === "gelap" ? "#262624" : "#FAF9F5");
+  if (meta) meta.setAttribute("content", nama === "gelap" ? "#212121" : "#f9f9f9");
 }
 try {
   const simpan = localStorage.getItem("astroz-tema");
@@ -468,7 +468,7 @@ el("buka-alat").addEventListener("click", () => { bukaMenu(); });
 // menu garis tiga (DAFTAR_MENU). Elemen tidak ada -> hanya lewati.
 if (el("buka-sesi")) el("buka-sesi").addEventListener("click", () => bukaMenu("obrolan"));
 el("tombol-plus").addEventListener("click", () => bukaLembar("lembar-plus"));
-el("pil-model").addEventListener("click", () => { bukaLembar("lembar-model"); muatModelLembar(); });
+el("pil-model").addEventListener("click", () => { bukaHalaman("model-penuh"); });
 el("aksi-gambar").addEventListener("click", () => el("berkas-gambar").click());
 el("aksi-berkas").addEventListener("click", () => el("berkas-apa").click());
 
@@ -476,6 +476,7 @@ el("aksi-berkas").addEventListener("click", () => el("berkas-apa").click());
    dan tombol di lembar "+" (layar sempit). Keduanya menulis ke select yang
    sama, jadi tidak ada dua nilai yang bisa berbeda. */
 function gambarPilihUkuran() {
+  if (!el("ukuran")) return;  // select dihapus dari markup; sumber kebenaran = lembar "+"
   const nilai = el("ukuran").value;
   for (const b of document.querySelectorAll("[data-ukuran-tugas]")) {
     b.setAttribute("aria-pressed", String(b.dataset.ukuranTugas === nilai));
@@ -487,7 +488,6 @@ for (const b of document.querySelectorAll("[data-ukuran-tugas]")) {
     gambarPilihUkuran();
   });
 }
-el("ukuran").addEventListener("change", gambarPilihUkuran);
 gambarPilihUkuran();
 el("buka-pasang-plugin").addEventListener("click", () => bukaLembar("lembar-plugin"));
 
@@ -520,12 +520,12 @@ for (const b of document.querySelectorAll("[data-aksi]")) {
    dengan tiga tab di dalamnya, supaya daftar menu pendek dan pengguna tidak
    perlu menebak bedanya. */
 const DAFTAR_MENU = [
-  { alat: "obrolan", judul: "Riwayat percakapan", ikon: "riwayat" },
   { alat: "pekerja", judul: "Pekerja", ikon: "pekerja" },
   { alat: "berkas", judul: "Berkas dan tes", ikon: "berkas" },
   { alat: "catatan", judul: "Catatan kejadian", ikon: "catatan" },
   { alat: "model", judul: "Model", ikon: "model" },
   { alat: "pengaturan", judul: "Pengaturan", ikon: "gerigi" },
+  { alat: "obrolan", judul: "Riwayat percakapan", ikon: "riwayat" },
 ];
 const HALAMAN = {
   obrolan: "alat-obrolan",
@@ -589,6 +589,10 @@ function bukaMenu(nama) {
 let halamanSekarang = "";
 
 function bukaHalaman(nama) {
+  // "model-penuh": pil model di kepala selalu membuka HALAMAN model, sekalipun
+  // layar lebar biasanya menampilkan panel kanan (permintaan pengguna).
+  const paksa = nama === "model-penuh";
+  if (paksa) nama = "model";
   const id = HALAMAN[nama];
   if (!id) return;
   // Halaman lain sedang terbuka: kembalikan panelnya dulu, jangan sampai
@@ -596,7 +600,7 @@ function bukaHalaman(nama) {
   if (!el("halaman").hidden) tutupHalaman();
   // Berkas, catatan, dan model sudah terlihat di kolom kanan pada layar lebar.
   // Membuka halaman untuknya justru menyembunyikan panel yang sedang tampil.
-  if (["berkas", "catatan", "model"].includes(nama) && layar.aktivitas.matches) {
+  if (!paksa && ["berkas", "catatan", "model"].includes(nama) && layar.aktivitas.matches) {
     pindahTab(nama);
     tutupSemuaLembar();
     const panel = el("aktivitas");
@@ -615,6 +619,9 @@ function bukaHalaman(nama) {
   el("halaman").hidden = false;
   el("halaman").setAttribute("aria-hidden", "false");
   halamanSekarang = nama;
+  // Halaman model dari pil tengah = versi SIMPLE: sembunyikan tombol-tombol
+  // kelola (sinkron, uji, daftar provider) supaya halamannya cuma cari + daftar.
+  el("halaman").classList.toggle("halaman-simple", paksa);
   pasangIkon(el("halaman"));
   if (nama === "pengaturan") muatStorage().catch(() => {});
   if (nama === "pekerja") {
@@ -643,6 +650,7 @@ function tutupHalaman() {
   el("halaman").hidden = true;
   el("halaman").setAttribute("aria-hidden", "true");
   halamanSekarang = "";
+  el("halaman").classList.remove("halaman-simple");
   // Panel aktivitas dikembalikan ke tempatnya oleh susun(): di >=1280px ia
   // kolom kanan, di bawah itu ia di dalam lembar menu.
   susun();
@@ -762,15 +770,20 @@ function gambarPesan(p) {
       const chipJalan = chipSumber(p.sumberSementara, "sumber-jalan");
       if (chipJalan) aksi.appendChild(chipJalan);
     }
-    if (p.status) {
+    if (p.status && p.status !== "selesai") {
+      // "selesai" dan jam DISEMBUNYIKAN atas permintaan pengguna: percakapan
+      // yang sudah tamat tidak butuh tanda tamatnya. Keadaan lain (jalan,
+      // gagal, dihentikan) tetap tampil karena butuh tindak lanjut.
       const cap = buat("span", "cap " + p.status,
-        p.status === "jalan" ? "sedang jalan" : p.status === "gagal" ? "gagal" : p.status === "batal" ? "dihentikan" : p.status === "selesai" ? "selesai" : "jawaban");
+        p.status === "jalan" ? "sedang jalan" : p.status === "gagal" ? "gagal" : p.status === "batal" ? "dihentikan" : "jawaban");
       aksi.appendChild(cap);
     }
-    if (p.pekerja) aksi.appendChild(buat("span", "waktu", p.pekerja));
-    if (p.tes === true) aksi.appendChild(buat("span", "waktu", "tes lulus"));
-    if (p.tes === false) aksi.appendChild(buat("span", "waktu", "tes gagal"));
-    if (p.ts) aksi.appendChild(buat("span", "waktu", waktu(p.ts)));
+    if (p.status === "jalan") {
+      if (p.pekerja) aksi.appendChild(buat("span", "waktu", p.pekerja));
+    } else {
+      if (p.tes === true) aksi.appendChild(buat("span", "waktu", "tes lulus"));
+      if (p.tes === false) aksi.appendChild(buat("span", "waktu", "tes gagal"));
+    }
 
     /* Baris aksi jawaban: hentikan (hanya saat berjalan), salin, tanya ulang,
        sumber. Suka, tidak suka, dan bacakan dihapus: ketiganya fitur umpan balik
@@ -794,8 +807,6 @@ function gambarPesan(p) {
     aksi.appendChild(aksiKiri);
     const chip = chipSumber(p.sumber);
     if (chip) aksi.appendChild(chip);
-  } else if (p.ts) {
-    aksi.appendChild(buat("span", "waktu", waktu(p.ts)));
   }
   badan.appendChild(aksi);
   return baris;
@@ -1428,11 +1439,16 @@ el("form-tulis").addEventListener("submit", async (ev) => {
   el("lampiran").replaceChildren();
 
   try {
+    const pilihUkuran = document.querySelector("[data-ukuran-tugas].aktif") ||
+      document.querySelector("[data-ukuran-tugas][aria-pressed=\"true\"]");
     const d = await kirim("/api/chat", {
       text: penuh,
       session: keadaan.sesi,
       baru: !keadaan.sesi,
-      workflow: el("ukuran").value,
+      /* Select #ukuran dihapus dari markup; ukuran tugas kini hanya dari
+         tombol di lembar "+". Baca dari aria-pressed, bukan elemen yang
+         sudah tidak ada (dulu: el("ukuran").value melempar null setiap kirim). */
+      workflow: pilihUkuran ? pilihUkuran.dataset.ukuranTugas : "auto",
     });
     keadaan.sesi = d.session;
     keadaan.judul = d.title || keadaan.judul;
@@ -1857,24 +1873,28 @@ function tandaCap(ada, teks) {
 }
 
 function barisModel(m, saatKlik) {
-  const baris = buat("div", "baris-data");
-  const atas = buat("div", "atas");
-  atas.appendChild(buat("span", "nama", m.id));
-  if (m.id === keadaan.modelSekarang) atas.appendChild(buat("span", "tanda-cap ada", "dipakai"));
-  baris.appendChild(atas);
-  const deret = buat("div", "baris-aksi-pesan");
-  deret.appendChild(tandaCap(!!(m.caps || {}).vision, "gambar"));
-  deret.appendChild(tandaCap(!!(m.caps || {}).search, "cari"));
-  const sehat = (m.health || {}).ok;
-  deret.appendChild(buat("span", "waktu", sehat === true ? "sudah diuji hidup" : sehat === false ? "tidak menjawab" : "belum diuji"));
-  if (m.provider) deret.appendChild(buat("span", "waktu", m.provider));
-  baris.appendChild(deret);
-  const b = buat("button", "tombol kecil garis", m.id === keadaan.modelSekarang ? "sedang dipakai" : "pakai model ini");
+  /* Versi SIMPLE (permintaan pengguna): SATU tombol per model, seluruh baris
+     diketuk untuk memakai. Keterangan dipangkas jadi satu baris kecil. */
+  const dipakai = m.id === keadaan.modelSekarang;
+  const b = buat("button", "baris-model" + (dipakai ? " aktif" : ""));
   b.type = "button";
-  b.disabled = m.id === keadaan.modelSekarang;
+  const kiri = buat("span", "baris-model-kiri");
+  kiri.appendChild(buat("span", "baris-model-nama", m.id));
+  const ket = [];
+  const sehat = (m.health || {}).ok;
+  if (m.provider) ket.push(m.provider);
+  if ((m.caps || {}).vision) ket.push("gambar");
+  if ((m.caps || {}).search) ket.push("cari");
+  if (sehat === false) ket.push("tidak menjawab");
+  if (ket.length) kiri.appendChild(buat("span", "baris-model-ket", ket.join(" · ")));
+  b.appendChild(kiri);
+  if (dipakai) {
+    const kanan = buat("span", "baris-model-cek", "✓");
+    kanan.setAttribute("aria-hidden", "true");
+    b.appendChild(kanan);
+  }
   b.addEventListener("click", () => saatKlik(m.id));
-  baris.appendChild(b);
-  return baris;
+  return b;
 }
 
 async function pakaiModel(id) {

@@ -1,71 +1,87 @@
-/* AstroZ. Arah: KROMATIK-NIHAL aka "graphite ink on paper" (dari mockup
-   "chatgpt redesign total.html", ChatGPT, 20 Sep 2026).
-   Nilai token lama (era MindStudio) ada di git history.
+/* AstroZ. Arah: ChatGPT "graphite ink on paper" — spesifikasi lengkap di
+   /mnt/sdcard/Download/GPT/DESIGN.md (salinan: design-systems/chatgpt/).
+   Diterapkan TOTAL 21 Sep 2026, menggantikan arah MindStudio.
 
-   Tiga hal yang membentuk arah ini, dan ketiganya harus dipertahankan:
-   - TANPA WARNA SAMA SEKALI: kertas #f9f9f9, permukaan #ffffff, tinta #0d0d0d.
-     Semua makna dibawa bobot huruf, perbedaan tonal, dan garis rambut.
-   - Satu tinta grafit #0d0d0d menggantikan aksen; tombol utama = pil gelap.
-   - Inter untuk semua teks termasuk judul (bukan serif), bobot 600, rapat
-
-   Angka kontras di bawah dihitung dengan rumus WCAG. Yang tidak lolos 4.5:1
-   diganti dengan nilai sekeluarga yang lolos: meta terang #6b6b6b (bukan
-   #787878 yang hanya 4.23). */
+   Aturan acuan yang paling menentukan, semuanya kini dipatuhi:
+   - AKROMATIK penuh: sidebar #f9f9f9, kanvas percakapan #ffffff, tinta
+     grafit #0d0d0d. Tidak ada warna kedua; makna dibawa bobot + garis.
+   - HURUF SISTEM, bukan webfont: -apple-system/system-ui/Segoe UI/Roboto.
+     Nol muatan huruf. fonts.css masih diload tapi tak lagi direferensikan.
+   - Radius 10px untuk tombol/kartu/isian/nav; pil hanya untuk chip/pil
+     kirim; gelembung percakapan 16px (--radius-links).
+   - Elevasi = garis rambut 1px #0000001a, BUKAN drop shadow. Sistem flat.
+   - Hover = selubung #0000000d, bukan perubahan warna.
+   - Spasi: elemen 6px, bagian 24px, kartu 16px. */
 
 :root {
-  /* permukaan */
-  --kertas: #F9F9F9;   /* kertas mockup: sedikit lebih hangat dari murni */
-  --permukaan: #FFFFFF;
-  --permukaan-hangat: #F0F0F0;
-  --permukaan-masuk: #F0F0F0;   /* kotak isian, sedikit beda dari latar */
+  /* permukaan. Nilai dari DESIGN.md "Surfaces": sidebar #f9f9f9,
+     kanvas percakapan #ffffff, panel terangkat #ffffff. */
+  --kertas: #f9f9f9;          /* Sidebar Mist — chrome mengalah */
+  --permukaan: #ffffff;       /* Conversation/Elevated canvas */
+  --permukaan-hangat: #f0f0f0; /* dipakai jejak hover lama; kini netral muda */
+  --permukaan-masuk: #ffffff; /* kotak isian: putih, garis hairline */
 
-  /* teks */
-  --tinta: #060606;         /* 19.41 di kertas */
-  --tinta-2: #404040;       /* 9.93 */
-  --tinta-lembut: #585858;  /* 6.82 */
-  --tinta-meta: #6B6B6B;    /* 5.11 di kertas, 4.68 di permukaan lembut */
+  /* teks. Graphite Ink #0d0d0d untuk teks utama (bukan #000 murni:
+     #000 hanya tekan/tooltip/scrim). Skala sekunder dari DESIGN.md. */
+  --tinta: #0d0d0d;           /* Graphite Ink, 18.5:1 di putih */
+  --tinta-2: #5d5d5d;         /* Mid Ash — teks sekunder, 6.6:1 */
+  --tinta-lembut: #5d5d5d;    /* digabung ke Mid Ash */
+  --tinta-meta: #6b6b6b;      /* Hollow dinaikkan dari #8f8f8f (3.5:1) supaya lolos 4.5:1; keluarga warna sama */
 
-  /* garis */
-  --garis: #E0E0E0;
-  --garis-kuat: #C3C3C3;
+  /* garis. Hairline 1px rgba(0,0,0,0.10) adalah SATU-SATUNYA pemisah
+     struktural. --garis-kuat #e6e6e6 = Edge Gray, dipakai hemat. */
+  --garis: rgba(0, 0, 0, 0.10);   /* Hairline #0000001a */
+  --garis-kuat: #e6e6e6;          /* Edge Gray */
 
-  /* AKROMATIK (redesign "graphite ink", dari mockup chatgpt-redesign-total):
-     TIDAK ada warna sama sekali. --aksen dipertahankan namanya supaya ratusan
-     rule tidak perlu diubah, tapi isinya kini tinta grafit #0D0D0D.
-     Keadaan memakai bobot dan garis, bukan warna: selesai = tinta penuh,
-     jalan/galat = outline abu yang kontrasnya lolos. */
-  --aksen: #0D0D0D;
-  --aksen-teks: #0D0D0D;
-  --aksen-isi: #0D0D0D;
-  --aksen-atas: #FFFFFF;
-  --selesai: #0D0D0D;
-  --jalan: #404040;       /* 9.93 di kertas */
-  --galat: #404040;
-  --fokus: #585858;       /* cincin fokus abu, bukan biru */
+  /* AKROMATIK: tidak ada aksen warna. --aksen dipertahankan namanya supaya
+     ratusan rule tidak perlu diubah; isinya tinta grafit. Keadaan memakai
+     bobot dan garis, bukan warna. */
+  --aksen: #0d0d0d;
+  --aksen-teks: #0d0d0d;
+  --aksen-isi: #0d0d0d;
+  --aksen-atas: #ffffff;
+  --selesai: #0d0d0d;
+  --jalan: #5d5d5d;
+  --galat: #0d0d0d;
+  --fokus: #0d0d0d;
 
-  /* bentuk. MindStudio memakai 12px untuk tombol, kartu, dan isian. */
-  --radius-1: 8px;
-  --radius-2: 12px;
-  --radius-3: 12px;
+  /* bentuk. Radius dari DESIGN.md: nav/kartu/tombol 10px, links 16px,
+     badges 0px. Pil dipertahankan untuk chip model/kirim yang memang pil. */
+  --radius-1: 10px;
+  --radius-2: 10px;
+  --radius-3: 10px;
   --radius-4: 16px;
   --radius-pil: 9999px;
-  --cincin: 0 0 0 1px var(--garis);
-  --cincin-kuat: 0 0 0 1px var(--garis-kuat);
-  --naik: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
-  --naik-tipis: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
-  --sorot: rgba(0, 105, 255, 0.08);
+  --cincin: 0 0 0 1px rgba(0, 0, 0, 0.10);
+  --cincin-kuat: 0 0 0 1px rgba(0, 0, 0, 0.16);
+  /* Elevasi flat: bayangan diganti garis rambut. Variabel --naik dipertahankan
+     supaya rule tak perlu diubah, tapi isinya kini ring 1px, bukan shadow. */
+  --naik: 0 0 0 1px rgba(0, 0, 0, 0.10);
+  --naik-tipis: 0 0 0 1px rgba(0, 0, 0, 0.10);
+  /* Hover: selubung 5% hitam, dipakai semua hover (alih-alih color-mix). */
+  --sorot: rgba(0, 0, 0, 0.05);           /* Hover Veil #0000000d */
+  --scrim: rgba(0, 0, 0, 0.50);           /* Deep Charcoal #00000080 */
 
-  /* huruf. Inter untuk SEMUA teks, termasuk judul: itu yang membuat tampilannya
-     sama dengan MindStudio, yang tidak memakai serif sama sekali. */
-  --font-judul: Inter, "Helvetica Neue", Arial, system-ui, sans-serif;
-  --font-teks: Inter, "Helvetica Neue", Arial, system-ui, sans-serif;
-  --font-mesin: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  /* huruf. SISTEM, bukan webfont: itulah identitas tipografi ChatGPT.
+     Nol muatan, rendering native, otomatis adaptif di tiap OS. */
+  --font-judul: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-teks: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-mesin: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-  /* susunan */
+  /* KACA (glassmorphism, permintaan pengguna 21 Sep 2026): kepala, kotak
+     ketik, menu, gelembung, dan menu titik-titik memakai latar tembus dengan
+     blur di belakangnya. Nilai blur 20px + saturasi mengikuti praktik umum
+     "frosted glass" iOS/macOS. */
+  --kaca: rgba(255, 255, 255, 0.62);
+  --kaca-tebal: rgba(255, 255, 255, 0.78);
+  --kaca-border: rgba(255, 255, 255, 0.55);
+  --blur: saturate(180%) blur(20px);
+
+  /* spasi dari DESIGN.md: element gap 6px, section gap 24px, kartu 16px. */
   --lebar-alat: 292px;
   --lebar-aktivitas: 368px;
   --lebar-baca: 720px;
-  --lebar-isi: 1152px;   /* lebar isi maksimum MindStudio */
+  --lebar-isi: 1152px;
   --tinggi-target: 44px;
   --gerak-cepat: 150ms;
   --luncur: cubic-bezier(0.4, 0, 0.2, 1);
@@ -73,34 +89,41 @@
   color-scheme: light;
 }
 
-/* Tema gelap dibangun dari skala netral MindStudio yang sama (#060606 / #1a1a1a
-   / #282828 / #404040), jadi tetap satu keluarga dengan tema terang. */
+/* Tema gelap: satu keluarga grafit. Chrome #212121 (sidebar ChatGPT gelap),
+   kanvas #212121/#171717, tinta #ececec. Garis rgba putih 10%. */
 [data-tema="gelap"] {
-  --kertas: #060606;
-  --permukaan: #1A1A1A;
-  --permukaan-hangat: #282828;
-  --permukaan-masuk: #282828;
+  --kertas: #212121;
+  --permukaan: #2f2f2f;
+  --permukaan-hangat: #3a3a3a;
+  --permukaan-masuk: #2f2f2f;
 
-  --tinta: #FAFAFA;         /* 19.41 di kertas */
-  --tinta-2: #D0D0D0;       /* 13.0 */
-  --tinta-lembut: #A0A0A0;  /* 7.75 di kertas, 6.66 di permukaan */
-  --tinta-meta: #909090;    /* 6.35 di kertas, 5.45 di permukaan */
+  --tinta: #ececec;         /* 15.4 di #212121 */
+  --tinta-2: #b4b4b4;       /* 8.7 */
+  --tinta-lembut: #b4b4b4;
+  --tinta-meta: #ababab;    /* Hollow tema gelap: 4.6:1 di #212121 */
 
-  --garis: #404040;
-  --garis-kuat: #6B6B6B;
+  --garis: rgba(255, 255, 255, 0.10);
+  --garis-kuat: rgba(255, 255, 255, 0.18);
 
-  --aksen: #FAFAFA;         /* tinta terang di tema gelap */
-  --aksen-teks: #D0D0D0;
-  --aksen-isi: #FAFAFA;
-  --aksen-atas: #0D0D0D;    /* teks gelap di atas pil terang */
-  --selesai: #FAFAFA;
-  --jalan: #D0D0D0;
-  --galat: #D0D0D0;
-  --fokus: #A0A0A0;
+  --aksen: #ececec;
+  --aksen-teks: #ececec;
+  --aksen-isi: #ececec;
+  --aksen-atas: #0d0d0d;
+  --selesai: #ececec;
+  --jalan: #b4b4b4;
+  --galat: #ececec;
+  --fokus: #ececec;
 
-  --naik: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.5);
-  --naik-tipis: 0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 1px 2px -1px rgba(0, 0, 0, 0.4);
-  --sorot: rgba(77, 156, 255, 0.14);
+  --cincin: 0 0 0 1px rgba(255, 255, 255, 0.10);
+  --cincin-kuat: 0 0 0 1px rgba(255, 255, 255, 0.18);
+  --naik: 0 0 0 1px rgba(255, 255, 255, 0.10);
+  --naik-tipis: 0 0 0 1px rgba(255, 255, 255, 0.10);
+  --sorot: rgba(255, 255, 255, 0.06);
+  --scrim: rgba(0, 0, 0, 0.60);
+
+  --kaca: rgba(33, 33, 33, 0.60);
+  --kaca-tebal: rgba(33, 33, 33, 0.78);
+  --kaca-border: rgba(255, 255, 255, 0.10);
 
   color-scheme: dark;
 }
@@ -120,10 +143,9 @@ html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; 
 body {
   background: var(--kertas);
   color: var(--tinta);
-  /* 16px di semua layar, seperti body MindStudio. Ukuran kecil khusus
-     ditangani per komponen (meta 12px, catatan 13px), bukan dengan
-     mengecilkan seluruh halaman. */
-  font: 400 16px/1.6 var(--font-teks);
+  /* 15px dasar: gelembung chat memakai ukuran ini langsung (permintaan
+     pengguna: jangan terlalu besar). Komponen lain menyesuaikan sendiri. */
+  font: 400 15px/1.55 var(--font-teks);
   -webkit-text-size-adjust: 100%;
   overscroll-behavior-y: none;
   scrollbar-color: var(--garis-kuat) transparent;
@@ -142,13 +164,13 @@ button:focus:not(:focus-visible), [role="tab"]:focus:not(:focus-visible) { outli
 /* Bobot judul 600 dan rapat, seperti MindStudio (--text-heading-*: 600, dan
    letter-spacing negatif kecil). Sebelumnya 500 dengan Fraunces. */
 h1, h2, h3 {
-  margin: 0; font-family: var(--font-judul); font-weight: 600; line-height: 1.2;
-  letter-spacing: -0.015em;
+  margin: 0; font-family: var(--font-judul); font-weight: 600; line-height: 1.33;
+  /* Acuan ChatGPT: tracking normal (0px) di semua tingkat. */
+  letter-spacing: 0;
 }
-/* Judul ikut menyesuaikan layar, sama seperti teks isi. */
-h1 { font-size: clamp(20px, 1.1vw + 17px, 26px); letter-spacing: -0.02em; }
-h2 { font-size: 17px; letter-spacing: -0.01em; }
-h3 { font-size: clamp(14px, 0.3vw + 13px, 15.5px); letter-spacing: -0.01em; }
+h1 { font-size: clamp(20px, 1.1vw + 17px, 24px); }
+h2 { font-size: 17px; }
+h3 { font-size: clamp(14px, 0.3vw + 13px, 15px); }
 
 p { margin: 0 0 10px; max-width: 68ch; }
 button, input, select, textarea { font: inherit; color: inherit; }
@@ -226,14 +248,16 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
   /* Kiri lebih rapat supaya lambang menu menempel ke tepi, kanan lebih lega
      supaya deret lambang kanan tidak mepet ke tepi layar. */
   padding: 8px 16px 8px 4px; min-height: 52px;
+  /* Jangan pernah lebih lebar dari layarnya: di 320px anak-anak bar tetap
+     memaksa 343px kalau flex item boleh membengkak. min-width:0 + tombol
+     yang boleh menyusut menjaga bar selalu pas layar. */
+  max-width: 100vw;
   border-bottom: 1px solid var(--garis);
-  /* Kepala MENEMPEL dan tembus pandang dengan blur, seperti MindStudio:
-     `sticky top-0 border-b bg-neutral-50/80 backdrop-blur-lg`. Di aplikasi
-     percakapan efeknya lebih dari hiasan: saat isi digulir, teks lewat di
-     belakang kepala dan tetap terbaca sebagai lapisan, bukan terpotong. */
-  background: color-mix(in srgb, var(--kertas) 80%, transparent);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  /* KACA (permintaan pengguna): kepala tembus dengan blur. Mengalahkan
+     aturan "flat" acuan ChatGPT atas permintaan langsung pengguna. */
+  background: var(--kaca);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   position: sticky; top: 0; z-index: 30;
 }
 /* Bar tidak ikut menyusut di dalam kolom flex: tanpa ini, satu isi yang panjang
@@ -244,7 +268,7 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
    supaya deret lambang di kanan tidak pernah terdesak keluar layar. */
 .judul-bar {
   font-family: var(--font-judul); font-size: 17px; font-weight: 600;
-  letter-spacing: -0.015em;
+  letter-spacing: 0;
   margin-left: 4px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   max-width: 24vw;   /* pil model butuh ruang di sebelahnya */
@@ -266,6 +290,9 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
   font-size: 18px; line-height: 1;
 }
 .ikon:hover { background: var(--permukaan-hangat); }
+/* Di layar sempit bar bisa kekurangan tempat: izinkan tombol ikon di bar
+   menyusut sedikit alih-alih mendorong bar melebihi lebar layar. */
+.bar .ikon { flex-shrink: 1; min-width: 0; }
 .ikon[aria-expanded="true"] { background: var(--permukaan-hangat); }
 /* Atribut hidden harus benar-benar menyembunyikan, apa pun display yang
    diminta kelasnya. `.ikon` memakai display:inline-flex, dan itu mengalahkan
@@ -289,9 +316,18 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 
 .menu-turun {
   position: absolute; right: 10px; top: calc(100% + 4px); z-index: 50;
-  background: var(--permukaan); border-radius: var(--radius-2);
-  box-shadow: var(--cincin), var(--naik);
+  /* KACA: menu titik-titik tembus blur + animasi kemunculan. */
+  background: var(--kaca-tebal);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border-radius: var(--radius-2);
+  box-shadow: 0 0 0 1px var(--kaca-border);
   padding: 5px; min-width: 196px; max-width: min(240px, 78vw);
+  animation: muncul-menu 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes muncul-menu {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 /* Menu ini tidak boleh menutupi percakapan lebih dari yang perlu: lebar
    dibatasi, teksnya dibungkus, dan tingginya tidak pernah melebihi layar. */
@@ -323,7 +359,7 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
    dengan satu ketukan di tempat, tanpa masuk menu alat. */
 .strip-kerja {
   border-bottom: 1px solid var(--garis);
-  background: var(--permukaan-hangat);
+  background: var(--kertas);
 }
 .strip-kepala {
   display: flex; align-items: center; gap: 8px;
@@ -390,8 +426,9 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 
 /* satu pesan: judul kecil di atas, isi di bawah. Tanpa gelembung besar
    supaya tidak menumpuk secara visual. */
-.pesan { padding: 14px 0; }
-.pesan + .pesan { border-top: 1px solid var(--garis); }
+/* Pembatas antar pesan DIHAPUS (permintaan pengguna): jarak sudah cukup
+   memisahkan satu pesan dari pesan lain, garis hanya menambah kebisingan. */
+.pesan { padding: 12px 0; }
 .pesan .dari { display: none; }
 .avatar-kecil {
   width: 26px; height: 26px; border-radius: 50%; flex: none;
@@ -407,16 +444,28 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 .pesan .badan-pesan { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .pesan.aku { flex-direction: row-reverse; justify-content: flex-end; }
 .pesan.aku .isi-pesan {
-  /* Gelembung user ala mockup: putih murni di atas kertas #F9F9F9, sudut
-     16px dengan ekor kecil di kanan-atas, bayangan satu piksel halus.
-     Ditepatkan ke kanan dan dibatasi lebarnya, seperti gelembung ChatGPT. */
-  background: var(--permukaan);
-  border-radius: 16px 16px 4px 16px;
-  padding: 12px 16px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.03);
+  /* Gelembung user KACA: tembus blur (permintaan pengguna). Radius links
+     16px, ditepatkan ke kanan, dibatasi lebarnya. */
+  background: var(--kaca);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border-radius: var(--radius-4);
+  padding: 10px 14px;
+  box-shadow: 0 0 0 1px var(--kaca-border);
   white-space: pre-wrap; word-break: break-word;
   overflow-wrap: anywhere;
   align-self: flex-end; width: fit-content; max-width: 85%;
+}
+.pesan.astroz .isi-pesan {
+  /* Jawaban AstroZ ikut kaca supaya kedua pihak tampil sama (permintaan
+     pengguna). Latar lebih tipis dari gelembung pengguna: jawaban dominan
+     membaca, pengguna menandai punya sendiri. */
+  background: var(--kaca);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border-radius: var(--radius-4);
+  padding: 10px 14px;
+  box-shadow: 0 0 0 1px var(--kaca-border);
 }
 .pesan.aku .baris-aksi-pesan { justify-content: flex-end; }
 .pesan.aku .lampiran { margin-bottom: 6px; }
@@ -426,12 +475,13 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 .pesan.astroz.menunggu .isi-pesan { color: var(--tinta-meta); }
 .pesan .isi-pesan { max-width: 100%; }
 
-/* Baris aksi jawaban dipisah dari cap dan waktu: status di kiri, aksi di
-   kanan, satu baris tanpa lipatan (dicek di 320-1440px, 20 Sep 2026). */
+/* Baris aksi jawaban: aksi MENTOK KIRI, sumber PALING KANAN (permintaan
+   pengguna). Cap/waktu "selesai" sudah tidak dibuat di JS. */
 .baris-aksi-pesan {
   display: flex; flex-wrap: nowrap; gap: 6px 10px; align-items: center;
-  margin-top: 10px; min-width: 0;
+  margin-top: 8px; min-width: 0;
 }
+.baris-aksi-pesan .aksi-deret { margin-left: 0; }
 .baris-aksi-pesan .cap, .baris-aksi-pesan .waktu {
   flex: none; min-width: 0;
   /* Baris meta dengan "tes lulus" panjang sempit di HP: teks meta boleh
@@ -441,8 +491,14 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 .baris-aksi-pesan .waktu { flex-shrink: 1; }
 /* Baris aksi jawaban dipisah dari cap dan waktu: aksi di kiri, sumber di
    kanan, seperti baris bawah satu kiriman di aplikasi pesan. */
-.aksi-deret { display: flex; gap: 2px; align-items: center; margin-left: auto; flex: none; }
-.sumber-baris { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.aksi-deret { display: flex; gap: 2px; align-items: center; flex: none; }
+.sumber-baris {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  margin-left: auto; /* sumber didorong ke ujung kanan baris */
+  /* min-width:0 WAJIB: tanpa itu baris ini menolak menyusut di bawah lebar
+     isinya dan di 320px mendorong ikon aksi melewati tepi layar (terukur
+     right=343 pada layar 320). */ min-width: 0; max-width: 100%;
+}
 /* Sumber cuma lambang, berderet rapat. Tidak ada kotak pembungkus: kotak itu
    yang dulu memakan hampir satu baris di layar HP. Satu lambang satu sumber. */
 .sumber-chip { display: flex; gap: 2px; flex-wrap: wrap; align-items: center; }
@@ -467,13 +523,13 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
   position: fixed; inset: 0; z-index: 55;
   display: flex; align-items: flex-start; justify-content: center;
   padding: clamp(12px, 6vh, 72px) 12px 12px;
-  background: rgba(6, 6, 6, 0.32);
+  background: var(--scrim);
 }
 .tirai-kerja[hidden] { display: none; }
 .lembar-kerja {
   background: var(--kertas);
   border-radius: var(--radius-3);
-  box-shadow: 0 0 0 1px var(--garis-kuat), var(--naik);
+  box-shadow: var(--naik);
   width: min(560px, 100%);
   max-height: min(72vh, 620px);
   display: flex; flex-direction: column;
@@ -501,15 +557,6 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 
 /* halaman Pengaturan */
 .pilih-tema { display: flex; gap: 8px; flex-wrap: wrap; }
-.dev-deret { display: flex; gap: 12px; }
-.dev {
-  width: 52px; height: 52px; border-radius: var(--radius-2);
-  display: inline-flex; align-items: center; justify-content: center;
-  background: var(--permukaan-hangat); color: var(--tinta);
-  box-shadow: var(--cincin); text-decoration: none;
-}
-.dev:hover { background: color-mix(in oklab, var(--permukaan-hangat), var(--tinta) 8%); }
-.dev-lambang { display: inline-flex; }
 
 /* Lambang sumber: jalur ikon merek. Tanpa gambar dari situsnya, supaya
    membuka percakapan tidak mengirim permintaan ke setiap situs yang dikutip. */
@@ -525,7 +572,7 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 .menu-sumber {
   position: fixed; z-index: 60;
   background: var(--permukaan); border-radius: var(--radius-2);
-  box-shadow: 0 0 0 1px var(--garis-kuat), var(--naik);
+  box-shadow: var(--naik);
   padding: 4px; display: flex; flex-direction: column; gap: 2px;
   max-height: 60vh; overflow-y: auto;
 }
@@ -611,13 +658,13 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
 }
 [data-tema="gelap"] .kosong-hero .lambang { background-image: url("/logo-gelap.png"); }
 .kosong-hero h1 {
-  /* 26px di HP, sampai 60px di desktop: sama seperti `--text-display` dan
-     `--text-display-lg` MindStudio, dengan letter-spacing negatif yang sama. */
-  font-size: clamp(26px, 5vw + 8px, 60px);
-  letter-spacing: -0.025em;
-  line-height: 1.08;
+  /* Acuan ChatGPT: 24px/600 adalah TIER DISPLAY TUNGGAL dan tidak boleh
+     dilebarkan ("never stretched for promotional drama"). */
+  font-size: 24px;
+  line-height: 1.33;
+  letter-spacing: 0;
   font-weight: 600;
-  max-width: 18ch;
+  max-width: 22ch;
 }
 .kosong-hero .catatan {
   font-size: clamp(14px, 0.5vw + 13px, 18px);
@@ -633,26 +680,6 @@ hr { border: 0; border-top: 1px solid var(--garis); margin: 6px 0; }
    Riwayat/Setelan kembali ke menu garis tiga. Aturan .nav-bawah dibuang
    seluruhnya supaya tidak ada spesifisitas yang tertinggal. */
 
-/* deret chip di atas kotak ketik: ukuran tugas (model sudah pindah ke pil
-   tengah header). Bisa digulir mendatar kalau labelnya panjang. */
-.deret-chip {
-  display: flex; gap: 6px; align-items: center;
-  max-width: var(--lebar-baca); margin: 0 auto 6px;
-  padding: 0 2px; overflow-x: auto;
-}
-.chip {
-  display: inline-flex; align-items: center; gap: 5px;
-  background: var(--permukaan-hangat); border: 0; cursor: pointer;
-  border-radius: var(--radius-pil); padding: 0 12px; min-height: 32px;
-  font-size: 13px; color: var(--tinta-2); flex-shrink: 0;
-  max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.chip:hover { background: color-mix(in oklab, var(--permukaan-hangat), var(--tinta) 6%); }
-select.chip-select { appearance: none; -webkit-appearance: none; width: auto; }
-.catatan-kirim {
-  text-align: center; font-size: 11px; color: var(--tinta-meta);
-  margin: 6px 0 0; max-width: none;
-}
 
 /* Pil model di TENGAH header, seperti "ChatGPT 4o" di acuan: latar lembut,
    bentuk pil, panah kecil. Tepat setelah judul merek, menempel padanya. */
@@ -665,11 +692,11 @@ select.chip-select { appearance: none; -webkit-appearance: none; width: auto; }
 }
 .pil-tengah #pil-model-teks { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pil-tengah .panah-pil { font-size: 11px; color: var(--tinta-meta); flex: none; }
-.pil-tengah:hover { background: color-mix(in oklab, var(--permukaan-hangat), var(--tinta) 6%); }
+.pil-tengah:hover { background: var(--sorot); }
 
 .tulis {
   border-top: 1px solid var(--garis);
-  background: var(--kertas);
+  background: transparent;
   padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
   width: 100%; max-width: var(--lebar-baca); margin: 0 auto;
 }
@@ -680,14 +707,17 @@ select.chip-select { appearance: none; -webkit-appearance: none; width: auto; }
 .tulis .lampir[hidden] { display: none; }
 
 .kotak-isian {
-  /* Composer ala mockup: SATU pil mendatar berisi tombol +, teks, dan tombol
-     kirim bulat gelap. Dulu dua baris (teks di atas, tombol di bawah). */
+  /* Composer KACA: pil tembus blur dengan garis putih semi (permintaan
+     pengguna). Garis keliling memakai warna kaca, bukan tinta penuh. */
   border: 0; border-radius: var(--radius-pil);
-  background: var(--permukaan);
+  background: var(--kaca);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
   padding: 5px 6px 5px 8px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.04);
+  box-shadow: 0 0 0 1px var(--kaca-border);
   display: flex; flex-direction: row; align-items: flex-end; gap: 4px;
 }
+.kotak-isian:focus-within { box-shadow: var(--cincin-kuat); }
 .tulis textarea {
   width: 100%; min-height: 26px; resize: none;
   /* Tinggi maksimal mengikuti layar, bukan angka mati 200px. Di layar pendek
@@ -735,7 +765,7 @@ select.chip-select { appearance: none; -webkit-appearance: none; width: auto; }
   min-height: var(--tinggi-target); font-weight: 500;
   transition: background 200ms var(--luncur);
 }
-.tombol:hover { background: color-mix(in oklab, var(--aksen-isi), black 8%); }
+.tombol:hover { background: #2a2a2a; }  /* tinta grafit ditekan sedikit saat hover */
 .tombol:disabled { opacity: 0.45; cursor: not-allowed; }
 .tombol.garis {
   /* Tombol sekunder MindStudio: latar PUTIH + garis #c3c3c3 (diukur dari
@@ -991,7 +1021,7 @@ pre.isi-berkas {
 
 /* ------------------------------------------------------------------ lapisan */
 
-.tirai { position: fixed; inset: 0; background: rgba(6, 6, 6, 0.45); z-index: 40; display: none; }
+.tirai { position: fixed; inset: 0; background: var(--scrim); z-index: 40; display: none; }
 .tirai.tampil { display: block; }
 
 .lembar {
@@ -1002,14 +1032,37 @@ pre.isi-berkas {
   transition: transform var(--gerak-cepat) var(--luncur);
   box-shadow: var(--naik);
 }
-.lembar.tampil { transform: translateX(0); }
-.lembar.kiri { left: 0; right: auto; width: min(280px, 84vw); border-radius: 0 var(--radius-3) var(--radius-3) 0; transform: translateX(-102%); }
-.lembar.kiri.tampil { transform: translateX(0); }
+.lembar.tampil {
+  transform: translateX(0); visibility: visible;
+  animation: buka-kanan 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes buka-kanan {
+  from { opacity: 0.5; transform: translateX(12%); }
+  to   { opacity: 1;   transform: translateX(0); }
+}
+.lembar.kiri {
+  left: 0; right: auto; width: min(280px, 84vw);
+  border-radius: 0 var(--radius-3) var(--radius-3) 0;
+  transform: translateX(-102%); visibility: hidden;
+  /* KACA: menu garis tiga tembus blur (permintaan pengguna). */
+  background: var(--kaca-tebal);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+}
+.lembar.kiri.tampil {
+  transform: translateX(0); visibility: visible;
+  /* Animasi buka: geser dari kiri + memudar + sedikit membesar (ease-out). */
+  animation: buka-kiri 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes buka-kiri {
+  from { opacity: 0.4; transform: translateX(-24%) scale(0.98); }
+  to   { opacity: 1;   transform: translateX(0) scale(1); }
+}
 
 /* Kepala menu: lambang aplikasi, judul, tombol tutup. Tingginya 56px mengikuti
    contoh (kepala menu di foto 1080px setara 56px di sini), dan lambangnya
    memakai berkas yang sama dengan kepala bar supaya tidak ada dua bentuk. */
-.lembar.kiri .kepala { padding: 6px 8px 6px 12px; gap: 10px; min-height: 56px; }
+.lembar.kiri .kepala { padding: 6px 8px 6px 8px; gap: 6px; min-height: 56px; }
 /* Di halaman isi (judul berubah, tombol kembali muncul) lambangnya
    disembunyikan: dua lambang aplikasi berdampingan dengan tombol kembali
    membuat kepala terlihat sesak dan judulnya bergeser-geser antar halaman. */
@@ -1019,7 +1072,7 @@ pre.isi-berkas {
   background: url("/logo.png") center / contain no-repeat;
 }
 [data-tema="gelap"] .lembar .kepala .lambang-menu { background-image: url("/logo-gelap.png"); }
-.lembar.kiri .kepala h2 { font-size: 20px; font-weight: 600; }
+.lembar.kiri .kepala h2 { font-size: 17px; font-weight: 600; }
 .lembar.kiri .kepala .ikon { width: 40px; height: 40px; }
 
 /* Daftar menu: tinggi baris 48px seperti contoh, jarak antar baris rapat.
@@ -1087,7 +1140,7 @@ pre.isi-berkas {
 .baris-sesi .menu-sesi {
   position: absolute; right: 4px; top: calc(50% + 20px); z-index: 5;
   background: var(--permukaan); border-radius: var(--radius-2);
-  box-shadow: 0 0 0 1px var(--garis-kuat), var(--naik);
+  box-shadow: var(--naik);
   padding: 4px; min-width: 190px; display: flex; flex-direction: column; gap: 2px;
 }
 .baris-sesi .menu-sesi[hidden] { display: none; }
@@ -1099,9 +1152,22 @@ pre.isi-berkas {
 .baris-sesi .menu-sesi button:hover { background: var(--permukaan-hangat); }
 .baris-sesi .menu-sesi button.bahaya { color: var(--galat); }
 .lembar.bawah {
-  top: auto; left: 0; right: 0; width: 100%; bottom: 0; max-height: 84vh;
+  top: auto; left: 0; right: 0; width: 100%; max-width: 100vw; bottom: 0; max-height: 84vh;
   border-radius: var(--radius-3) var(--radius-3) 0 0;
   transform: translateY(102%);
+  /* Tersembunyi di luar layar TAPI tetap ikut menghitung scrollWidth halaman:
+     di 320px isinya melebar sampai right=343 dan menciptakan gulir mendatar.
+     visibility:hidden membuatnya tidak dihitung, dan .tampil mengembalikannya
+     tepat sebelum animasi masuk, jadi transisinya tidak berubah. */
+  visibility: hidden;
+}
+.lembar.bawah.tampil {
+  transform: translateY(0); visibility: visible;
+  animation: buka-bawah 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes buka-bawah {
+  from { opacity: 0.5; transform: translateY(18%); }
+  to   { opacity: 1;   transform: translateY(0); }
 }
 .lembar.bawah.tampil { transform: translateY(0); }
 .lembar .kepala {
@@ -1190,6 +1256,17 @@ pre.isi-berkas {
 
 .kosong { color: var(--tinta-meta); font-size: 14px; padding: 12px 0; max-width: 60ch; }
 
+
+/* Di bawah 360px baris aksi jawaban tidak mungkin muat satu baris: target
+   sentuh 44px untuk setiap ikon membuat cap+waktu+aksi+sumber melewati lebar
+   layar (terukur 320px: right=343). Melipat adalah kompromi yang benar di
+   sana; dari 360px ke atas barisnya tetap satu baris seperti semula. */
+@media (max-width: 359px) {
+  .baris-aksi-pesan { flex-wrap: wrap; row-gap: 6px; }
+  .baris-aksi-pesan .aksi-deret { margin-left: 0; }
+  .sumber-baris { margin-left: 0; }
+}
+
 /* ------------------------------------------------------------ layar lebar */
 
 /* 1000-1279px: satu kolom percakapan, panel kerja jadi lembar geser supaya
@@ -1237,7 +1314,7 @@ pre.isi-berkas {
   /* kotak tulis juga: teks 16px (tidak memicu zum di iOS) dan tinggi 44px */
   .tulis textarea { min-height: var(--tinggi-target); padding: 10px 10px; }
   .ikon-bulat, .kirim { width: var(--tinggi-target); height: var(--tinggi-target); }
-  .chip, .ikon-bulat, .kirim { min-height: var(--tinggi-target); }
+  .ikon-bulat, .kirim { min-height: var(--tinggi-target); }
   .bar { position: sticky; top: 0; z-index: 30; }
 }
 
@@ -1249,14 +1326,11 @@ pre.isi-berkas {
      sm:inline) supaya pil model tidak terdesak; logonya yang mewakili merek. */
   .judul-bar { display: none; }
   .pil-tengah { max-width: 44vw; font-size: 12px; padding: 0 10px; margin-left: 6px; }
-  .kosong-hero h1 { font-size: 26px; }
+  /* .kosong-hero h1 di media ini dihapus: menimpanya jadi 26px melanggar
+     aturan acuan "tidak ada teks >24px". Ukuran hero sekarang 24px di semua
+     lebar, dari aturan dasarnya. */
   .pesan.aku .isi-pesan { padding: 10px 14px; }
   .kejadian { grid-template-columns: 12px 46px 1fr; gap: 6px; }
-  .chip { max-width: 40vw; padding: 0 12px; font-size: 12px; }
-  select.chip-select { max-width: 30vw; }
-  /* di HP sempit: ukuran tugas pindah ke menu alat supaya deret chip tetap
-     muat tanpa memaksa halaman melebar */
-  select.chip-select { display: none; }
   /* Nama pekerja tidak muat di strip satu baris: yang tersisa adalah titik
      keadaan, judul, dan jam. Nama pekerja tetap ada di kotak aktivitas. */
   .strip-pekerja { display: none; }
@@ -1310,3 +1384,40 @@ pre.isi-berkas {
   color: var(--tinta); font-weight: 500; background: var(--permukaan-hangat);
 }
 .isi-tab-pekerja > .panel { padding-top: 4px; }
+
+/* ------------------------------------------------- baris model (halaman model) */
+
+/* Satu tombol penuh per model: nama di atas, keterangan kecil di bawah.
+   Yang dipakai diberi tanda ✓ di kanan dan latar sorot. Simpel, tidak ada
+   tombol "pakai model ini" per baris: seluruh baris adalah tombolnya. */
+.baris-model {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: transparent; border: 0; cursor: pointer; text-align: left;
+  padding: 10px 12px; border-radius: var(--radius-1); min-height: 48px;
+}
+.baris-model:hover { background: var(--sorot); }
+.baris-model.aktif { background: var(--sorot); }
+.baris-model-kiri { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.baris-model-nama {
+  font-size: 14px; font-weight: 500; color: var(--tinta);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.baris-model-ket {
+  font-size: 12px; color: var(--tinta-meta);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.baris-model-cek { flex: none; font-size: 15px; color: var(--tinta); }
+
+/* Halaman model: cari + daftar, tanpa tumpukan tombol kelola. */
+.halaman-model-cari { margin-top: 4px; }
+
+/* Halaman SIMPLE (model dari pil tengah): kelola disembunyikan. */
+.halaman-simple #model-sinkron,
+.halaman-simple #model-uji,
+.halaman-simple #model-pilih-lembar,
+.halaman-simple #daftar-provider,
+.halaman-simple #model-sekarang,
+.halaman-simple #panel-model > h2:first-of-type,
+.halaman-simple #panel-model h2:not(:first-of-type),
+.halaman-simple #panel-model .kartu { display: none; }
+.halaman-simple #panel-model > p.catatan:first-of-type { display: none; }
