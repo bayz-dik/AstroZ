@@ -16,23 +16,40 @@ yang paling menentukan:
 - Hover: selubung #0000000d, bukan perubahan warna. Scrim: #00000080.
 - Spasi: elemen 6px, bagian 24px, kartu 16px.
 
+## SATU PERMUKAAN, TANPA GARIS KOTAK
+
+21 Sep 2026, permintaan pengguna: hapus garis kotak, jadikan satu latar dari
+kepala sampai bawah. Yang berlaku sekarang:
+
+- Latar kaca dipasang SEKALI di `.app` (`--kaca-lebar` + `--kilau` + blur).
+  Semua bagian di dalamnya tembus: `.bar`, `.ticker`, `.strip-kerja`, `.alur`,
+  `.tulis`, `.aktivitas` — `background: transparent`, `border: 0`, `margin: 0`,
+  `box-shadow: none`.
+- **Tidak ada satu pun garis pemisah horizontal.** Diverifikasi dengan scan
+  piksel vertikal penuh di x=200: nol lompatan > 10 tingkat pada kedua tema.
+- Kotak isian juga tanpa cincin. Cincin fokus (`--cincin-kuat`) hanya muncul
+  saat `:focus-within` — di situ penanda memang dibutuhkan.
+- Blur hanya dipasang di `.app` dan di permukaan yang MENGAMBANG di atasnya
+  (menu turun, lembar geser, tirai kerja). Memasang `backdrop-filter` di
+  elemen tembus di dalam `.app` tidak menghasilkan apa pun (memblur warna yang
+  sudah diblur) dan hanya membakar GPU di HP.
+
+**Efek samping yang wajib diingat:** karena satu permukaan, titik TERGELAP
+layar dipakai bersama oleh kepala, percakapan, dan kotak tulis. Dua nilai
+harus ikut naik agar tetap lolos WCAG 4.5:
+
+- `--kaca-lebar` 0.70 (dari 0.60). Pada 0.60 titik tergelap jatuh ke lum 0.597
+  dan teks meta di sana cuma 3.59:1.
+- `--tinta-meta` #5e5e5e (dari #656565). Di lum 0.723, #656565 cuma 4.29:1.
+
+Kalau kelak salah satu dinaikkan/diturunkan, UKUR ULANG keduanya bersamaan;
+salah satu saja akan diam-diam menembus ambang.
+
 ## Penyimpangan yang disengaja dari acuan (atas permintaan pengguna)
 
-Acuan ChatGPT adalah flat, tanpa kaca dan tanpa bayangan. Dua hal ini
-diperintahkan langsung oleh pengguna, jadi keduanya dipertahankan, tetapi
-dengan batas yang diukur — bukan ditebak:
-
-1. **Kaca (glassmorphism) menyeluruh** sejak 21 Sep 2026. Setiap permukaan
-   memakai `backdrop-filter` di atas `.latar` (tiga bentuk logam buram).
-   Alpha diturunkan dari pengukuran kontras, bukan dipilih karena cantik:
-   `--kaca-lebar` 0.60 terang / 0.62 gelap adalah titik paling tembus yang
-   masih lolos WCAG 4.5 untuk teks meta.
-2. **Tepi lempeng diberi garis tinta + bayangan tipis.** Ini bukan hiasan:
-   di tema terang, kaca terang di atas kertas terang hanya berbeda beberapa
-   tingkat terang. Tanpa `--kaca-garis` (tinta 0.20) dan `--kaca-bayang`
-   (alpha 0.10), lempeng percakapan, kepala, dan kotak tulis menyatu jadi satu
-   bidang putih — keluhan pengguna "warnanya menyatu semua". Di tema gelap
-   arahnya dibalik (`--kaca-garis` putih 0.24).
+Acuan ChatGPT flat dan tanpa kaca. Kaca diperintahkan langsung pengguna, jadi
+dipertahankan, tetapi dengan batas yang diukur — bukan ditebak: `--kaca-lebar`
+adalah titik paling tembus yang masih lolos 4.5:1 untuk teks meta.
 
 ## Gelembung: hanya pesan pengguna
 
@@ -45,15 +62,17 @@ lempeng percakapan seperti teks halaman.
 
 CDP, viewport 412x900 DPR 2, piksel dibaca dari screenshot:
 
+Baris kosong (bebas teks), satu permukaan:
+
 | Wilayah | lum terang | meta terang | lum gelap | meta gelap |
 |---|---|---|---|---|
-| lempeng percakapan | 0.768..0.991 | 4.54:1 | 0.021..0.044 | 6.42:1 |
-| kotak tulis | 0.831..0.965 | 4.89:1 | 0.016..0.048 | 6.93:1 |
-| kepala | 0.947..0.973 | 5.54:1 | 0.017..0.026 | 6.84:1 |
+| kepala | 0.965..0.991 | 6.27:1 | 0.026..0.037 | 6.00:1 |
+| percakapan | 0.871..0.991 | 5.69:1 | 0.019..0.042 | 6.68:1 |
+| kotak tulis | 0.922..0.991 | 6.00:1 | 0.015..0.023 | 7.01:1 |
 
 Kontras teks jawaban vs latar lokal: 18.6:1 (terang), 10.1:1 (gelap).
-Pemisahan tepi: garis 1px turun ~60 tingkat terang (203 vs 248 di tepi kiri
-lempeng). Luberan mendatar: 0 px pada 320/360/412.
+Lompatan piksel vertikal > 10 tingkat: **0** di kedua tema (bukti tidak ada
+garis). Luberan mendatar: 0 px pada 320/360/412/768.
 
 ## Pitfall yang sudah pernah menggigit
 
